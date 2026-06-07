@@ -13,8 +13,8 @@ export interface UiSlot {
 
 /** The contract the demo provides to drive the panel. */
 export interface DressRoomApi {
-    /** Body-type options (e.g. Superhero / Regular). Omit or leave a single entry to hide the picker. */
-    bodies?: { id: string; label: string }[];
+    /** Character class options (Knight / Mage / …). Omit or leave a single entry to hide the picker. */
+    classes?: { id: string; label: string }[];
     /** Background scene options (forest, dungeon, …). Omit or leave a single entry to hide the picker. */
     scenes?: { id: string; label: string }[];
     slots: UiSlot[];
@@ -22,8 +22,8 @@ export interface DressRoomApi {
     presets: string[];
     /** When false, the Armour Tint section is omitted (e.g. image-textured assets). */
     tintable?: boolean;
-    getBody?(): string;
-    setBody?(id: string): void;
+    getClass?(): string;
+    setClass?(id: string): void;
     getScene?(): string;
     setScene?(id: string): void;
     getOption(slot: string): string;
@@ -77,30 +77,30 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
     // equipment arrows can always call it safely.
     let syncTint = (): void => {};
 
-    // ── Body type (only when more than one body is offered) ───────────
-    if (api.bodies && api.bodies.length > 1 && api.getBody && api.setBody) {
-        const bodySection = el("div", "dr-section");
-        bodySection.appendChild(el("div", "dr-heading", "Body"));
-        const bodyRow = el("div", "dr-btn-grid");
-        const bodyButtons = new Map<string, HTMLButtonElement>();
-        const syncBody = () => {
-            const active = api.getBody!();
-            for (const [id, btn] of bodyButtons) {
+    // ── Character class (only when more than one class is offered) ────
+    if (api.classes && api.classes.length > 1 && api.getClass && api.setClass) {
+        const classSection = el("div", "dr-section");
+        classSection.appendChild(el("div", "dr-heading", "Class"));
+        const classRow = el("div", "dr-btn-grid");
+        const classButtons = new Map<string, HTMLButtonElement>();
+        const syncClass = () => {
+            const active = api.getClass!();
+            for (const [id, btn] of classButtons) {
                 btn.classList.toggle("is-active", id === active);
             }
         };
-        for (const body of api.bodies) {
-            const btn = el("button", "dr-chip", body.label);
+        for (const cls of api.classes) {
+            const btn = el("button", "dr-chip", cls.label);
             btn.addEventListener("click", () => {
-                api.setBody!(body.id);
-                syncBody();
+                api.setClass!(cls.id);
+                syncClass();
             });
-            bodyButtons.set(body.id, btn);
-            bodyRow.appendChild(btn);
+            classButtons.set(cls.id, btn);
+            classRow.appendChild(btn);
         }
-        refreshers.push(syncBody);
-        bodySection.appendChild(bodyRow);
-        panel.appendChild(bodySection);
+        refreshers.push(syncClass);
+        classSection.appendChild(classRow);
+        panel.appendChild(classSection);
     }
 
     // ── Background scene (only when more than one scene is offered) ────
@@ -129,45 +129,47 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
         panel.appendChild(sceneSection);
     }
 
-    // ── Equipment slots ──────────────────────────────────────────────
-    const gearSection = el("div", "dr-section");
-    gearSection.appendChild(el("div", "dr-heading", "Equipment"));
+    // ── Equipment slots (only when the demo exposes slots) ───────────
     let tintSlotSelect: HTMLSelectElement | null = null;
-    for (const slot of api.slots) {
-        const row = el("div", "dr-row");
-        const prev = el("button", "dr-arrow", "‹");
-        const name = el("div", "dr-slot-name");
-        const next = el("button", "dr-arrow", "›");
-        const label = el("div", "dr-slot-label", slot.label);
+    if (api.slots.length > 0) {
+        const gearSection = el("div", "dr-section");
+        gearSection.appendChild(el("div", "dr-heading", "Equipment"));
+        for (const slot of api.slots) {
+            const row = el("div", "dr-row");
+            const prev = el("button", "dr-arrow", "‹");
+            const name = el("div", "dr-slot-name");
+            const next = el("button", "dr-arrow", "›");
+            const label = el("div", "dr-slot-label", slot.label);
 
-        const sync = () => {
-            const current = api.getOption(slot.id);
-            const opt = slot.options.find((o) => o.id === current);
-            name.textContent = opt ? opt.label : current;
-        };
-        refreshers.push(sync);
+            const sync = () => {
+                const current = api.getOption(slot.id);
+                const opt = slot.options.find((o) => o.id === current);
+                name.textContent = opt ? opt.label : current;
+            };
+            refreshers.push(sync);
 
-        prev.addEventListener("click", () => {
-            api.cycleOption(slot.id, -1);
+            prev.addEventListener("click", () => {
+                api.cycleOption(slot.id, -1);
+                sync();
+                syncTint();
+            });
+            next.addEventListener("click", () => {
+                api.cycleOption(slot.id, 1);
+                sync();
+                syncTint();
+            });
+
+            const swatch = el("div", "dr-swatch-col");
+            swatch.appendChild(label);
+            const picker = el("div", "dr-picker");
+            picker.append(prev, name, next);
+            swatch.appendChild(picker);
+            row.appendChild(swatch);
+            gearSection.appendChild(row);
             sync();
-            syncTint();
-        });
-        next.addEventListener("click", () => {
-            api.cycleOption(slot.id, 1);
-            sync();
-            syncTint();
-        });
-
-        const swatch = el("div", "dr-swatch-col");
-        swatch.appendChild(label);
-        const picker = el("div", "dr-picker");
-        picker.append(prev, name, next);
-        swatch.appendChild(picker);
-        row.appendChild(swatch);
-        gearSection.appendChild(row);
-        sync();
+        }
+        panel.appendChild(gearSection);
     }
-    panel.appendChild(gearSection);
 
     // ── Animation switcher (only when the demo exposes animations) ────
     if (api.animations.length > 0) {

@@ -78,3 +78,6 @@ lab/public/lite/api-docs/
 scratch/
 playwright-report/
 lab/public/littlest-tokyo/CREDITS.txt
+
+# Local asset staging (not committed)
+.kaykit-staging/

@@ -13,7 +13,6 @@
 
 import {
     addToScene,
-    createBox,
     createCylinder,
     createGround,
     createPbrMaterial,
@@ -52,8 +51,10 @@ export interface BackgroundDef {
     id: string;
     label: string;
     mood: Mood;
-    /** Real scenes: a glTF environment filename under the demo asset folder. */
+    /** Real scenes: a single glTF environment filename under the demo asset folder. */
     gltf?: string;
+    /** Assembled scenes: load + place multiple glTF kit pieces. Returns nodes to toggle. */
+    assemble?: (engine: EngineContext, scene: SceneContext, baseUrl: string) => Promise<SceneNode[]>;
     /** Placeholders: build procedural geometry; returns the nodes to toggle. */
     build?: (engine: EngineContext, scene: SceneContext) => SceneNode[];
 }
@@ -99,21 +100,6 @@ function makeTree(engine: EngineContext, scene: SceneContext, x: number, z: numb
     return [trunk, lower, upper];
 }
 
-/** A stone pillar (tapered column + cap). */
-function makePillar(engine: EngineContext, scene: SceneContext, x: number, z: number, height: number, shade: number): Mesh[] {
-    const mat = matte(engine, shade, shade, shade * 1.05, 0.7);
-    const shaft = createCylinder(engine, { height, diameterTop: 0.7, diameterBottom: 0.85, tessellation: 10 });
-    shaft.material = mat;
-    shaft.position.set(x, GROUND_Y + height / 2, z);
-    addToScene(scene, shaft);
-    const cap = createBox(engine, 1.0);
-    cap.material = mat;
-    cap.scaling.set(1, 0.22, 1);
-    cap.position.set(x, GROUND_Y + height, z);
-    addToScene(scene, cap);
-    return [shaft, cap];
-}
-
 /** Place props in a ring, skipping the front wedge so the figure stays clear. */
 function ringPositions(count: number, radius: number, jitter = 0): [number, number][] {
     const out: [number, number][] = [];
@@ -137,18 +123,6 @@ function buildForest(engine: EngineContext, scene: SceneContext): SceneNode[] {
     return nodes;
 }
 
-function buildDungeon(engine: EngineContext, scene: SceneContext): SceneNode[] {
-    const nodes: SceneNode[] = [makeGround(engine, scene, [0.06, 0.06, 0.07], 0.7, 0.35)];
-    for (const [x, z] of ringPositions(6, 6, 0)) {
-        nodes.push(...makePillar(engine, scene, x, z, 6, 0.16));
-    }
-    // A taller outer colonnade adds depth behind the inner ring.
-    for (const [x, z] of ringPositions(8, 11, 0)) {
-        nodes.push(...makePillar(engine, scene, x, z, 8, 0.13));
-    }
-    return nodes;
-}
-
 function buildPlains(engine: EngineContext, scene: SceneContext): SceneNode[] {
     const nodes: SceneNode[] = [makeGround(engine, scene, [0.34, 0.26, 0.13], 0.95)];
     for (const [x, z] of ringPositions(7, 11, 5)) {
@@ -157,9 +131,89 @@ function buildPlains(engine: EngineContext, scene: SceneContext): SceneNode[] {
     return nodes;
 }
 
-/** The background catalog. Real Quaternius scenes drop in here with `gltf`. */
+// ─── KayKit dungeon (assembled from modular kit pieces) ───────────────
+// Pieces are on a 4-unit grid: floor tiles are 4×4, walls 4 wide × 4 tall.
+// The figure stands at the origin facing the camera (−Z, open side); walls
+// enclose the back and sides, fading into fog.
+
+const DUNGEON_DIR = "environments/dungeon/";
+
+/** Load one dungeon kit piece, place it, add it to the scene, return its roots.
+ *  The loader applies an X-mirror on each glTF root (RH→LH); we keep that and
+ *  only set position + Y-rotation, so symmetric kit pieces tile correctly. */
+async function loadPiece(engine: EngineContext, scene: SceneContext, baseUrl: string, file: string, x: number, y: number, z: number, rotY = 0): Promise<SceneNode[]> {
+    const gltf = await loadGltf(engine, baseUrl + DUNGEON_DIR + file + ".gltf");
+    const out: SceneNode[] = [];
+    for (const entity of gltf.entities) {
+        const node = entity as SceneNode;
+        node.position.set(x, y, z);
+        node.rotation.set(0, rotY, 0);
+        addToScene(scene, node);
+        out.push(node);
+    }
+    return out;
+}
+
+async function assembleDungeon(engine: EngineContext, scene: SceneContext, baseUrl: string): Promise<SceneNode[]> {
+    const nodes: SceneNode[] = [];
+    const FY = GROUND_Y; // floor sits just under the pedestal
+    const HALF = Math.PI / 2;
+    const add = async (file: string, x: number, y: number, z: number, rotY = 0): Promise<void> => {
+        nodes.push(...(await loadPiece(engine, scene, baseUrl, file, x, y, z, rotY)));
+    };
+
+    // Floor — 3×3 grid of 4-unit tiles (spans −6..6), a few rocky variants mixed in.
+    for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+            const rocky = (i + j) % 2 === 0 && !(i === 0 && j === 0);
+            await add(rocky ? "floor_tile_large_rocks" : "floor_tile_large", i * 4, FY, j * 4);
+        }
+    }
+
+    // Back wall (far +Z edge) — three 4-wide panels.
+    for (const x of [-4, 0, 4]) {
+        await add("wall", x, FY, 6);
+    }
+    // Side walls (left −X, right +X), leaving the front (−Z, toward camera) open.
+    for (const z of [0, 4]) {
+        await add("wall", -6, FY, z, HALF);
+        await add("wall", 6, FY, z, HALF);
+    }
+
+    // Decorated pillars framing the figure from the mid-sides.
+    await add("pillar_decorated", -6, FY, -2, HALF);
+    await add("pillar_decorated", 6, FY, -2, HALF);
+
+    // A banner + two torches on the back wall for warmth and a focal point.
+    await add("banner_red", 0, FY, 5.5);
+    await add("torch", -3.4, FY, 5.4);
+    await add("torch", 3.4, FY, 5.4);
+
+    // A couple of props near the back corners for flavour.
+    await add("chest", 4.6, FY, 4.8, -HALF);
+    await add("keg", -4.8, FY, 4.9, HALF);
+
+    return nodes;
+}
+
+/** The background catalog. Real KayKit scenes are assembled from kit pieces. */
 export function getBackgrounds(): BackgroundDef[] {
     return [
+        {
+            id: "dungeon",
+            label: "Dungeon",
+            assemble: assembleDungeon,
+            mood: {
+                clearColor: [0.03, 0.025, 0.035],
+                fog: { start: 9, end: 30, color: [0.03, 0.025, 0.035] },
+                hemi: 0.55,
+                hemiGround: [0.03, 0.025, 0.04],
+                key: 1.9,
+                keyTint: [1.0, 0.82, 0.6],
+                fill: 0.35,
+                rim: 0.7,
+            },
+        },
         {
             id: "forest",
             label: "Forest",
@@ -173,21 +227,6 @@ export function getBackgrounds(): BackgroundDef[] {
                 keyTint: [1.0, 0.97, 0.86],
                 fill: 0.8,
                 rim: 0.6,
-            },
-        },
-        {
-            id: "dungeon",
-            label: "Dungeon",
-            build: buildDungeon,
-            mood: {
-                clearColor: [0.02, 0.02, 0.03],
-                fog: { start: 7, end: 26, color: [0.02, 0.02, 0.03] },
-                hemi: 0.4,
-                hemiGround: [0.02, 0.02, 0.04],
-                key: 1.7,
-                keyTint: [1.0, 0.82, 0.6],
-                fill: 0.3,
-                rim: 0.7,
             },
         },
         {
@@ -233,6 +272,8 @@ export async function createBackgrounds(
                 addToScene(scene, entity);
                 nodes.push(entity as SceneNode);
             }
+        } else if (def.assemble) {
+            nodes = await def.assemble(engine, scene, baseUrl);
         } else if (def.build) {
             nodes = def.build(engine, scene);
         }
