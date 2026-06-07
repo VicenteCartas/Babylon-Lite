@@ -73,5 +73,12 @@
         "description": "Animated, stylized glTF diorama: a frog enjoying a candle-lit bath surrounded by water and plants, slowly orbiting under a studio HDR environment for PBR lighting. The Draco-compressed model's animation groups auto-play on load. \"Bath Day\" by StanSt (https://sketchfab.com/stanst), CC BY 4.0.",
         "tags": ["showcase"],
         "mobile": true
+    },
+    {
+        "slug": "dress-room",
+        "name": "Dressing Room",
+        "description": "Character dressing room: a rigged humanoid mannequin slowly turns on a studio pedestal under image-based lighting and a soft cast shadow while you swap modular equipment per body region (head, shoulders, body, arms, legs, feet) between Peasant and Ranger sets, apply themed presets or roll a random loadout. All parts share one rig and bind pose, so dressing the figure layers outfit meshes over the base body. CC0 1.0 modular character art by Quaternius (https://quaternius.com).",
+        "tags": ["showcase", "character"],
+        "mobile": false
     }
 ]

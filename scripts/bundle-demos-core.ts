@@ -47,6 +47,7 @@ const MINECRAFT_SRC = resolve(labDir, "public/minecraft");
 const FREECIV_SRC = resolve(labDir, "public/freeciv");
 const LITTLEST_TOKYO_SRC = resolve(labDir, "public/littlest-tokyo");
 const TETRIS_SRC = resolve(labDir, "public/tetris");
+const DRESS_ROOM_SRC = resolve(labDir, "public/dress-room");
 const DRACO_FILES = ["draco_decoder.js", "draco_decoder.wasm"];
 
 interface DemoConfigEntry {
@@ -209,6 +210,13 @@ function copyDemoRuntimeAssets(demos: DemoConfigEntry[]): void {
         if (existsSync(env)) {
             cpSync(env, resolve(demosDir, "environment.env"));
         }
+    }
+
+    if (demos.some((demo) => demo.slug === "dress-room")) {
+        // CC0 modular character parts (Quaternius): base body + outfit glTFs and
+        // their textures, copied under dress-room/ so the demo resolves them
+        // relative to its own module (subpath-safe).
+        copyRequiredDir(DRESS_ROOM_SRC, resolve(demosDir, "dress-room"), "Dress Room");
     }
 
     for (const file of [...DRACO_FILES, "meshopt_decoder.js", "brdf-lut.png"]) {
