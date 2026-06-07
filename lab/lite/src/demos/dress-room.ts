@@ -25,11 +25,11 @@ import {
     createPbrMaterial,
     createSceneContext,
     createSolidTexture2D,
-    createStandardMaterial,
     loadEnvironment,
     loadGltf,
     onBeforeRender,
     registerSceneWithShadowSupport,
+    setFog,
     setShadowTaskCasterMeshes,
     startEngine,
 } from "babylon-lite";
@@ -57,7 +57,22 @@ async function main(): Promise<void> {
     try {
         const engine = await createEngine(canvas);
         const scene = createSceneContext(engine);
-        scene.clearColor = { r: 0.07, g: 0.06, b: 0.09, a: 1.0 };
+        const BG = { r: 0.035, g: 0.03, b: 0.045 };
+        scene.clearColor = { ...BG, a: 1.0 };
+
+        // Filmic image processing — ACES tone mapping gives the PBR fabrics a
+        // richer, photographic roll-off instead of flat linear output. Set before
+        // registerScene so any deferred build snapshots these values.
+        scene.imageProcessing.toneMappingEnabled = true;
+        scene.imageProcessing.toneMappingType = "aces";
+        scene.imageProcessing.exposure = 1.35;
+        scene.imageProcessing.contrast = 1.1;
+
+        // Linear fog tuned to dissolve the floor's far edge into the dark
+        // background, giving a seamless "infinity" studio floor. Starts well beyond
+        // the figure (radius ~1) so the subject is never fogged. Must be set before
+        // registerScene so the PBR/standard shaders are built with the fog branch.
+        setFog(scene, { mode: 3, density: 0, start: 7, end: 17, color: [BG.r, BG.g, BG.b] });
 
         // Turntable camera. Zoom is clamped (see the render loop) so the wheel
         // can't dolly inside the figure or pull back into empty space.
@@ -89,15 +104,19 @@ async function main(): Promise<void> {
         addToScene(scene, createDirectionalLight([0.8, -0.4, 0.6], 1.0));
         addToScene(scene, createDirectionalLight([0.2, -0.3, -1.0], 0.7));
 
-        // Studio floor — a plain matte Lambert plane (no specular, no reflection)
-        // that reads as a clean studio backdrop and does not receive shadows (a
-        // 24x24 receiver overruns the caster-sized shadow frustum, producing a
-        // swimming seam; only the small pedestal under the figure receives the
-        // cast shadow).
-        const floorMat = createStandardMaterial();
-        floorMat.diffuseColor = [0.1, 0.1, 0.13];
-        floorMat.specularColor = [0, 0, 0];
-        const floor = createGround(engine, { width: 24, height: 24, subdivisions: 2 });
+        // Studio floor — a dark, lightly-polished PBR stage. Low roughness lets it
+        // pick up a soft grazing reflection of the IBL, reading as a premium
+        // photo-studio floor rather than flat matte. Its far edge dissolves into
+        // the background via the scene fog above (seamless infinity floor). It does
+        // not receive shadows (a 24x24 receiver overruns the caster-sized shadow
+        // frustum, producing a swimming seam; only the small pedestal under the
+        // figure receives the cast shadow).
+        const floorMat = createPbrMaterial({
+            baseColorTexture: createSolidTexture2D(engine, 0.035, 0.035, 0.045, 1),
+            ormTexture: createSolidTexture2D(engine, 1.0, 0.34, 0.0, 1), // occ=1, rough=0.34, metal=0
+            environmentIntensity: 0.5,
+        });
+        const floor = createGround(engine, { width: 40, height: 40, subdivisions: 2 });
         floor.material = floorMat;
         floor.receiveShadows = false;
         floor.position.set(0, -0.12, 0);
