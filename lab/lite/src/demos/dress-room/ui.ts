@@ -15,6 +15,8 @@ export interface UiSlot {
 export interface DressRoomApi {
     /** Body-type options (e.g. Superhero / Regular). Omit or leave a single entry to hide the picker. */
     bodies?: { id: string; label: string }[];
+    /** Background scene options (forest, dungeon, …). Omit or leave a single entry to hide the picker. */
+    scenes?: { id: string; label: string }[];
     slots: UiSlot[];
     animations: string[];
     presets: string[];
@@ -22,6 +24,8 @@ export interface DressRoomApi {
     tintable?: boolean;
     getBody?(): string;
     setBody?(id: string): void;
+    getScene?(): string;
+    setScene?(id: string): void;
     getOption(slot: string): string;
     setOption(slot: string, optionId: string): void;
     cycleOption(slot: string, dir: 1 | -1): void;
@@ -97,6 +101,32 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
         refreshers.push(syncBody);
         bodySection.appendChild(bodyRow);
         panel.appendChild(bodySection);
+    }
+
+    // ── Background scene (only when more than one scene is offered) ────
+    if (api.scenes && api.scenes.length > 1 && api.getScene && api.setScene) {
+        const sceneSection = el("div", "dr-section");
+        sceneSection.appendChild(el("div", "dr-heading", "Scene"));
+        const sceneRow = el("div", "dr-btn-grid");
+        const sceneButtons = new Map<string, HTMLButtonElement>();
+        const syncScene = () => {
+            const active = api.getScene!();
+            for (const [id, btn] of sceneButtons) {
+                btn.classList.toggle("is-active", id === active);
+            }
+        };
+        for (const sc of api.scenes) {
+            const btn = el("button", "dr-chip", sc.label);
+            btn.addEventListener("click", () => {
+                api.setScene!(sc.id);
+                syncScene();
+            });
+            sceneButtons.set(sc.id, btn);
+            sceneRow.appendChild(btn);
+        }
+        refreshers.push(syncScene);
+        sceneSection.appendChild(sceneRow);
+        panel.appendChild(sceneSection);
     }
 
     // ── Equipment slots ──────────────────────────────────────────────

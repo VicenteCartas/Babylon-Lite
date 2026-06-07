@@ -20,7 +20,6 @@ import {
     createDirectionalLight,
     createEngine,
     createEsmDirectionalShadowGenerator,
-    createGround,
     createHemisphericLight,
     createPbrMaterial,
     createSceneContext,
@@ -29,7 +28,6 @@ import {
     loadGltf,
     onBeforeRender,
     registerSceneWithShadowSupport,
-    setFog,
     setShadowTaskCasterMeshes,
     startEngine,
 } from "babylon-lite";
@@ -38,6 +36,8 @@ import { BASE_BODY_FILE, collectMeshes, getBodies, getCatalog, loadPart } from "
 import type { OutfitPart, SlotId } from "./dress-room/outfit.js";
 import { buildPanel } from "./dress-room/ui.js";
 import type { DressRoomApi } from "./dress-room/ui.js";
+import { createBackgrounds, getBackgrounds } from "./dress-room/background.js";
+import type { BackgroundController, SceneLights } from "./dress-room/background.js";
 import { demoAssetUrl } from "./demo-asset-url.js";
 import { installFetchProgress } from "./loading-progress.js";
 
@@ -57,22 +57,6 @@ async function main(): Promise<void> {
     try {
         const engine = await createEngine(canvas);
         const scene = createSceneContext(engine);
-        const BG = { r: 0.035, g: 0.03, b: 0.045 };
-        scene.clearColor = { ...BG, a: 1.0 };
-
-        // Filmic image processing — ACES tone mapping gives the PBR fabrics a
-        // richer, photographic roll-off instead of flat linear output. Set before
-        // registerScene so any deferred build snapshots these values.
-        scene.imageProcessing.toneMappingEnabled = true;
-        scene.imageProcessing.toneMappingType = "aces";
-        scene.imageProcessing.exposure = 1.35;
-        scene.imageProcessing.contrast = 1.1;
-
-        // Linear fog tuned to dissolve the floor's far edge into the dark
-        // background, giving a seamless "infinity" studio floor. Starts well beyond
-        // the figure (radius ~1) so the subject is never fogged. Must be set before
-        // registerScene so the PBR/standard shaders are built with the fog branch.
-        setFog(scene, { mode: 3, density: 0, start: 7, end: 17, color: [BG.r, BG.g, BG.b] });
 
         // Turntable camera. Zoom is clamped (see the render loop) so the wheel
         // can't dolly inside the figure or pull back into empty space.
@@ -84,51 +68,40 @@ async function main(): Promise<void> {
         scene.camera = camera;
         attachControl(camera, canvas, scene);
 
-        // Image-based lighting for realistic material reflections. We only want
-        // the IBL textures; skip the helper's background skybox AND background
-        // ground (the latter is created at ~y=0 and would z-fight our own studio
-        // floor at y=-0.12 into a dark wedge sweeping across the surface).
+        // Image-based lighting for material reflections (textures only — the 3D
+        // background scenes provide the visible surroundings, so skip the helper's
+        // skybox + ground). Set ACES tone mapping before registerScene for richer
+        // fabrics.
         await loadEnvironment(scene, "https://assets.babylonjs.com/core/environments/environmentSpecular.env", {
             brdfUrl: demoAssetUrl("./brdf-lut.png", import.meta.url),
             skipGround: true,
             skipSkybox: true,
         });
+        scene.imageProcessing.toneMappingEnabled = true;
+        scene.imageProcessing.toneMappingType = "aces";
+        scene.imageProcessing.exposure = 1.3;
+        scene.imageProcessing.contrast = 1.05;
 
-        // Studio lighting: bright ambient fill + a key directional that casts
-        // shadows, plus a fill and a soft back/rim light. The CC0 fabrics are
-        // quite dark, so the rig is pushed brighter than a typical scene.
-        addToScene(scene, createHemisphericLight([0, 1, 0], 1.1));
-        const keyLight = createDirectionalLight([-0.5, -1.0, -0.6], 2.6);
+        // Shared lighting rig. Each background retunes intensity / tint for its
+        // mood; the key light always casts the figure's shadow.
+        const hemi = createHemisphericLight([0, 1, 0], 1.0);
+        addToScene(scene, hemi);
+        const keyLight = createDirectionalLight([-0.5, -1.0, -0.6], 2.4);
         keyLight.position.set(4, 8, 4);
         addToScene(scene, keyLight);
-        addToScene(scene, createDirectionalLight([0.8, -0.4, 0.6], 1.0));
-        addToScene(scene, createDirectionalLight([0.2, -0.3, -1.0], 0.7));
+        const fill = createDirectionalLight([0.8, -0.4, 0.6], 0.8);
+        addToScene(scene, fill);
+        const rim = createDirectionalLight([0.2, -0.3, -1.0], 0.6);
+        addToScene(scene, rim);
+        const lights: SceneLights = { hemi, key: keyLight, fill, rim };
 
-        // Studio floor — a dark, lightly-polished PBR stage. Low roughness lets it
-        // pick up a soft grazing reflection of the IBL, reading as a premium
-        // photo-studio floor rather than flat matte. Its far edge dissolves into
-        // the background via the scene fog above (seamless infinity floor). It does
-        // not receive shadows (a 24x24 receiver overruns the caster-sized shadow
-        // frustum, producing a swimming seam; only the small pedestal under the
-        // figure receives the cast shadow).
-        const floorMat = createPbrMaterial({
-            baseColorTexture: createSolidTexture2D(engine, 0.035, 0.035, 0.045, 1),
-            ormTexture: createSolidTexture2D(engine, 1.0, 0.34, 0.0, 1), // occ=1, rough=0.34, metal=0
-            environmentIntensity: 0.5,
-        });
-        const floor = createGround(engine, { width: 40, height: 40, subdivisions: 2 });
-        floor.material = floorMat;
-        floor.receiveShadows = false;
-        floor.position.set(0, -0.12, 0);
-        addToScene(scene, floor);
-
-        const pedestalMat = createPbrMaterial({
-            baseColorTexture: createSolidTexture2D(engine, 0.13, 0.12, 0.16, 1),
-            ormTexture: createSolidTexture2D(engine, 1.0, 0.7, 0.0, 1),
-            usePhysicalLightFalloff: false,
-        });
+        // Neutral stone pedestal the figure stands on (persists across scenes,
+        // grounds the figure and receives its cast shadow).
         const pedestal = createCylinder(engine, { height: 0.12, diameter: 2.4, tessellation: 48 });
-        pedestal.material = pedestalMat;
+        pedestal.material = createPbrMaterial({
+            baseColorTexture: createSolidTexture2D(engine, 0.16, 0.15, 0.17, 1),
+            ormTexture: createSolidTexture2D(engine, 1.0, 0.6, 0.0, 1),
+        });
         pedestal.position.set(0, -0.06, 0);
         pedestal.receiveShadows = true;
         addToScene(scene, pedestal);
@@ -142,6 +115,11 @@ async function main(): Promise<void> {
 
         // Load every outfit part once (hidden), keyed by slot + option id.
         const wardrobe = await buildWardrobe(engine, scene);
+
+        // Pre-build every switchable 3D background scene (hidden); one is
+        // activated below. Building up front (before registerScene) keeps
+        // switching to a pure visibility toggle.
+        const backgrounds = await createBackgrounds(engine, scene, lights, ASSET_BASE, getBackgrounds());
 
         // Directional shadow from the key light. The caster list holds the base
         // body plus every outfit part; hidden parts are skipped automatically.
@@ -160,8 +138,9 @@ async function main(): Promise<void> {
         const partMeshes = wardrobe.slots.flatMap((s) => [...s.parts.values()].flatMap((p) => p.meshes));
         setShadowTaskCasterMeshes(keyLight.shadowGenerator, [...baseMeshes, ...partMeshes]);
 
-        // Default loadout.
+        // Default loadout + background scene.
         applyLoadout(wardrobe, PRESETS.Ranger!);
+        backgrounds.activate("forest");
 
         // Turntable spin (stops on first interaction). Clamp the zoom radius
         // every frame so wheel inertia settles within the allowed range.
@@ -184,7 +163,7 @@ async function main(): Promise<void> {
         progress.done();
         await startEngine(engine);
 
-        wireUi(wardrobe);
+        wireUi(wardrobe, backgrounds);
 
         canvas.dataset.drawCalls = String(engine.drawCallCount);
         canvas.dataset.initMs = String(performance.now() - __initStart);
@@ -257,10 +236,11 @@ function applyLoadout(wardrobe: Wardrobe, loadout: Record<SlotId, string>): void
 
 // ─── UI wiring ────────────────────────────────────────────────────────
 
-function wireUi(wardrobe: Wardrobe): void {
+function wireUi(wardrobe: Wardrobe, backgrounds: BackgroundController): void {
     const bodies = getBodies();
     const api: DressRoomApi = {
         bodies: bodies.map((b) => ({ id: b.id, label: b.label })),
+        scenes: backgrounds.defs.map((d) => ({ id: d.id, label: d.label })),
         slots: wardrobe.slots.map((s) => ({
             id: s.id,
             label: s.label,
@@ -271,6 +251,8 @@ function wireUi(wardrobe: Wardrobe): void {
         tintable: false,
         getBody: () => bodies[0]!.id,
         setBody: () => {},
+        getScene: () => backgrounds.current(),
+        setScene: (id) => backgrounds.activate(id),
         getOption: (slotId) => wardrobe.byId.get(slotId as SlotId)?.equipped ?? "none",
         setOption: (slotId, optionId) => {
             const slot = wardrobe.byId.get(slotId as SlotId);

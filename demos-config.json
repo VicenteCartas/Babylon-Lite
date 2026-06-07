@@ -77,7 +77,7 @@
     {
         "slug": "dress-room",
         "name": "Dressing Room",
-        "description": "Character dressing room: a rigged humanoid mannequin slowly turns on a studio pedestal under image-based lighting and a soft cast shadow while you swap modular equipment per body region (head, shoulders, body, arms, legs, feet) between Peasant and Ranger sets, apply themed presets or roll a random loadout. All parts share one rig and bind pose, so dressing the figure layers outfit meshes over the base body. CC0 1.0 modular character art by Quaternius (https://quaternius.com).",
+        "description": "Fantasy character dressing room: a rigged humanoid slowly turns on a pedestal while you swap modular equipment per body region (head, shoulders, body, arms, legs, feet) between Peasant and Ranger sets, apply themed presets or roll a random loadout — then switch the 3D backdrop between fantasy environments (forest, dungeon, sunset plains). All parts share one rig and bind pose, so dressing the figure layers outfit meshes over the base body. CC0 1.0 modular character art by Quaternius (https://quaternius.com).",
         "tags": ["showcase", "character"],
         "mobile": false
     }
