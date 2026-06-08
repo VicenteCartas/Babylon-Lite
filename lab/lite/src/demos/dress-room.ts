@@ -14,18 +14,15 @@
 import {
     attachControl,
     createArcRotateCamera,
-    createCylinder,
     createDirectionalLight,
     createEngine,
     createEsmDirectionalShadowGenerator,
     createHemisphericLight,
-    createPbrMaterial,
     createSceneContext,
-    createSolidTexture2D,
     addToScene,
     loadEnvironment,
-    onBeforeRender,
     registerSceneWithShadowSupport,
+    setCameraLimits,
     setShadowTaskCasterMeshes,
     startEngine,
 } from "babylon-lite";
@@ -52,17 +49,17 @@ async function main(): Promise<void> {
         const engine = await createEngine(canvas);
         const scene = createSceneContext(engine);
 
-        // Turntable camera. Zoom is clamped (see the render loop) so the wheel
-        // can't dolly inside the figure or pull back into empty space. The KayKit
-        // figures are ~2.5 units tall, so the target sits at mid-body and the
-        // start angle faces the front.
-        const MIN_RADIUS = 3.0;
-        const MAX_RADIUS = 9.0;
+        // Camera framing the figure from the front. The KayKit figures are ~2.5
+        // units tall, so the target sits at mid-body. The figure is static (no
+        // auto-rotation); the user can still orbit and zoom by dragging.
         const camera = createArcRotateCamera(-Math.PI / 2, 1.15, 6.0, { x: 0, y: 1.25, z: 0 });
         camera.nearPlane = 0.1;
         camera.farPlane = 100;
         scene.camera = camera;
         attachControl(camera, canvas, scene);
+        // Clamp zoom so the wheel/pinch can't dolly inside the figure or pull
+        // back into the fog. Manual orbit stays free.
+        setCameraLimits(camera, { lowerRadiusLimit: 3.0, upperRadiusLimit: 9.0 }, scene);
 
         // Image-based lighting for material reflections (textures only — the 3D
         // background scenes provide the visible surroundings, so skip the helper's
@@ -78,11 +75,13 @@ async function main(): Promise<void> {
         scene.imageProcessing.contrast = 1.05;
 
         // Shared lighting rig. Each background retunes intensity / tint for its
-        // mood; the key light always casts the figure's shadow.
+        // mood. The key light comes from ~45° above and in front of the figure
+        // (the camera side, −Z), so the figure is front-lit and its cast shadow
+        // falls behind it (+Z, toward the back wall).
         const hemi = createHemisphericLight([0, 1, 0], 1.0);
         addToScene(scene, hemi);
-        const keyLight = createDirectionalLight([-0.5, -1.0, -0.6], 2.4);
-        keyLight.position.set(4, 8, 4);
+        const keyLight = createDirectionalLight([-0.3, -1.0, 0.7], 2.4);
+        keyLight.position.set(3, 9, -6);
         addToScene(scene, keyLight);
         const fill = createDirectionalLight([0.8, -0.4, 0.6], 0.8);
         addToScene(scene, fill);
@@ -90,22 +89,21 @@ async function main(): Promise<void> {
         addToScene(scene, rim);
         const lights: SceneLights = { hemi, key: keyLight, fill, rim };
 
-        // Neutral stone pedestal the figure stands on (persists across scenes,
-        // grounds the figure and receives its cast shadow).
-        const pedestal = createCylinder(engine, { height: 0.12, diameter: 2.4, tessellation: 48 });
-        pedestal.material = createPbrMaterial({
-            baseColorTexture: createSolidTexture2D(engine, 0.16, 0.15, 0.17, 1),
-            ormTexture: createSolidTexture2D(engine, 1.0, 0.6, 0.0, 1),
-        });
-        pedestal.position.set(0, -0.06, 0);
-        pedestal.receiveShadows = true;
-        addToScene(scene, pedestal);
-
         // Load every character class once (hidden); the active one is shown below.
+        // The figures stand directly on the scene floor (no pedestal) and face the
+        // camera. The glTF root carries a −1 X scale (RH→LH), so a 180° base yaw
+        // turns the figure to face the camera (which sits on −Z); FLOOR_Y matches
+        // the dungeon floor surface so the feet rest on it.
+        const FLOOR_Y = -0.07;
+        const BASE_FACING = Math.PI;
         const classDefs = getClasses();
         const characters = new Map<string, LoadedCharacter>();
         for (const cls of classDefs) {
             const character = await loadCharacter(engine, scene, ASSET_BASE, cls);
+            for (const root of character.roots) {
+                root.position.set(0, FLOOR_Y, 0);
+                root.rotation.set(0, BASE_FACING, 0);
+            }
             character.setVisible(false);
             characters.set(cls.id, character);
         }
@@ -145,41 +143,6 @@ async function main(): Promise<void> {
             characters.get(id)?.setVisible(true);
             activeClass = id;
         };
-
-        // Turntable: the camera stays put while the figure slowly rotates on the
-        // pedestal (so the 3D backdrop holds still). A base offset of -90° turns
-        // the KayKit figure — which faces +X — toward the front camera; rotation
-        // pauses on first interaction and resumes after the user stops dragging.
-        const BASE_FACING = -Math.PI / 2;
-        let spinAngle = 0;
-        let spinning = true;
-        let lastInteractionMs = -Infinity;
-        const markInteraction = (): void => {
-            spinning = false;
-            lastInteractionMs = performance.now();
-        };
-        canvas.addEventListener("pointerdown", markInteraction);
-        canvas.addEventListener("wheel", markInteraction, { passive: true });
-        const IDLE_RESUME_MS = 4000;
-        onBeforeRender(scene, (deltaMs) => {
-            if (!spinning && performance.now() - lastInteractionMs > IDLE_RESUME_MS) {
-                spinning = true;
-            }
-            if (spinning) {
-                spinAngle += deltaMs * 0.0004;
-            }
-            const yaw = BASE_FACING + spinAngle;
-            for (const root of characters.get(activeClass)?.roots ?? []) {
-                root.rotation.set(0, yaw, 0);
-            }
-            if (camera.radius < MIN_RADIUS) {
-                camera.radius = MIN_RADIUS;
-                camera.inertialRadiusOffset = 0;
-            } else if (camera.radius > MAX_RADIUS) {
-                camera.radius = MAX_RADIUS;
-                camera.inertialRadiusOffset = 0;
-            }
-        });
 
         await registerSceneWithShadowSupport(engine, scene);
         progress.done();

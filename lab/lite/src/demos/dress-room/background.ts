@@ -138,10 +138,34 @@ function buildPlains(engine: EngineContext, scene: SceneContext): SceneNode[] {
 
 const DUNGEON_DIR = "environments/dungeon/";
 
+/** Mark every renderable mesh under a set of roots as a shadow receiver. */
+function setReceiveShadows(roots: readonly SceneNode[]): void {
+    const stack: SceneNode[] = [...roots];
+    while (stack.length) {
+        const n = stack.pop()!;
+        if ((n as Mesh).material) {
+            (n as Mesh).receiveShadows = true;
+        }
+        if (n.children?.length) {
+            stack.push(...n.children);
+        }
+    }
+}
+
 /** Load one dungeon kit piece, place it, add it to the scene, return its roots.
  *  The loader applies an X-mirror on each glTF root (RH→LH); we keep that and
  *  only set position + Y-rotation, so symmetric kit pieces tile correctly. */
-async function loadPiece(engine: EngineContext, scene: SceneContext, baseUrl: string, file: string, x: number, y: number, z: number, rotY = 0): Promise<SceneNode[]> {
+async function loadPiece(
+    engine: EngineContext,
+    scene: SceneContext,
+    baseUrl: string,
+    file: string,
+    x: number,
+    y: number,
+    z: number,
+    rotY = 0,
+    receiveShadows = false
+): Promise<SceneNode[]> {
     const gltf = await loadGltf(engine, baseUrl + DUNGEON_DIR + file + ".gltf");
     const out: SceneNode[] = [];
     for (const entity of gltf.entities) {
@@ -150,6 +174,9 @@ async function loadPiece(engine: EngineContext, scene: SceneContext, baseUrl: st
         node.rotation.set(0, rotY, 0);
         addToScene(scene, node);
         out.push(node);
+    }
+    if (receiveShadows) {
+        setReceiveShadows(out);
     }
     return out;
 }
@@ -162,11 +189,14 @@ async function assembleDungeon(engine: EngineContext, scene: SceneContext, baseU
         nodes.push(...(await loadPiece(engine, scene, baseUrl, file, x, y, z, rotY)));
     };
 
-    // Floor — 3×3 grid of 4-unit tiles (spans −6..6), a few rocky variants mixed in.
+    // Floor — 3×3 grid of 4-unit tiles (spans −6..6), a few rocky variants mixed
+    // in. The tiles under and behind the figure receive its cast shadow.
     for (let i = -1; i <= 1; i++) {
         for (let j = -1; j <= 1; j++) {
             const rocky = (i + j) % 2 === 0 && !(i === 0 && j === 0);
-            await add(rocky ? "floor_tile_large_rocks" : "floor_tile_large", i * 4, FY, j * 4);
+            const file = rocky ? "floor_tile_large_rocks" : "floor_tile_large";
+            const catchShadow = i === 0 && j >= 0;
+            nodes.push(...(await loadPiece(engine, scene, baseUrl, file, i * 4, FY, j * 4, 0, catchShadow)));
         }
     }
 
