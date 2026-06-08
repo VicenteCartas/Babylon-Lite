@@ -1,19 +1,18 @@
 /** Switchable 3D background scenes for the dress-room demo.
  *
- *  A "fantasy game dresser" backdrop: the figure stands on a neutral pedestal
- *  while the surrounding 3D environment (forest, dungeon, plains, …) can be
- *  swapped from the panel. Every scene is pre-built up front and toggled by
- *  visibility — the same pattern the wardrobe uses — so switching is instant and
- *  no geometry is added after `registerScene`.
+ *  A "fantasy game dresser" backdrop: the figure stands on the scene floor while
+ *  the surrounding 3D environment (dungeon, forest, …) can be swapped from the
+ *  panel. Every scene is pre-built up front and toggled by visibility — the same
+ *  pattern the wardrobe uses — so switching is instant and no geometry is added
+ *  after `registerScene`.
  *
- *  The catalog is data-driven: a scene is either a set of procedural primitives
- *  (the placeholders below) or, once real art is available, a glTF environment
- *  ({@link BackgroundDef.gltf}). Dropping in a Quaternius CC0 environment pack is
- *  just adding catalog entries that point at the loaded glTF files. */
+ *  The catalog is data-driven: a scene is assembled from real KayKit CC0 kit
+ *  pieces ({@link BackgroundDef.assemble}) — a torch-lit modular dungeon, a
+ *  forest clearing — or, optionally, built procedurally ({@link BackgroundDef.build}).
+ *  Adding another environment is just a new catalog entry. */
 
 import {
     addToScene,
-    createCylinder,
     createGround,
     createPbrMaterial,
     createSolidTexture2D,
@@ -82,61 +81,18 @@ function makeGround(engine: EngineContext, scene: SceneContext, color: [number, 
 }
 
 /** A faceted low-poly conifer: a trunk plus two stacked cones. */
-function makeTree(engine: EngineContext, scene: SceneContext, x: number, z: number, scale: number, foliage: [number, number, number]): Mesh[] {
-    const trunkMat = matte(engine, 0.28, 0.18, 0.1, 0.95);
-    const leafMat = matte(engine, foliage[0], foliage[1], foliage[2], 0.95);
-    const trunk = createCylinder(engine, { height: 1.2 * scale, diameter: 0.26 * scale, tessellation: 8 });
-    trunk.material = trunkMat;
-    trunk.position.set(x, GROUND_Y + 0.6 * scale, z);
-    addToScene(scene, trunk);
-    const lower = createCylinder(engine, { height: 1.5 * scale, diameterTop: 0, diameterBottom: 1.7 * scale, tessellation: 8 });
-    lower.material = leafMat;
-    lower.position.set(x, GROUND_Y + 1.5 * scale, z);
-    addToScene(scene, lower);
-    const upper = createCylinder(engine, { height: 1.2 * scale, diameterTop: 0, diameterBottom: 1.2 * scale, tessellation: 8 });
-    upper.material = leafMat;
-    upper.position.set(x, GROUND_Y + 2.4 * scale, z);
-    addToScene(scene, upper);
-    return [trunk, lower, upper];
-}
+// (procedural placeholder trees removed — the forest is now assembled from real
+//  KayKit Forest Nature kit pieces; see assembleForest below.)
 
-/** Place props in a ring, skipping the front wedge so the figure stays clear. */
-function ringPositions(count: number, radius: number, jitter = 0): [number, number][] {
-    const out: [number, number][] = [];
-    for (let i = 0; i < count; i++) {
-        const a = (i / count) * Math.PI * 2 + 0.35;
-        const r = radius + (jitter ? (Math.sin(i * 12.9898) * 0.5 + 0.5) * jitter : 0);
-        out.push([Math.cos(a) * r, Math.sin(a) * r]);
-    }
-    return out;
-}
-
-// ─── Placeholder scenes (procedural) ──────────────────────────────────
-// Each returns every mesh it creates so the manager can show/hide the set.
-
-function buildForest(engine: EngineContext, scene: SceneContext): SceneNode[] {
-    const nodes: SceneNode[] = [makeGround(engine, scene, [0.16, 0.3, 0.12], 0.95)];
-    const foliage: [number, number, number] = [0.12, 0.34, 0.14];
-    for (const [x, z] of ringPositions(9, 8.5, 4)) {
-        nodes.push(...makeTree(engine, scene, x, z, 1.1 + (((x * z) % 5) + 5) * 0.06, foliage));
-    }
-    return nodes;
-}
-
-function buildPlains(engine: EngineContext, scene: SceneContext): SceneNode[] {
-    const nodes: SceneNode[] = [makeGround(engine, scene, [0.34, 0.26, 0.13], 0.95)];
-    for (const [x, z] of ringPositions(7, 11, 5)) {
-        nodes.push(...makeTree(engine, scene, x, z, 1.3, [0.3, 0.32, 0.12]));
-    }
-    return nodes;
-}
-
-// ─── KayKit dungeon (assembled from modular kit pieces) ───────────────
-// Pieces are on a 4-unit grid: floor tiles are 4×4, walls 4 wide × 4 tall.
-// The figure stands at the origin facing the camera (−Z, open side); walls
-// enclose the back and sides, fading into fog.
+// ─── KayKit assembled scenes (modular kit pieces) ─────────────────────
+// Both the dungeon and the forest are assembled from real KayKit kit pieces.
+// Dungeon pieces sit on a 4-unit grid (floor tiles 4×4, walls 4 wide × 4 tall);
+// forest pieces are individual trees/rocks/bushes. The figure stands at the
+// origin facing the camera (−Z, the open side); scenery encloses the back and
+// sides and fades into fog. The ground plane helper above is their floor.
 
 const DUNGEON_DIR = "environments/dungeon/";
+const FOREST_DIR = "environments/forest/";
 
 /** Mark every renderable mesh under a set of roots as a shadow receiver. */
 function setReceiveShadows(roots: readonly SceneNode[]): void {
@@ -152,26 +108,34 @@ function setReceiveShadows(roots: readonly SceneNode[]): void {
     }
 }
 
-/** Load one dungeon kit piece, place it, add it to the scene, return its roots.
+/** Load one kit piece from `dir`, place it, add it to the scene, return its roots.
  *  The loader applies an X-mirror on each glTF root (RH→LH); we keep that and
- *  only set position + Y-rotation, so symmetric kit pieces tile correctly. */
+ *  only set position + Y-rotation (+ optional uniform scale), so symmetric kit
+ *  pieces tile correctly. */
 async function loadPiece(
     engine: EngineContext,
     scene: SceneContext,
     baseUrl: string,
+    dir: string,
     file: string,
     x: number,
     y: number,
     z: number,
     rotY = 0,
+    scale = 1,
     receiveShadows = false
 ): Promise<SceneNode[]> {
-    const gltf = await loadGltf(engine, baseUrl + DUNGEON_DIR + file + ".gltf");
+    const gltf = await loadGltf(engine, baseUrl + dir + file + ".gltf");
     const out: SceneNode[] = [];
     for (const entity of gltf.entities) {
         const node = entity as SceneNode;
         node.position.set(x, y, z);
         node.rotation.set(0, rotY, 0);
+        if (scale !== 1) {
+            // The loader's synthetic root carries a −1 X scale (RH→LH); preserve
+            // that sign so the piece isn't un-mirrored, then apply uniform scale.
+            node.scaling.set(-scale, scale, scale);
+        }
         addToScene(scene, node);
         out.push(node);
     }
@@ -186,7 +150,7 @@ async function assembleDungeon(engine: EngineContext, scene: SceneContext, baseU
     const FY = GROUND_Y; // floor sits just under the pedestal
     const HALF = Math.PI / 2;
     const add = async (file: string, x: number, y: number, z: number, rotY = 0): Promise<void> => {
-        nodes.push(...(await loadPiece(engine, scene, baseUrl, file, x, y, z, rotY)));
+        nodes.push(...(await loadPiece(engine, scene, baseUrl, DUNGEON_DIR, file, x, y, z, rotY)));
     };
 
     // Floor — 3×3 grid of 4-unit tiles (spans −6..6), a few rocky variants mixed
@@ -196,7 +160,7 @@ async function assembleDungeon(engine: EngineContext, scene: SceneContext, baseU
             const rocky = (i + j) % 2 === 0 && !(i === 0 && j === 0);
             const file = rocky ? "floor_tile_large_rocks" : "floor_tile_large";
             const catchShadow = i === 0 && j >= 0;
-            nodes.push(...(await loadPiece(engine, scene, baseUrl, file, i * 4, FY, j * 4, 0, catchShadow)));
+            nodes.push(...(await loadPiece(engine, scene, baseUrl, DUNGEON_DIR, file, i * 4, FY, j * 4, 0, 1, catchShadow)));
         }
     }
 
@@ -226,6 +190,81 @@ async function assembleDungeon(engine: EngineContext, scene: SceneContext, baseU
     return nodes;
 }
 
+async function assembleForest(engine: EngineContext, scene: SceneContext, baseUrl: string): Promise<SceneNode[]> {
+    const nodes: SceneNode[] = [makeGround(engine, scene, [0.19, 0.32, 0.15], 0.95)];
+    const FY = GROUND_Y;
+    // A cheap deterministic jitter so repeated layouts feel organic without RNG.
+    const wobble = (seed: number): number => ((Math.sin(seed * 12.9898) * 43758.5453) % 1) * Math.PI * 2;
+    const place = async (file: string, x: number, z: number, scale: number, seed: number): Promise<void> => {
+        nodes.push(...(await loadPiece(engine, scene, baseUrl, FOREST_DIR, file, x, FY, z, wobble(seed), scale)));
+    };
+
+    // Trees ring the clearing — close enough that their trunks clearly meet the
+    // ground near the figure (distant trees on a flat plane read as floating).
+    // The front (toward the camera at −Z) is left open. KayKit trees are ~4 units
+    // tall, towering over the 2.5-unit figure.
+    const trees = ["Tree_1_A_Color1", "Tree_2_A_Color1", "Tree_3_A_Color1", "Tree_4_A_Color1", "Tree_Bare_1_A_Color1", "Tree_Bare_2_A_Color1"];
+    const spots: [number, number, number][] = [
+        [-3.4, 3.6, 1.0],
+        [3.4, 3.6, 1.05],
+        [-4.6, 0.6, 1.1],
+        [4.6, 0.6, 1.0],
+        [-2.6, 4.6, 0.95],
+        [2.6, 4.8, 1.05],
+        [0, 5.2, 1.15],
+        [-5.4, -2.2, 0.95],
+        [5.4, -2.2, 1.0],
+    ];
+    for (let i = 0; i < spots.length; i++) {
+        const [x, z, s] = spots[i]!;
+        await place(trees[i % trees.length]!, x, z, s, i + 1);
+    }
+
+    // Bushes + rocks fill the mid-ground at the tree line and scatter toward the
+    // figure so the ground reads with depth instead of a flat void.
+    const bushFiles = ["Bush_1_A_Color1", "Bush_2_A_Color1", "Bush_4_A_Color1"];
+    const bushes: [number, number][] = [
+        [-2.2, 2.4],
+        [2.4, 2.6],
+        [-3.6, 1.0],
+        [3.6, 1.2],
+        [-1.6, 3.6],
+        [1.8, 3.8],
+        [-2.8, -1.4],
+        [2.8, -1.2],
+    ];
+    for (let i = 0; i < bushes.length; i++) {
+        const [x, z] = bushes[i]!;
+        await place(bushFiles[i % bushFiles.length]!, x, z, 2.4, i + 20);
+    }
+    const rockFiles = ["Rock_1_A_Color1", "Rock_2_A_Color1"];
+    const rocks: [number, number][] = [
+        [-1.8, 1.4],
+        [1.9, 1.6],
+        [-3.0, 3.0],
+        [3.0, 2.0],
+        [-1.4, -1.8],
+        [1.6, -1.6],
+    ];
+    for (let i = 0; i < rocks.length; i++) {
+        const [x, z] = rocks[i]!;
+        await place(rockFiles[i % rockFiles.length]!, x, z, 1.5, i + 40);
+    }
+    // Grass tufts close to the figure for foreground detail.
+    for (const [x, z, seed] of [
+        [-1.2, 1.1, 60],
+        [1.3, 1.3, 61],
+        [-1.5, -0.8, 62],
+        [1.4, -0.6, 63],
+        [-0.8, 2.0, 64],
+        [0.9, 2.1, 65],
+    ] as [number, number, number][]) {
+        await place("Grass_1_A_Color1", x, z, 2.2, seed);
+    }
+
+    return nodes;
+}
+
 /** The background catalog. Real KayKit scenes are assembled from kit pieces. */
 export function getBackgrounds(): BackgroundDef[] {
     return [
@@ -247,7 +286,7 @@ export function getBackgrounds(): BackgroundDef[] {
         {
             id: "forest",
             label: "Forest",
-            build: buildForest,
+            assemble: assembleForest,
             mood: {
                 clearColor: [0.46, 0.62, 0.78],
                 fog: { start: 16, end: 52, color: [0.5, 0.64, 0.78] },
@@ -257,21 +296,6 @@ export function getBackgrounds(): BackgroundDef[] {
                 keyTint: [1.0, 0.97, 0.86],
                 fill: 0.8,
                 rim: 0.6,
-            },
-        },
-        {
-            id: "plains",
-            label: "Sunset Plains",
-            build: buildPlains,
-            mood: {
-                clearColor: [0.62, 0.42, 0.27],
-                fog: { start: 18, end: 60, color: [0.66, 0.45, 0.3] },
-                hemi: 1.1,
-                hemiGround: [0.3, 0.18, 0.1],
-                key: 2.1,
-                keyTint: [1.0, 0.8, 0.55],
-                fill: 0.7,
-                rim: 0.9,
             },
         },
     ];
