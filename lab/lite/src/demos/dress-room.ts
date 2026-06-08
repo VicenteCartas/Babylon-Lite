@@ -23,6 +23,7 @@ import {
     addToScene,
     getJointWorldMatrix,
     loadEnvironment,
+    mat4Compose,
     mat4Decompose,
     mat4Multiply,
     onBeforeRender,
@@ -34,7 +35,7 @@ import {
     stopAnimation,
 } from "babylon-lite";
 import type { AnimationGroup, SceneNode } from "babylon-lite";
-import { getAnimations, getClasses, getWeapons, loadCharacter, loadWeapon } from "./dress-room/character.js";
+import { getAnimations, getClasses, getWeapons, loadCharacter, loadWeapon, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
 import type { AnimationOption, CharacterClass, LoadedCharacter, LoadedWeapon, WeaponOption } from "./dress-room/character.js";
 import { buildPanel } from "./dress-room/ui.js";
 import type { DressRoomApi } from "./dress-room/ui.js";
@@ -131,20 +132,23 @@ async function main(): Promise<void> {
         }
 
         // Held weapons. A single anchor node is driven each frame from the active
-        // character's right-hand socket (handslot.r); a grip child holds a constant
-        // alignment correction; the weapon props hang under the grip. Because only
-        // one character is visible at a time, one shared anchor + weapon set covers
-        // every class.
+        // character's right-hand socket (handslot.r). Each weapon hangs under its
+        // own grip node, which carries a per-weapon orientation correction (see
+        // DEFAULT_GRIP_EULER / WeaponOption.grip — most weapons share a 180° spin
+        // about their long axis; the bow overrides it). Because only one character
+        // is visible at a time, one shared anchor + weapon set covers every class.
         const weaponAnchor = createTransformNode("weaponAnchor");
         addToScene(scene, weaponAnchor);
-        const weaponGrip = createTransformNode("weaponGrip", 0, 0, 0, 0, 0, 0, 1, 1, 1);
-        weaponGrip.parent = weaponAnchor;
-        addToScene(scene, weaponGrip);
         const weaponDefs = getWeapons();
         const weapons = new Map<string, LoadedWeapon>();
         for (const w of weaponDefs) {
             if (w.file) {
-                weapons.set(w.id, await loadWeapon(engine, scene, ASSET_BASE, w, weaponGrip as SceneNode));
+                const [gx, gy, gz] = w.grip ?? DEFAULT_GRIP_EULER;
+                const grip = createTransformNode("weaponGrip_" + w.id);
+                grip.rotation.set(gx, gy, gz);
+                grip.parent = weaponAnchor;
+                addToScene(scene, grip);
+                weapons.set(w.id, await loadWeapon(engine, scene, ASSET_BASE, w, grip as SceneNode));
             }
         }
         let activeWeapon = "none";
@@ -211,10 +215,22 @@ async function main(): Promise<void> {
         };
 
         // Drive the weapon anchor from the active character's right-hand socket
-        // every frame. The joint's animated transform is in the character's local
-        // space, so compose it with the character root's world matrix, then
-        // decompose to position + rotation for the anchor. Only a playing group has
-        // up-to-date joint matrices.
+        // every frame, so a held prop follows the animated bone.
+        //
+        // Mirror bookkeeping: the glTF loader wraps every asset (characters AND
+        // weapons) in a synthetic `__root__` whose scale `diag(-1, 1, 1)` performs
+        // the right-handed → left-handed conversion. The skeleton controller bakes
+        // that same mirror into the joint world matrix it reports. So
+        // `char.roots[0].worldMatrix` and `jointMat` each already carry one mirror;
+        // multiplying them directly applies it twice, which reflects the socket's
+        // rotation and makes the prop counter-rotate against the hand as it
+        // animates. Re-inserting one `MIRROR_X` between them cancels the double
+        // application and lands on the true socket frame. A second, trailing
+        // `MIRROR_X` pre-cancels the weapon prop's OWN `__root__` mirror, so the
+        // prop sits exactly in the hand. The resulting frame is a proper rotation
+        // (determinant +1), so position + rotation fully describe it and the prop
+        // is never culled inside-out.
+        const MIRROR_X = mat4Compose(0, 0, 0, 0, 0, 0, 1, -1, 1, 1);
         const wPos: [number, number, number] = [0, 0, 0];
         const wQuat: [number, number, number, number] = [0, 0, 0, 1];
         const wScale: [number, number, number] = [1, 1, 1];
@@ -237,7 +253,8 @@ async function main(): Promise<void> {
             if (!jointMat) {
                 return;
             }
-            const world = mat4Multiply(char.roots[0]!.worldMatrix, jointMat);
+            const rootWorld = char.roots[0]!.worldMatrix;
+            const world = mat4Multiply(mat4Multiply(mat4Multiply(rootWorld, MIRROR_X), jointMat), MIRROR_X);
             mat4Decompose(world, wPos, wQuat, wScale);
             weaponAnchor.position.set(wPos[0], wPos[1], wPos[2]);
             weaponAnchor.rotationQuaternion.set(wQuat[0], wQuat[1], wQuat[2], wQuat[3]);

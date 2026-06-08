@@ -1,6 +1,6 @@
 {
   "offscreen": {
-    "rawKB": 179.3,
+    "rawKB": 179.5,
     "gzipKB": 74.4
   },
   "torus-states": {
@@ -28,19 +28,19 @@
     "gzipKB": 25.3
   },
   "mosquito-amber": {
-    "rawKB": 104.2,
-    "gzipKB": 40.9
+    "rawKB": 104.3,
+    "gzipKB": 41
   },
   "littlest-tokyo": {
-    "rawKB": 58.5,
-    "gzipKB": 23.2
+    "rawKB": 58.8,
+    "gzipKB": 23.3
   },
   "bath-day": {
-    "rawKB": 177.7,
-    "gzipKB": 61
+    "rawKB": 178,
+    "gzipKB": 61.1
   },
   "dress-room": {
-    "rawKB": 72.7,
-    "gzipKB": 27.4
+    "rawKB": 85.4,
+    "gzipKB": 32.2
   }
 }

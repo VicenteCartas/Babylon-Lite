@@ -15,7 +15,7 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "bow_withString"
+            "name" : "bow"
         }
     ],
     "materials" : [
@@ -33,12 +33,7 @@
     ],
     "meshes" : [
         {
-            "extras" : {
-                "targetNames" : [
-                    "Draw"
-                ]
-            },
-            "name" : "bow_withString",
+            "name" : "bow",
             "primitives" : [
                 {
                     "attributes" : {
@@ -47,17 +42,8 @@
                         "NORMAL" : 2
                     },
                     "indices" : 3,
-                    "material" : 0,
-                    "targets" : [
-                        {
-                            "POSITION" : 4,
-                            "NORMAL" : 5
-                        }
-                    ]
+                    "material" : 0
                 }
-            ],
-            "weights" : [
-                0
             ]
         }
     ],
@@ -78,7 +64,7 @@
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 802,
+            "count" : 496,
             "max" : [
                 0.12819603085517883,
                 0.07779941707849503,
@@ -94,80 +80,46 @@
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 802,
+            "count" : 496,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 802,
+            "count" : 496,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 2052,
+            "count" : 1236,
             "type" : "SCALAR"
-        },
-        {
-            "bufferView" : 4,
-            "componentType" : 5126,
-            "count" : 802,
-            "max" : [
-                -0.0004337318241596222,
-                0.001040344126522541,
-                0.14671479165554047
-            ],
-            "min" : [
-                -0.5072237253189087,
-                -0.0010403292253613472,
-                -0.14671340584754944
-            ],
-            "type" : "VEC3"
-        },
-        {
-            "bufferView" : 5,
-            "componentType" : 5126,
-            "count" : 802,
-            "type" : "VEC3"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 9624,
+            "byteLength" : 5952,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 6416,
-            "byteOffset" : 9624,
+            "byteLength" : 3968,
+            "byteOffset" : 5952,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 9624,
-            "byteOffset" : 16040,
+            "byteLength" : 5952,
+            "byteOffset" : 9920,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 4104,
-            "byteOffset" : 25664,
+            "byteLength" : 2472,
+            "byteOffset" : 15872,
             "target" : 34963
-        },
-        {
-            "buffer" : 0,
-            "byteLength" : 9624,
-            "byteOffset" : 29768,
-            "target" : 34962
-        },
-        {
-            "buffer" : 0,
-            "byteLength" : 9624,
-            "byteOffset" : 39392,
-            "target" : 34962
         }
     ],
     "samplers" : [
@@ -178,8 +130,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 49016,
-            "uri" : "bow_withString.bin"
+            "byteLength" : 18344,
+            "uri" : "bow.bin"
         }
     ]
 }

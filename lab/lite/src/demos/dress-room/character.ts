@@ -41,6 +41,10 @@ export interface WeaponOption {
     label: string;
     /** glTF filename under the weapons folder; undefined leaves the hand empty. */
     file?: string;
+    /** Optional grip-orientation correction (Euler XYZ radians) applied between the
+     *  hand socket and the weapon. Defaults to {@link DEFAULT_GRIP_EULER}; override
+     *  only for props authored on a different axis (e.g. the bow). */
+    grip?: readonly [number, number, number];
 }
 
 /** A loaded weapon prop, parented to a placement node the demo drives each frame. */
@@ -80,6 +84,16 @@ export function getClasses(): CharacterClass[] {
     ];
 }
 
+/** Default grip-orientation correction (Euler XYZ radians) for held weapons.
+ *
+ *  KayKit weapons are authored facing one way down the hand socket, and the
+ *  right-handed → left-handed mirror baked into the socket frame flips that
+ *  facing. A 180° spin about the weapon's long axis (Y) restores the intended
+ *  facing for the pole-shaped props (sword, axe, dagger, staff, wand). It is
+ *  invisible on weapons symmetric about that axis and corrects the rest. The bow
+ *  is modelled with its limbs along Z rather than Y, so it overrides this. */
+export const DEFAULT_GRIP_EULER: readonly [number, number, number] = [0, Math.PI, 0];
+
 /** The weapon roster, in display order. Each is a static KayKit prop held in the
  *  right hand socket (`handslot.r`). */
 export function getWeapons(): WeaponOption[] {
@@ -91,7 +105,11 @@ export function getWeapons(): WeaponOption[] {
         { id: "dagger", label: "Dagger", file: "weapons/dagger.gltf" },
         { id: "staff", label: "Staff", file: "weapons/staff.gltf" },
         { id: "wand", label: "Wand", file: "weapons/wand.gltf" },
-        { id: "bow", label: "Bow", file: "weapons/bow_withString.gltf" },
+        // The bow is modelled with its limbs along local +Z, whereas the pole
+        // weapons run along +Y. A +90° tilt about X lays the bow horizontal
+        // (parallel to the ground, like the other weapons), limbs forward, with
+        // the riser/grip facing up so it reads correctly through the walk cycle.
+        { id: "bow", label: "Bow", file: "weapons/bow.gltf", grip: [Math.PI / 2, 0, 0] },
     ];
 }
 
