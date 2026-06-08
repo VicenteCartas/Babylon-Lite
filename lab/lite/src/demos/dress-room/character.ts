@@ -292,17 +292,22 @@ export function getWeapons(): WeaponOption[] {
  *  pointing along local +Z. The default off-hand grip stands a prop upright but
  *  leaves that face pointing inward, across the body; the shields override the
  *  grip so the face points out to the side, away from the body, as a shield
- *  carried on the forearm would. The tankard's pivot is its cup body rather than
- *  its handle, so it carries an offset that slides the handle into the hand while
- *  the cup hangs outward. */
+ *  carried on the forearm would, and push the plate outward along its face normal
+ *  so the hand grips its back instead of the centre (otherwise the fist clips
+ *  through the front). The tankard's pivot is its cup body rather than its handle,
+ *  so it carries an offset that slides the handle into the hand while the cup
+ *  hangs outward. */
 export function getOffhands(): OffhandOption[] {
     const shieldGrip = [0, 0, Math.PI / 2] as const;
+    // Push the plate out along its face normal (the grip's local +Z) so the hand
+    // sits at the back of the shield rather than its centre.
+    const shieldOffset = [0, 0, 0.15] as const;
     return [
         { id: "none", label: "None" },
-        { id: "shield_round", label: "Round Shield", file: "weapons/shield_round.gltf", grip: shieldGrip, kind: "shield" },
-        { id: "shield_square", label: "Kite Shield", file: "weapons/shield_square.gltf", grip: shieldGrip, kind: "shield" },
-        { id: "shield_spikes", label: "Spiked Shield", file: "weapons/shield_spikes.gltf", grip: shieldGrip, kind: "shield" },
-        { id: "shield_badge", label: "Crest Shield", file: "weapons/shield_badge.gltf", grip: shieldGrip, kind: "shield" },
+        { id: "shield_round", label: "Round Shield", file: "weapons/shield_round.gltf", grip: shieldGrip, offset: shieldOffset, kind: "shield" },
+        { id: "shield_square", label: "Kite Shield", file: "weapons/shield_square.gltf", grip: shieldGrip, offset: shieldOffset, kind: "shield" },
+        { id: "shield_spikes", label: "Spiked Shield", file: "weapons/shield_spikes.gltf", grip: shieldGrip, offset: shieldOffset, kind: "shield" },
+        { id: "shield_badge", label: "Crest Shield", file: "weapons/shield_badge.gltf", grip: shieldGrip, offset: shieldOffset, kind: "shield" },
         { id: "spellbook", label: "Spellbook", file: "weapons/spellbook_open.gltf", kind: "item" },
         { id: "quiver", label: "Quiver", file: "weapons/quiver.gltf", kind: "item" },
         { id: "mug", label: "Tankard", file: "weapons/mug_full.gltf", offset: [0, 0.071, 0.26], kind: "item" },
