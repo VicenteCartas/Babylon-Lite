@@ -1,6 +1,0 @@
-SLICE 2 — KayKit Character Animations.
-
-Drop the animation glTFs here (.gltf + .bin + texture if present).
-The pack splits clips by rig (Rig_Medium / Rig_Large) — bring the set
-that matches the Adventurers rig (I'll confirm which when slice 1 lands).
-glTF format only.

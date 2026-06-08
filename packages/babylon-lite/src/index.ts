@@ -142,6 +142,7 @@ export { enableMaterialTracking } from "./material/observable-material.js";
 
 // ─── Loaders ─────────────────────────────────────────────────────────
 export { loadGltf } from "./loader-gltf/load-gltf.js";
+export { loadGltfWithAnimations } from "./loader-gltf/load-gltf-animated.js";
 export type { AssetContainer } from "./asset-container.js";
 export { selectVariant, getVariantNames, resetVariant } from "./loader-gltf/material-variants.js";
 export type { MaterialVariantData } from "./loader-gltf/material-variants.js";

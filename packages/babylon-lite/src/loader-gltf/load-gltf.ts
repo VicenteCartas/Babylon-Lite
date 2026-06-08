@@ -77,6 +77,35 @@ export interface GltfMeshData {
  * registers animation ticks, and applies any scene-level settings.
  */
 export async function loadGltf(engine: EngineContext, url: string): Promise<AssetContainer> {
+    return (await loadGltfInternal(engine, url)).container;
+}
+
+/** @internal Result of {@link loadGltfInternal} — the public container plus the
+ *  parsed glTF internals needed by advanced loaders (e.g. animation retargeting)
+ *  to rebuild a skeleton rig or remap animation channels. */
+export interface LoadGltfResult {
+    container: AssetContainer;
+    /** @internal Raw glTF JSON. */
+    _json: any;
+    /** @internal Post-preParse binary chunk (decompressed if applicable). */
+    _binChunk: DataView;
+    /** @internal Uploaded meshes (carry `skeleton`/`morphTargets` GPU data). */
+    _meshes: Mesh[];
+    /** @internal node→parent map. */
+    _parentMap: Map<number, number>;
+    /** @internal node→world-matrix cache. */
+    _worldMatrixCache: Map<number, Mat4>;
+    /** @internal glTF-node-index → live SceneNode map. */
+    _nodeMap: readonly (TransformNode | undefined)[];
+}
+
+/**
+ * Load a .glb or .gltf file, parse it, and upload mesh + material data to GPU,
+ * returning both the {@link AssetContainer} and the parsed glTF internals. Used
+ * by advanced loaders (animation retargeting) that need the skeleton rig and
+ * node hierarchy; most callers want {@link loadGltf}.
+ */
+export async function loadGltfInternal(engine: EngineContext, url: string): Promise<LoadGltfResult> {
     const { json, binChunk, baseUrl } = await fetchGltfAsset(url);
 
     // Build parent map + world-matrix cache once for O(n) hierarchy traversal
@@ -156,11 +185,21 @@ export async function loadGltf(engine: EngineContext, url: string): Promise<Asse
         void _ignored;
         Object.assign(container, rest);
     }
-    return container;
+    return {
+        container,
+        _json: json,
+        _binChunk: activeBin,
+        _meshes: meshes,
+        _parentMap: parentMap,
+        _worldMatrixCache: worldMatrixCache,
+        _nodeMap: nodeMap,
+    };
 }
 
-/** Fetch + parse a .glb or .gltf asset. Returns the JSON, binary chunk, and base URL. */
-async function fetchGltfAsset(url: string): Promise<{ json: any; binChunk: DataView; baseUrl: string }> {
+/** Fetch + parse a .glb or .gltf asset. Returns the JSON, binary chunk, and base URL.
+ *  @internal Exported for advanced loaders (animation retargeting) that need to
+ *  read a second glTF's clips without uploading its meshes. */
+export async function fetchGltfAsset(url: string): Promise<{ json: any; binChunk: DataView; baseUrl: string }> {
     const baseUrl = url.substring(0, url.lastIndexOf("/") + 1);
     if (url.toLowerCase().endsWith(".glb")) {
         const buffer = await fetch(url).then((r) => r.arrayBuffer());

@@ -21,13 +21,15 @@ import {
     createSceneContext,
     addToScene,
     loadEnvironment,
+    playAnimation,
     registerSceneWithShadowSupport,
     setCameraLimits,
     setShadowTaskCasterMeshes,
     startEngine,
+    stopAnimation,
 } from "babylon-lite";
-import { getClasses, loadCharacter } from "./dress-room/character.js";
-import type { CharacterClass, LoadedCharacter } from "./dress-room/character.js";
+import { getAnimations, getClasses, loadCharacter } from "./dress-room/character.js";
+import type { AnimationOption, CharacterClass, LoadedCharacter } from "./dress-room/character.js";
 import { buildPanel } from "./dress-room/ui.js";
 import type { DressRoomApi } from "./dress-room/ui.js";
 import { createBackgrounds, getBackgrounds } from "./dress-room/background.js";
@@ -40,6 +42,20 @@ const ASSET_BASE = demoAssetUrl("./dress-room/", import.meta.url);
 
 const DEFAULT_CLASS = "knight";
 const DEFAULT_SCENE = "dungeon";
+const DEFAULT_ANIM = "idle";
+
+/** Play one animation (by roster id) on a character, stopping all its others.
+ *  Falls back gracefully if the clip is missing on this character. */
+function applyAnimation(character: LoadedCharacter, animId: string, anims: readonly AnimationOption[]): void {
+    const clip = anims.find((a) => a.id === animId)?.clip;
+    for (const [name, group] of character.groups) {
+        if (name === clip) {
+            playAnimation(group);
+        } else if (group.isPlaying) {
+            stopAnimation(group);
+        }
+    }
+}
 
 async function main(): Promise<void> {
     const __initStart = performance.now();
@@ -130,25 +146,47 @@ async function main(): Promise<void> {
         const allMeshes = [...characters.values()].flatMap((c) => c.meshes);
         setShadowTaskCasterMeshes(keyLight.shadowGenerator, allMeshes);
 
-        // Default class + background scene.
+        // Default class + background scene + animation.
+        const anims = getAnimations();
         let activeClass = DEFAULT_CLASS;
-        characters.get(activeClass)?.setVisible(true);
+        let activeAnim = DEFAULT_ANIM;
+        const startChar = characters.get(activeClass);
+        if (startChar) {
+            startChar.setVisible(true);
+            applyAnimation(startChar, activeAnim, anims);
+        }
         backgrounds.activate(backgrounds.defs.some((d) => d.id === DEFAULT_SCENE) ? DEFAULT_SCENE : backgrounds.defs[0]!.id);
 
         const setClass = (id: string): void => {
             if (id === activeClass || !characters.has(id)) {
                 return;
             }
-            characters.get(activeClass)?.setVisible(false);
-            characters.get(id)?.setVisible(true);
+            const prev = characters.get(activeClass);
+            if (prev) {
+                applyAnimation(prev, "", anims); // stop the outgoing character's clips
+                prev.setVisible(false);
+            }
+            const next = characters.get(id);
+            if (next) {
+                next.setVisible(true);
+                applyAnimation(next, activeAnim, anims);
+            }
             activeClass = id;
+        };
+
+        const setAnimation = (animId: string): void => {
+            activeAnim = animId;
+            const character = characters.get(activeClass);
+            if (character) {
+                applyAnimation(character, animId, anims);
+            }
         };
 
         await registerSceneWithShadowSupport(engine, scene);
         progress.done();
         await startEngine(engine);
 
-        wireUi(classDefs, () => activeClass, setClass, backgrounds);
+        wireUi(classDefs, () => activeClass, setClass, anims, () => activeAnim, setAnimation, backgrounds);
 
         canvas.dataset.drawCalls = String(engine.drawCallCount);
         canvas.dataset.initMs = String(performance.now() - __initStart);
@@ -162,12 +200,21 @@ async function main(): Promise<void> {
 
 // ─── UI wiring ────────────────────────────────────────────────────────
 
-function wireUi(classDefs: CharacterClass[], getClassId: () => string, setClass: (id: string) => void, backgrounds: BackgroundController): void {
+function wireUi(
+    classDefs: CharacterClass[],
+    getClassId: () => string,
+    setClass: (id: string) => void,
+    anims: AnimationOption[],
+    getAnimId: () => string,
+    setAnimation: (id: string) => void,
+    backgrounds: BackgroundController
+): void {
+    const animById = new Map(anims.map((a) => [a.id, a.label] as const));
     const api: DressRoomApi = {
         classes: classDefs.map((c) => ({ id: c.id, label: c.label })),
         scenes: backgrounds.defs.map((d) => ({ id: d.id, label: d.label })),
         slots: [],
-        animations: [],
+        animations: anims.map((a) => a.label),
         presets: [],
         tintable: false,
         getClass: () => getClassId(),
@@ -177,8 +224,13 @@ function wireUi(classDefs: CharacterClass[], getClassId: () => string, setClass:
         getOption: () => "none",
         setOption: () => {},
         cycleOption: () => {},
-        getAnimation: () => "",
-        setAnimation: () => {},
+        getAnimation: () => animById.get(getAnimId()) ?? "",
+        setAnimation: (label) => {
+            const opt = anims.find((a) => a.label === label);
+            if (opt) {
+                setAnimation(opt.id);
+            }
+        },
         getTint: () => null,
         setTint: () => {},
         resetTint: () => {},
