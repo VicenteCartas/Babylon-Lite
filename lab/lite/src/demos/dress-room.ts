@@ -474,11 +474,20 @@ async function main(): Promise<void> {
             if (!char) {
                 return;
             }
+            // Pick the dominant (highest-weight) playing clip. During a steady
+            // cross-fade the blended socket pose below is the same whichever clip we
+            // pass, but on the single frame a settle is set up the incoming clip has
+            // just been played at weight 0 and not yet ticked, and the mixer has not
+            // blended the figure this frame — so the fallback would read that clip's
+            // stale (or zero) controller pose and pop the prop off the hand for one
+            // frame. The weight-1 clip is the one actually rendered this frame, and
+            // its controller pose is fresh, so resolve the socket through it.
             let playing: AnimationGroup | undefined;
+            let bestWeight = -1;
             for (const g of char.groups.values()) {
-                if (g.isPlaying) {
+                if (g.isPlaying && g.weight > bestWeight) {
                     playing = g;
-                    break;
+                    bestWeight = g.weight;
                 }
             }
             // While the figure is cross-fading, no single controller holds its pose,
@@ -496,10 +505,10 @@ async function main(): Promise<void> {
         };
         // Per-frame animation update, in strict order: advance any cross-fade
         // weights, tick the manager (which blends the live clips on each figure and
-        // uploads one skeleton per figure), settle a finished one-shot back into the
-        // held animation, then drive the held props from the hand sockets. The anchor
-        // driver reads the mixer's blended socket pose during a fade, so props keep
-        // tracking the hand through the transition.
+        // uploads one skeleton per figure), settle a one-shot back into the held
+        // animation as it nears its end, then drive the held props from the hand
+        // sockets. The anchor driver reads the mixer's blended socket pose during a
+        // fade, so props keep tracking the hand through the transition.
         onBeforeRender(scene, (deltaMs) => {
             if (fade) {
                 fade.t += deltaMs;
@@ -515,12 +524,23 @@ async function main(): Promise<void> {
                 }
             }
             updateAnimationManager(animMgr, deltaMs);
-            if (oneShotGroup && oneShotGroup.currentFrame >= oneShotGroup.duration - 1 / 120) {
-                const ch = oneShotChar;
-                oneShotGroup = null;
-                oneShotChar = null;
-                if (ch) {
-                    transition(ch, resolveClip(ch, activeAnim), { loop: true });
+            // Begin settling a one-shot (spawn entrance, Attack, Dodge) back into the
+            // held animation slightly BEFORE it reaches its final frame, so the
+            // action's tail cross-fades into the held clip while it is still in
+            // motion. Waiting for the exact end would render one frame of the
+            // fully-finished action before the blend starts — which reads as the
+            // action "running one extra frame" — and leaves the fade no time overlap.
+            // The lead is capped at half the clip so a short action still plays most
+            // of the way through.
+            if (oneShotGroup) {
+                const lead = Math.min(FADE_MS / 1000, oneShotGroup.duration * 0.5);
+                if (oneShotGroup.currentFrame >= oneShotGroup.duration - lead) {
+                    const ch = oneShotChar;
+                    oneShotGroup = null;
+                    oneShotChar = null;
+                    if (ch) {
+                        transition(ch, resolveClip(ch, activeAnim), { loop: true });
+                    }
                 }
             }
             if (activeWeapon !== "none") {
