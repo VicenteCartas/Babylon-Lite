@@ -52,16 +52,19 @@ export interface AnimationOption {
     clip: string;
 }
 
-/** A head/headgear variant for a class, expressed as the set of toggleable head
- *  meshes that should be visible. A mesh is "toggleable" if its last name segment
- *  (after the final `_`) appears in any of the class's head options' `show` lists;
- *  every such mesh is shown only when this option lists it, and hidden otherwise.
- *  Meshes never mentioned by any option (body, arms, skull, …) are left alone. */
+/** A head/headgear variant for a class. Two flavours:
+ *  - **Mesh toggle** (default): `show` lists the head-mesh suffixes to make visible
+ *    (the rest of that class's toggleable head meshes are hidden).
+ *  - **Model swap**: set `file` to a whole alternate model for this class; the demo
+ *    shows that model instead (used for the Rogue's hooded vs unhooded bodies,
+ *    where the hood is baked into the body mesh and can't be toggled). */
 export interface HeadOption {
     id: string;
     label: string;
     /** Mesh name-suffixes to show for this variant (e.g. `["Head", "Helmet"]`). */
     show: string[];
+    /** Whole alternate model file (under the asset folder) for a model-swap variant. */
+    file?: string;
 }
 
 /** What hand(s) a weapon occupies and how it is wielded — used to resolve the
@@ -165,9 +168,20 @@ export function getClasses(): CharacterClass[] {
             ],
         },
         { id: "ranger", label: "Ranger", file: "characters/Ranger.glb", weapon: "bow", offhand: "quiver" },
-        // The "rogue" id maps to KayKit's hooded rogue model (the plain rogue was
-        // dropped in favour of the necromancer, keeping the roster at six).
-        { id: "rogue", label: "Rogue", file: "characters/Rogue_Hooded.glb", weapon: "dagger", offhand: "none" },
+        // The "rogue" id maps to KayKit's hooded rogue model. Its head variants are
+        // whole-model swaps (hood baked into the body mesh), so each option carries
+        // a `file` instead of a mesh-toggle list; the default is the hooded body.
+        {
+            id: "rogue",
+            label: "Rogue",
+            file: "characters/Rogue_Hooded.glb",
+            weapon: "dagger",
+            offhand: "none",
+            heads: [
+                { id: "hooded", label: "Hooded", show: [], file: "characters/Rogue_Hooded.glb" },
+                { id: "unhooded", label: "Unhooded", show: [], file: "characters/Rogue.glb" },
+            ],
+        },
         // Necromancer = KayKit Skeletons "Skeleton Mage". It shares the Rig_Medium
         // skeleton + hand sockets, so it uses the same animation library and weapon
         // attachment as every other class. It also loads the "Special" set and maps

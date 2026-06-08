@@ -134,16 +134,38 @@ async function main(): Promise<void> {
         const FLOOR_Y = -0.07;
         const BASE_FACING = Math.PI;
         const classDefs = getClasses();
-        const characters = new Map<string, LoadedCharacter>();
-        for (const cls of classDefs) {
-            const character = await loadCharacter(engine, scene, ASSET_BASE, cls);
+        const place = (character: LoadedCharacter): void => {
             for (const root of character.roots) {
                 root.position.set(0, FLOOR_Y, 0);
                 root.rotation.set(0, BASE_FACING, 0);
             }
             character.setVisible(false);
+        };
+        // The base model per class, plus any whole-model head variants (the Rogue's
+        // hooded/unhooded bodies) keyed by `classId` → `headId` → model.
+        const characters = new Map<string, LoadedCharacter>();
+        const altModels = new Map<string, Map<string, LoadedCharacter>>();
+        for (const cls of classDefs) {
+            const character = await loadCharacter(engine, scene, ASSET_BASE, cls);
+            place(character);
             characters.set(cls.id, character);
+            for (const head of cls.heads ?? []) {
+                if (head.file && head.file !== cls.file) {
+                    const alt = await loadCharacter(engine, scene, ASSET_BASE, { ...cls, file: head.file, heads: undefined });
+                    place(alt);
+                    let m = altModels.get(cls.id);
+                    if (!m) {
+                        m = new Map();
+                        altModels.set(cls.id, m);
+                    }
+                    m.set(head.id, alt);
+                }
+            }
         }
+        /** Resolve the model to show for a class + head: a whole-model head variant
+         *  if one is registered, otherwise the class's base model. */
+        const resolveModel = (classId: string, headId: string): LoadedCharacter =>
+            altModels.get(classId)?.get(headId) ?? characters.get(classId)!;
 
         // Held weapons. A single anchor node is driven each frame from the active
         // character's right-hand socket (handslot.r). Each weapon hangs under its
@@ -221,7 +243,8 @@ async function main(): Promise<void> {
             orthoMaxZ: camera.farPlane,
             forceRefreshEveryFrame: true,
         });
-        const allMeshes = [...characters.values()].flatMap((c) => c.meshes);
+        const altList = [...altModels.values()].flatMap((m) => [...m.values()]);
+        const allMeshes = [...characters.values(), ...altList].flatMap((c) => c.meshes);
         setShadowTaskCasterMeshes(keyLight.shadowGenerator, allMeshes);
 
         // Default class + background scene + animation.
@@ -277,12 +300,14 @@ async function main(): Promise<void> {
         }
         const headOf = (classId: string): string => headByClass.get(classId) ?? "";
 
-        const startChar = characters.get(activeClass);
-        if (startChar) {
-            startChar.setVisible(true);
-            applyHead(startChar, headOf(activeClass));
-            playSpawn(startChar);
-        }
+        // The currently-visible model (a class's base model, or one of the Rogue's
+        // hooded/unhooded variants). All per-frame and per-action code resolves the
+        // active figure through this rather than the class id, so a whole-model head
+        // swap re-points every consumer at once.
+        let activeChar: LoadedCharacter = resolveModel(activeClass, headOf(activeClass));
+        activeChar.setVisible(true);
+        applyHead(activeChar, headOf(activeClass));
+        playSpawn(activeChar);
         setWeapon(classById.get(activeClass)?.weapon ?? "none");
         setOffhand(classById.get(activeClass)?.offhand ?? "none");
         backgrounds.activate(backgrounds.defs.some((d) => d.id === DEFAULT_SCENE) ? DEFAULT_SCENE : backgrounds.defs[0]!.id);
@@ -291,28 +316,36 @@ async function main(): Promise<void> {
             if (id === activeClass || !characters.has(id)) {
                 return;
             }
-            const prev = characters.get(activeClass);
-            if (prev) {
-                applyAnimation(prev, "", anims); // stop the outgoing character's clips
-                prev.setVisible(false);
-            }
-            const next = characters.get(id);
-            if (next) {
-                next.setVisible(true);
-                applyHead(next, headOf(id));
-                playSpawn(next);
-            }
+            applyAnimation(activeChar, "", anims); // stop the outgoing figure's clips
+            activeChar.setVisible(false);
             activeClass = id;
+            activeChar = resolveModel(id, headOf(id));
+            activeChar.setVisible(true);
+            applyHead(activeChar, headOf(id));
+            playSpawn(activeChar);
             setWeapon(classById.get(id)?.weapon ?? "none");
             setOffhand(classById.get(id)?.offhand ?? "none");
         };
 
         const setHead = (id: string): void => {
             headByClass.set(activeClass, id);
-            const character = characters.get(activeClass);
-            if (character) {
-                applyHead(character, id);
+            const next = resolveModel(activeClass, id);
+            if (next === activeChar) {
+                // Same model — a mesh-toggle head variant; just re-show the meshes.
+                applyHead(activeChar, id);
+                return;
             }
+            // Whole-model swap (Rogue hooded ⇄ unhooded): hand the active animation
+            // over to the incoming model without replaying the spawn.
+            applyAnimation(activeChar, "", anims);
+            activeChar.setVisible(false);
+            activeChar = next;
+            activeChar.setVisible(true);
+            applyHead(activeChar, id);
+            // Cancel any in-progress spawn settle so it can't retarget the old model.
+            spawnGroup = null;
+            spawnChar = null;
+            applyAnimation(activeChar, activeAnim, anims);
         };
 
         // Drive the weapon anchor from the active character's right-hand socket
@@ -339,7 +372,7 @@ async function main(): Promise<void> {
         // Shared by the right-hand weapon (handslot.r) and the left-hand off-hand
         // item (handslot.l).
         const driveAnchor = (anchor: SceneNode, socket: string): void => {
-            const char = characters.get(activeClass);
+            const char = activeChar;
             if (!char) {
                 return;
             }
@@ -391,10 +424,7 @@ async function main(): Promise<void> {
             // A manual animation pick cancels any in-progress spawn settle-in.
             spawnGroup = null;
             spawnChar = null;
-            const character = characters.get(activeClass);
-            if (character) {
-                applyAnimation(character, animId, anims);
-            }
+            applyAnimation(activeChar, animId, anims);
         };
 
         await registerSceneWithShadowSupport(engine, scene);
