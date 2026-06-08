@@ -24,6 +24,7 @@ import {
     addToScene,
     createAnimationManager,
     enableAnimationBlending,
+    getBlendedJointWorldMatrix,
     getJointWorldMatrix,
     loadEnvironment,
     mat4Compose,
@@ -473,7 +474,10 @@ async function main(): Promise<void> {
                     break;
                 }
             }
-            const jointMat = playing ? getJointWorldMatrix(playing, socket) : null;
+            // While the figure is cross-fading, no single controller holds its pose,
+            // so read the mixer's blended socket matrix; otherwise read the steady
+            // controller. This keeps the held prop on the hand through a transition.
+            const jointMat = playing ? (getBlendedJointWorldMatrix(playing, socket) ?? getJointWorldMatrix(playing, socket)) : null;
             if (!jointMat) {
                 return;
             }
@@ -486,12 +490,9 @@ async function main(): Promise<void> {
         // Per-frame animation update, in strict order: advance any cross-fade
         // weights, tick the manager (which blends the live clips on each figure and
         // uploads one skeleton per figure), settle a finished one-shot back into the
-        // held animation, then drive the held props from the hand sockets. While a
-        // cross-fade is in flight the blended hand pose isn't read back through a
-        // single controller, so the props hold steady for the ~FADE_MS and resume
-        // onto the hand once a single clip owns the pose again — invisible for the
-        // small hand deltas of the transitions we fade (spawn→idle, idle↔walk, the
-        // settle out of an action).
+        // held animation, then drive the held props from the hand sockets. The anchor
+        // driver reads the mixer's blended socket pose during a fade, so props keep
+        // tracking the hand through the transition.
         onBeforeRender(scene, (deltaMs) => {
             if (fade) {
                 fade.t += deltaMs;
@@ -514,13 +515,11 @@ async function main(): Promise<void> {
                     transition(ch, resolveClip(ch, activeAnim), { loop: true });
                 }
             }
-            if (!fade) {
-                if (activeWeapon !== "none") {
-                    driveAnchor(weaponAnchor as SceneNode, "handslot.r");
-                }
-                if (activeOffhand !== "none") {
-                    driveAnchor(offhandAnchor as SceneNode, "handslot.l");
-                }
+            if (activeWeapon !== "none") {
+                driveAnchor(weaponAnchor as SceneNode, "handslot.r");
+            }
+            if (activeOffhand !== "none") {
+                driveAnchor(offhandAnchor as SceneNode, "handslot.l");
             }
         });
 
