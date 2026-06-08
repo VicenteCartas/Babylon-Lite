@@ -51,6 +51,12 @@ const DEFAULT_CLASS = "knight";
 const DEFAULT_SCENE = "dungeon";
 const DEFAULT_ANIM = "idle";
 
+/** KayKit clips played once to "spawn" a character when its class is selected,
+ *  before it settles into the active animation. The set ships two — `Spawn_Air`
+ *  (drops in from above) and `Spawn_Ground` (leaps up from the floor) — and one
+ *  is chosen at random each time for variety. */
+const SPAWN_CLIPS = ["Spawn_Air", "Spawn_Ground"] as const;
+
 /** Play one animation (by roster id) on a character, stopping all its others.
  *  Falls back gracefully if the clip is missing on this character. */
 function applyAnimation(character: LoadedCharacter, animId: string, anims: readonly AnimationOption[]): void {
@@ -188,10 +194,44 @@ async function main(): Promise<void> {
         const classById = new Map(classDefs.map((c) => [c.id, c] as const));
         let activeClass = DEFAULT_CLASS;
         let activeAnim = DEFAULT_ANIM;
+
+        // Spawn handling. Selecting a class plays a randomly chosen one-shot spawn
+        // clip, then settles the figure into the active animation when it finishes.
+        //
+        // These clips must NOT loop and must restart from frame 0 each time. The
+        // group-level `loopAnimation`/`currentFrame` fields don't help here: the
+        // container animation ticker advances each clip's controller directly, so
+        // those group fields are never synced to (or from) the controller. We drive
+        // the controller instead — reset its time, disable looping (it then clamps
+        // at the final frame), and ensure it is playing — and read its clamped time
+        // to know when the spawn has finished.
+        let spawnGroup: AnimationGroup | null = null;
+        let spawnChar: LoadedCharacter | null = null;
+        const playSpawn = (character: LoadedCharacter): void => {
+            const clip = SPAWN_CLIPS[Math.floor(Math.random() * SPAWN_CLIPS.length)]!;
+            const spawn = character.groups.get(clip);
+            const ctrl = spawn?._ctrl;
+            if (!spawn || !ctrl) {
+                applyAnimation(character, activeAnim, anims);
+                return;
+            }
+            for (const g of character.groups.values()) {
+                if (g !== spawn && g.isPlaying) {
+                    stopAnimation(g);
+                }
+            }
+            playAnimation(spawn);
+            ctrl.time = 0;
+            ctrl.loop = false;
+            ctrl.playing = true;
+            spawnGroup = spawn;
+            spawnChar = character;
+        };
+
         const startChar = characters.get(activeClass);
         if (startChar) {
             startChar.setVisible(true);
-            applyAnimation(startChar, activeAnim, anims);
+            playSpawn(startChar);
         }
         setWeapon(classById.get(activeClass)?.weapon ?? "none");
         backgrounds.activate(backgrounds.defs.some((d) => d.id === DEFAULT_SCENE) ? DEFAULT_SCENE : backgrounds.defs[0]!.id);
@@ -208,7 +248,7 @@ async function main(): Promise<void> {
             const next = characters.get(id);
             if (next) {
                 next.setVisible(true);
-                applyAnimation(next, activeAnim, anims);
+                playSpawn(next);
             }
             activeClass = id;
             setWeapon(classById.get(id)?.weapon ?? "none");
@@ -260,8 +300,28 @@ async function main(): Promise<void> {
             weaponAnchor.rotationQuaternion.set(wQuat[0], wQuat[1], wQuat[2], wQuat[3]);
         });
 
+        // Settle a freshly spawned figure into the active animation once its
+        // one-shot spawn clip reaches the end. Looping is disabled on the spawn
+        // controller, so its play head clamps at the clip duration; this runs
+        // before the animation ticker each frame, so the active animation takes
+        // over without the spawn's final frame looping back to the start.
+        onBeforeRender(scene, () => {
+            const ctrl = spawnGroup?._ctrl;
+            if (spawnGroup && ctrl && ctrl.time >= spawnGroup.duration - 1 / 120) {
+                const ch = spawnChar;
+                spawnGroup = null;
+                spawnChar = null;
+                if (ch) {
+                    applyAnimation(ch, activeAnim, anims);
+                }
+            }
+        });
+
         const setAnimation = (animId: string): void => {
             activeAnim = animId;
+            // A manual animation pick cancels any in-progress spawn settle-in.
+            spawnGroup = null;
+            spawnChar = null;
             const character = characters.get(activeClass);
             if (character) {
                 applyAnimation(character, animId, anims);
