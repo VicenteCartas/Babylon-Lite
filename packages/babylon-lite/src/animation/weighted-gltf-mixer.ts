@@ -224,6 +224,14 @@ function getTarget(scratch: WeightedGltfScratch, mixer: AnimationGltfMixer): Wei
             sWeight: new Float32Array(numNodes),
             active: false,
         };
+        // Seed the rest pose now. A target created mid-update misses the per-frame
+        // rest reset (the `forEach(resetWeightedGltfTarget)` above only visits targets
+        // that already existed this frame). Without this, on a figure's very first
+        // blend any node with no animation channel — e.g. the skin/armature root —
+        // would compose from a zeroed TRS, i.e. a degenerate zero-quaternion/zero-scale
+        // local matrix, for exactly one frame; that propagates down the joint hierarchy
+        // and collapses the skinned mesh, a one-frame flash on the first cross-fade.
+        resetTarget(target);
         scratch.targets.set(nodes, target);
     }
     return target;

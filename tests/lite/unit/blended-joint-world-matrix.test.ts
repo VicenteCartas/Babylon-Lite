@@ -60,9 +60,12 @@ describe("getBlendedJointWorldMatrix", () => {
         addAnimationGroups(manager, [from, to]);
         enableAnimationBlending(manager);
 
-        // Two frames: the per-target rest pose is established on the second update,
-        // so a joint with no animation channels resolves to its rest world matrix.
-        updateAnimationManager(manager, 16);
+        // A single update must already produce the rest pose for nodes with no
+        // animation channel in this blend. A blend target is created lazily on the
+        // first update, after the per-frame rest reset has run, so it must seed its
+        // own rest pose on creation — otherwise this joint composes from a zeroed TRS
+        // (a degenerate zero-quaternion/zero-scale matrix) for one frame, the
+        // one-frame flash on a figure's very first cross-fade.
         updateAnimationManager(manager, 16);
 
         const m = getBlendedJointWorldMatrix(from, "handslot.r");
@@ -100,7 +103,6 @@ describe("getBlendedJointWorldMatrix", () => {
         const manager = createAnimationManager({ engine: makeEngine() });
         addAnimationGroups(manager, [from, to]);
         enableAnimationBlending(manager);
-        updateAnimationManager(manager, 16);
         updateAnimationManager(manager, 16);
 
         expect(getBlendedJointWorldMatrix(from, "no.such.joint")).toBeNull();
