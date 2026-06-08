@@ -19,6 +19,8 @@ export interface DressRoomApi {
     scenes?: { id: string; label: string }[];
     /** Held-weapon options. Omit or leave a single entry to hide the picker. */
     weapons?: { id: string; label: string }[];
+    /** Off-hand options (shields, spellbook, …). Omit or leave a single entry to hide the picker. */
+    offhands?: { id: string; label: string }[];
     slots: UiSlot[];
     animations: string[];
     presets: string[];
@@ -30,6 +32,8 @@ export interface DressRoomApi {
     setScene?(id: string): void;
     getWeapon?(): string;
     setWeapon?(id: string): void;
+    getOffhand?(): string;
+    setOffhand?(id: string): void;
     getOption(slot: string): string;
     setOption(slot: string, optionId: string): void;
     cycleOption(slot: string, dir: 1 | -1): void;
@@ -170,6 +174,33 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
         }
         refreshers.push(syncWeapon);
         body.appendChild(weaponRow);
+        panel.appendChild(section);
+    }
+
+    // ── Off-hand (only when more than one option is offered) ──────────
+    if (api.offhands && api.offhands.length > 1 && api.getOffhand && api.setOffhand) {
+        const { section, body, valueEl } = makeAccordion("Off-hand");
+        const offRow = el("div", "dr-acc-grid");
+        const offButtons = new Map<string, HTMLButtonElement>();
+        const syncOffhand = () => {
+            const active = api.getOffhand!();
+            for (const [id, btn] of offButtons) {
+                btn.classList.toggle("is-active", id === active);
+            }
+            valueEl.textContent = api.offhands!.find((o) => o.id === active)?.label ?? "";
+        };
+        for (const o of api.offhands) {
+            const btn = el("button", "dr-chip", o.label);
+            btn.type = "button";
+            btn.addEventListener("click", () => {
+                api.setOffhand!(o.id);
+                syncOffhand();
+            });
+            offButtons.set(o.id, btn);
+            offRow.appendChild(btn);
+        }
+        refreshers.push(syncOffhand);
+        body.appendChild(offRow);
         panel.appendChild(section);
     }
 

@@ -35,8 +35,8 @@ import {
     stopAnimation,
 } from "babylon-lite";
 import type { AnimationGroup, SceneNode } from "babylon-lite";
-import { getAnimations, getClasses, getWeapons, loadCharacter, loadWeapon, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
-import type { AnimationOption, CharacterClass, LoadedCharacter, LoadedWeapon, WeaponOption } from "./dress-room/character.js";
+import { getAnimations, getClasses, getOffhands, getWeapons, loadCharacter, loadWeapon, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
+import type { AnimationOption, CharacterClass, LoadedCharacter, LoadedWeapon, OffhandOption, WeaponOption } from "./dress-room/character.js";
 import { buildPanel } from "./dress-room/ui.js";
 import type { DressRoomApi } from "./dress-room/ui.js";
 import { createBackgrounds, getBackgrounds } from "./dress-room/background.js";
@@ -56,6 +56,12 @@ const DEFAULT_ANIM = "idle";
  *  (drops in from above) and `Spawn_Ground` (leaps up from the floor) — and one
  *  is chosen at random each time for variety. */
 const SPAWN_CLIPS = ["Spawn_Air", "Spawn_Ground"] as const;
+
+/** Default grip-orientation correction (Euler XYZ radians) for off-hand items in
+ *  the left-hand socket. Stands the prop upright (local +Y → world up) with its
+ *  face toward the front (local +Z → forward), which suits shields and the
+ *  thematic props alike; individual items may override via {@link OffhandOption.grip}. */
+const OFFHAND_GRIP_EULER: readonly [number, number, number] = [-Math.PI / 2, 0, Math.PI / 2];
 
 /** Play one animation (by roster id) on a character, stopping all its others.
  *  Falls back gracefully if the clip is missing on this character. A class may
@@ -169,6 +175,33 @@ async function main(): Promise<void> {
             activeWeapon = id;
         };
 
+        // Off-hand items (shields + thematic props), held in the LEFT hand socket
+        // (handslot.l). Same pattern as weapons: one anchor driven each frame from
+        // the socket, with a per-item grip node carrying the orientation correction.
+        const offhandAnchor = createTransformNode("offhandAnchor");
+        addToScene(scene, offhandAnchor);
+        const offhandDefs = getOffhands();
+        const offhands = new Map<string, LoadedWeapon>();
+        for (const o of offhandDefs) {
+            if (o.file) {
+                const [gx, gy, gz] = o.grip ?? OFFHAND_GRIP_EULER;
+                const grip = createTransformNode("offhandGrip_" + o.id);
+                grip.rotation.set(gx, gy, gz);
+                grip.parent = offhandAnchor;
+                addToScene(scene, grip);
+                offhands.set(o.id, await loadWeapon(engine, scene, ASSET_BASE, o, grip as SceneNode));
+            }
+        }
+        let activeOffhand = "none";
+        const setOffhand = (id: string): void => {
+            if (id === activeOffhand) {
+                return;
+            }
+            offhands.get(activeOffhand)?.setVisible(false);
+            offhands.get(id)?.setVisible(true);
+            activeOffhand = id;
+        };
+
         // Pre-build every switchable 3D background scene (hidden); one is
         // activated below. Building up front (before registerScene) keeps
         // switching to a pure visibility toggle.
@@ -238,6 +271,7 @@ async function main(): Promise<void> {
             playSpawn(startChar);
         }
         setWeapon(classById.get(activeClass)?.weapon ?? "none");
+        setOffhand(classById.get(activeClass)?.offhand ?? "none");
         backgrounds.activate(backgrounds.defs.some((d) => d.id === DEFAULT_SCENE) ? DEFAULT_SCENE : backgrounds.defs[0]!.id);
 
         const setClass = (id: string): void => {
@@ -256,6 +290,7 @@ async function main(): Promise<void> {
             }
             activeClass = id;
             setWeapon(classById.get(id)?.weapon ?? "none");
+            setOffhand(classById.get(id)?.offhand ?? "none");
         };
 
         // Drive the weapon anchor from the active character's right-hand socket
@@ -278,10 +313,10 @@ async function main(): Promise<void> {
         const wPos: [number, number, number] = [0, 0, 0];
         const wQuat: [number, number, number, number] = [0, 0, 0, 1];
         const wScale: [number, number, number] = [1, 1, 1];
-        onBeforeRender(scene, () => {
-            if (activeWeapon === "none") {
-                return;
-            }
+        // Drive a placement anchor from the active character's named hand socket.
+        // Shared by the right-hand weapon (handslot.r) and the left-hand off-hand
+        // item (handslot.l).
+        const driveAnchor = (anchor: SceneNode, socket: string): void => {
             const char = characters.get(activeClass);
             if (!char) {
                 return;
@@ -293,15 +328,23 @@ async function main(): Promise<void> {
                     break;
                 }
             }
-            const jointMat = playing ? getJointWorldMatrix(playing, "handslot.r") : null;
+            const jointMat = playing ? getJointWorldMatrix(playing, socket) : null;
             if (!jointMat) {
                 return;
             }
             const rootWorld = char.roots[0]!.worldMatrix;
             const world = mat4Multiply(mat4Multiply(mat4Multiply(rootWorld, MIRROR_X), jointMat), MIRROR_X);
             mat4Decompose(world, wPos, wQuat, wScale);
-            weaponAnchor.position.set(wPos[0], wPos[1], wPos[2]);
-            weaponAnchor.rotationQuaternion.set(wQuat[0], wQuat[1], wQuat[2], wQuat[3]);
+            anchor.position.set(wPos[0], wPos[1], wPos[2]);
+            anchor.rotationQuaternion!.set(wQuat[0], wQuat[1], wQuat[2], wQuat[3]);
+        };
+        onBeforeRender(scene, () => {
+            if (activeWeapon !== "none") {
+                driveAnchor(weaponAnchor as SceneNode, "handslot.r");
+            }
+            if (activeOffhand !== "none") {
+                driveAnchor(offhandAnchor as SceneNode, "handslot.l");
+            }
         });
 
         // Settle a freshly spawned figure into the active animation once its
@@ -346,6 +389,9 @@ async function main(): Promise<void> {
             weaponDefs,
             getWeaponId: () => activeWeapon,
             setWeapon,
+            offhandDefs,
+            getOffhandId: () => activeOffhand,
+            setOffhand,
             backgrounds,
         });
 
@@ -371,16 +417,20 @@ interface WireUiParams {
     weaponDefs: WeaponOption[];
     getWeaponId: () => string;
     setWeapon: (id: string) => void;
+    offhandDefs: OffhandOption[];
+    getOffhandId: () => string;
+    setOffhand: (id: string) => void;
     backgrounds: BackgroundController;
 }
 
 function wireUi(p: WireUiParams): void {
-    const { classDefs, getClassId, setClass, anims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, backgrounds } = p;
+    const { classDefs, getClassId, setClass, anims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, offhandDefs, getOffhandId, setOffhand, backgrounds } = p;
     const animById = new Map(anims.map((a) => [a.id, a.label] as const));
     const api: DressRoomApi = {
         classes: classDefs.map((c) => ({ id: c.id, label: c.label })),
         scenes: backgrounds.defs.map((d) => ({ id: d.id, label: d.label })),
         weapons: weaponDefs.map((w) => ({ id: w.id, label: w.label })),
+        offhands: offhandDefs.map((o) => ({ id: o.id, label: o.label })),
         slots: [],
         animations: anims.map((a) => a.label),
         presets: [],
@@ -391,6 +441,8 @@ function wireUi(p: WireUiParams): void {
         setScene: (id) => backgrounds.activate(id),
         getWeapon: () => getWeaponId(),
         setWeapon: (id) => setWeapon(id),
+        getOffhand: () => getOffhandId(),
+        setOffhand: (id) => setOffhand(id),
         getOption: () => "none",
         setOption: () => {},
         cycleOption: () => {},
@@ -409,6 +461,8 @@ function wireUi(p: WireUiParams): void {
             setClass(pick.id);
             const w = weaponDefs[Math.floor(Math.random() * weaponDefs.length)]!;
             setWeapon(w.id);
+            const o = offhandDefs[Math.floor(Math.random() * offhandDefs.length)]!;
+            setOffhand(o.id);
         },
         applyPreset: () => {},
     };
