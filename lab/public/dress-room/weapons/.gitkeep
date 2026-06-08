@@ -1,7 +1,0 @@
-SLICE 3 — KayKit Fantasy Weapons Bits (extra weapon variety).
-
-Static weapon props (swords / axes / bows / staves / shields …).
-Drop the `gltf/` folder contents here. These are NOT rigged, so whether
-they can be held in an animated hand depends on a bone-socket attach
-(may need a small engine seam) — I'll assess once slice 1 reveals how
-the Adventurers' own weapons attach. glTF format only.

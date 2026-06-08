@@ -14,7 +14,7 @@
  *  under lab/public/dress-room/ and copied next to the demo bundle at build
  *  time, so they load relative to the page. */
 
-import { addToScene, loadGltfWithAnimations, setSubtreeVisible } from "babylon-lite";
+import { addToScene, loadGltf, loadGltfWithAnimations, setSubtreeVisible } from "babylon-lite";
 import type { AnimationGroup, EngineContext, Mesh, SceneContext, SceneNode } from "babylon-lite";
 
 /** A selectable character class. */
@@ -23,6 +23,8 @@ export interface CharacterClass {
     label: string;
     /** glTF/glb filename under the asset folder. */
     file: string;
+    /** Default weapon id (see {@link getWeapons}) this class holds. */
+    weapon: string;
 }
 
 /** A selectable animation, mapping a friendly label to a KayKit clip name. */
@@ -31,6 +33,21 @@ export interface AnimationOption {
     label: string;
     /** KayKit clip name (AnimationGroup.name) to play. */
     clip: string;
+}
+
+/** A selectable held weapon. `file` undefined = bare hands. */
+export interface WeaponOption {
+    id: string;
+    label: string;
+    /** glTF filename under the weapons folder; undefined leaves the hand empty. */
+    file?: string;
+}
+
+/** A loaded weapon prop, parented to a placement node the demo drives each frame. */
+export interface LoadedWeapon {
+    id: string;
+    roots: SceneNode[];
+    setVisible(visible: boolean): void;
 }
 
 /** A loaded, placed character with its retargeted animation groups. */
@@ -54,12 +71,27 @@ const ANIM_FILES = ["animations/Rig_Medium_MovementBasic.glb", "animations/Rig_M
 /** The character roster, in display order. */
 export function getClasses(): CharacterClass[] {
     return [
-        { id: "knight", label: "Knight", file: "characters/Knight.glb" },
-        { id: "barbarian", label: "Barbarian", file: "characters/Barbarian.glb" },
-        { id: "mage", label: "Mage", file: "characters/Mage.glb" },
-        { id: "ranger", label: "Ranger", file: "characters/Ranger.glb" },
-        { id: "rogue", label: "Rogue", file: "characters/Rogue.glb" },
-        { id: "rogue_hooded", label: "Rogue (Hooded)", file: "characters/Rogue_Hooded.glb" },
+        { id: "knight", label: "Knight", file: "characters/Knight.glb", weapon: "sword" },
+        { id: "barbarian", label: "Barbarian", file: "characters/Barbarian.glb", weapon: "axe" },
+        { id: "mage", label: "Mage", file: "characters/Mage.glb", weapon: "staff" },
+        { id: "ranger", label: "Ranger", file: "characters/Ranger.glb", weapon: "bow" },
+        { id: "rogue", label: "Rogue", file: "characters/Rogue.glb", weapon: "dagger" },
+        { id: "rogue_hooded", label: "Rogue (Hooded)", file: "characters/Rogue_Hooded.glb", weapon: "dagger" },
+    ];
+}
+
+/** The weapon roster, in display order. Each is a static KayKit prop held in the
+ *  right hand socket (`handslot.r`). */
+export function getWeapons(): WeaponOption[] {
+    return [
+        { id: "none", label: "None" },
+        { id: "sword", label: "Sword", file: "weapons/sword_1handed.gltf" },
+        { id: "axe", label: "Axe", file: "weapons/axe_1handed.gltf" },
+        { id: "greataxe", label: "Great Axe", file: "weapons/axe_2handed.gltf" },
+        { id: "dagger", label: "Dagger", file: "weapons/dagger.gltf" },
+        { id: "staff", label: "Staff", file: "weapons/staff.gltf" },
+        { id: "wand", label: "Wand", file: "weapons/wand.gltf" },
+        { id: "bow", label: "Bow", file: "weapons/bow_withString.gltf" },
     ];
 }
 
@@ -123,3 +155,27 @@ export async function loadCharacter(engine: EngineContext, scene: SceneContext, 
         },
     };
 }
+
+/** Load one weapon prop and parent its roots under `parent` (the placement node
+ *  the demo drives from the hand socket each frame). Starts hidden. */
+export async function loadWeapon(engine: EngineContext, scene: SceneContext, baseUrl: string, opt: WeaponOption, parent: SceneNode): Promise<LoadedWeapon> {
+    const gltf = await loadGltf(engine, baseUrl + opt.file!);
+    const roots: SceneNode[] = [];
+    for (const entity of gltf.entities) {
+        const node = entity as SceneNode;
+        node.parent = parent;
+        addToScene(scene, node);
+        roots.push(node);
+        setSubtreeVisible(node, false);
+    }
+    return {
+        id: opt.id,
+        roots,
+        setVisible: (visible: boolean) => {
+            for (const root of roots) {
+                setSubtreeVisible(root, visible);
+            }
+        },
+    };
+}
+

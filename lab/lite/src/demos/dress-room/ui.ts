@@ -17,6 +17,8 @@ export interface DressRoomApi {
     classes?: { id: string; label: string }[];
     /** Background scene options (forest, dungeon, …). Omit or leave a single entry to hide the picker. */
     scenes?: { id: string; label: string }[];
+    /** Held-weapon options. Omit or leave a single entry to hide the picker. */
+    weapons?: { id: string; label: string }[];
     slots: UiSlot[];
     animations: string[];
     presets: string[];
@@ -26,6 +28,8 @@ export interface DressRoomApi {
     setClass?(id: string): void;
     getScene?(): string;
     setScene?(id: string): void;
+    getWeapon?(): string;
+    setWeapon?(id: string): void;
     getOption(slot: string): string;
     setOption(slot: string, optionId: string): void;
     cycleOption(slot: string, dir: 1 | -1): void;
@@ -76,6 +80,13 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
     const refreshers: (() => void)[] = []; // Reassigned by the tint section when present; a no-op otherwise so the
     // equipment arrows can always call it safely.
     let syncTint = (): void => {};
+    /** Re-read state into every control. Used after actions that change more than
+     *  one section (e.g. picking a class also sets that class's default weapon). */
+    const refreshAll = (): void => {
+        for (const fn of refreshers) {
+            fn();
+        }
+    };
 
     // ── Character class (only when more than one class is offered) ────
     if (api.classes && api.classes.length > 1 && api.getClass && api.setClass) {
@@ -93,7 +104,7 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
             const btn = el("button", "dr-chip", cls.label);
             btn.addEventListener("click", () => {
                 api.setClass!(cls.id);
-                syncClass();
+                refreshAll();
             });
             classButtons.set(cls.id, btn);
             classRow.appendChild(btn);
@@ -101,6 +112,32 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
         refreshers.push(syncClass);
         classSection.appendChild(classRow);
         panel.appendChild(classSection);
+    }
+
+    // ── Weapon (only when more than one weapon is offered) ────────────
+    if (api.weapons && api.weapons.length > 1 && api.getWeapon && api.setWeapon) {
+        const weaponSection = el("div", "dr-section");
+        weaponSection.appendChild(el("div", "dr-heading", "Weapon"));
+        const weaponRow = el("div", "dr-btn-grid");
+        const weaponButtons = new Map<string, HTMLButtonElement>();
+        const syncWeapon = () => {
+            const active = api.getWeapon!();
+            for (const [id, btn] of weaponButtons) {
+                btn.classList.toggle("is-active", id === active);
+            }
+        };
+        for (const w of api.weapons) {
+            const btn = el("button", "dr-chip", w.label);
+            btn.addEventListener("click", () => {
+                api.setWeapon!(w.id);
+                syncWeapon();
+            });
+            weaponButtons.set(w.id, btn);
+            weaponRow.appendChild(btn);
+        }
+        refreshers.push(syncWeapon);
+        weaponSection.appendChild(weaponRow);
+        panel.appendChild(weaponSection);
     }
 
     // ── Background scene (only when more than one scene is offered) ────
@@ -251,11 +288,6 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
     const loadSection = el("div", "dr-section");
     loadSection.appendChild(el("div", "dr-heading", "Loadout"));
     const loadGrid = el("div", "dr-btn-grid");
-    const refreshAll = () => {
-        for (const fn of refreshers) {
-            fn();
-        }
-    };
     const randomize = el("button", "dr-chip dr-accent", "Randomize");
     randomize.addEventListener("click", () => {
         api.randomize();

@@ -181,7 +181,7 @@ export { setShadowTaskCasterMeshes } from "./frame-graph/shadow-inputs.js";
 
 // ─── Animation ───────────────────────────────────────────────────────
 export { createAnimationController } from "./skeleton/skeleton-updater.js";
-export { createAnimationGroups, playAnimation, pauseAnimation, stopAnimation, goToFrame } from "./animation/animation-group.js";
+export { createAnimationGroups, playAnimation, pauseAnimation, stopAnimation, goToFrame, getJointWorldMatrix } from "./animation/animation-group.js";
 export { setAnimationWeight } from "./animation/animation-weight.js";
 export { crossFadeAnimationGroups, enablePropertyAnimationBlending, fadeAnimationWeight } from "./animation/weighted-pointer-mixer.js";
 export { enableAnimationBlending, setAnimationAdditive } from "./animation/weighted-gltf-mixer.js";
@@ -211,6 +211,8 @@ export { mat4Identity } from "./math/mat4-identity.js";
 export { mat4Scale } from "./math/mat4-scale.js";
 export { mat4Compose } from "./math/mat4-compose.js";
 export { mat4Invert } from "./math/mat4-invert.js";
+export { mat4Multiply } from "./math/mat4-multiply.js";
+export { mat4Decompose } from "./math/mat4-decompose.js";
 export type { Vec3, Vec3Tuple, Mat4 } from "./math/types.js";
 
 // ─── Thin Instances ──────────────────────────────────────────────────

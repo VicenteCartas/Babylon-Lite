@@ -2,6 +2,7 @@
 // Stored on scene.animationGroups[]. Pure state interface.
 
 import type { EngineContext } from "../engine/engine.js";
+import type { Mat4 } from "../math/types.js";
 import type { AnimationClip, AnimationSampler, GltfAnimationData, NodeRest, SkeletonBinding } from "./types.js";
 import { PATH_POINTER, PATH_TRANSLATION, PATH_ROTATION, PATH_SCALE } from "./types.js";
 import { createAnimationController } from "../skeleton/skeleton-updater.js";
@@ -51,6 +52,10 @@ export interface AnimationGroup {
     _additive?: AnimationAdditiveMixer;
     /** @internal Whether stop() was called (suppresses tickAnimation). */
     _stopped: boolean;
+    /** @internal Joint name → node index, for resolving an animated joint's world
+     *  transform (e.g. attaching a held prop to a hand socket). Set by loaders that
+     *  know the rig's joint names. */
+    _jointNameToIndex?: ReadonlyMap<string, number>;
 }
 
 /** Start playing an animation group. */
@@ -99,6 +104,36 @@ function syncControllerFromGroup(group: AnimationGroup, ctrl: AnimationControlle
     ctrl.playing = group.isPlaying;
     ctrl.speedRatio = group.speedRatio;
     ctrl.loop = group.loopAnimation;
+}
+
+/** Read an animated joint's local-to-asset world matrix (column-major), or null
+ *  when unavailable.
+ *
+ *  The matrix is in the animation's own space — i.e. relative to the asset's
+ *  synthetic root — so to position a prop in world space, multiply the owning
+ *  asset root's world matrix by this (`mat4Multiply(rootWorld, jointMatrix)`).
+ *  Returns null when the group has no controller, no joint-name map, or the joint
+ *  name is unknown. Requires the group to have been played + ticked at least once;
+ *  a stopped group's world matrices are stale.
+ *
+ *  Primarily used to attach a held prop (weapon, shield) to a hand-socket bone:
+ *  resolve the socket joint here each frame, compose with the character root, and
+ *  drive the prop's transform. */
+export function getJointWorldMatrix(group: AnimationGroup, jointName: string): Mat4 | null {
+    const idx = group._jointNameToIndex?.get(jointName);
+    const worldMat = group._ctrl?._debugWorldMat;
+    if (idx === undefined || !worldMat) {
+        return null;
+    }
+    const off = idx * 16;
+    if (off + 16 > worldMat.length) {
+        return null;
+    }
+    const out = new Float32Array(16);
+    for (let i = 0; i < 16; i++) {
+        out[i] = worldMat[off + i]!;
+    }
+    return out as unknown as Mat4;
 }
 
 /** Create AnimationGroup(s) from parsed glTF animation data.

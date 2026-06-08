@@ -19,8 +19,13 @@ import {
     createEsmDirectionalShadowGenerator,
     createHemisphericLight,
     createSceneContext,
+    createTransformNode,
     addToScene,
+    getJointWorldMatrix,
     loadEnvironment,
+    mat4Decompose,
+    mat4Multiply,
+    onBeforeRender,
     playAnimation,
     registerSceneWithShadowSupport,
     setCameraLimits,
@@ -28,8 +33,9 @@ import {
     startEngine,
     stopAnimation,
 } from "babylon-lite";
-import { getAnimations, getClasses, loadCharacter } from "./dress-room/character.js";
-import type { AnimationOption, CharacterClass, LoadedCharacter } from "./dress-room/character.js";
+import type { AnimationGroup, SceneNode } from "babylon-lite";
+import { getAnimations, getClasses, getWeapons, loadCharacter, loadWeapon } from "./dress-room/character.js";
+import type { AnimationOption, CharacterClass, LoadedCharacter, LoadedWeapon, WeaponOption } from "./dress-room/character.js";
 import { buildPanel } from "./dress-room/ui.js";
 import type { DressRoomApi } from "./dress-room/ui.js";
 import { createBackgrounds, getBackgrounds } from "./dress-room/background.js";
@@ -124,6 +130,33 @@ async function main(): Promise<void> {
             characters.set(cls.id, character);
         }
 
+        // Held weapons. A single anchor node is driven each frame from the active
+        // character's right-hand socket (handslot.r); a grip child holds a constant
+        // alignment correction; the weapon props hang under the grip. Because only
+        // one character is visible at a time, one shared anchor + weapon set covers
+        // every class.
+        const weaponAnchor = createTransformNode("weaponAnchor");
+        addToScene(scene, weaponAnchor);
+        const weaponGrip = createTransformNode("weaponGrip", 0, 0, 0, 0, 0, 0, 1, 1, 1);
+        weaponGrip.parent = weaponAnchor;
+        addToScene(scene, weaponGrip);
+        const weaponDefs = getWeapons();
+        const weapons = new Map<string, LoadedWeapon>();
+        for (const w of weaponDefs) {
+            if (w.file) {
+                weapons.set(w.id, await loadWeapon(engine, scene, ASSET_BASE, w, weaponGrip as SceneNode));
+            }
+        }
+        let activeWeapon = "none";
+        const setWeapon = (id: string): void => {
+            if (id === activeWeapon) {
+                return;
+            }
+            weapons.get(activeWeapon)?.setVisible(false);
+            weapons.get(id)?.setVisible(true);
+            activeWeapon = id;
+        };
+
         // Pre-build every switchable 3D background scene (hidden); one is
         // activated below. Building up front (before registerScene) keeps
         // switching to a pure visibility toggle.
@@ -148,6 +181,7 @@ async function main(): Promise<void> {
 
         // Default class + background scene + animation.
         const anims = getAnimations();
+        const classById = new Map(classDefs.map((c) => [c.id, c] as const));
         let activeClass = DEFAULT_CLASS;
         let activeAnim = DEFAULT_ANIM;
         const startChar = characters.get(activeClass);
@@ -155,6 +189,7 @@ async function main(): Promise<void> {
             startChar.setVisible(true);
             applyAnimation(startChar, activeAnim, anims);
         }
+        setWeapon(classById.get(activeClass)?.weapon ?? "none");
         backgrounds.activate(backgrounds.defs.some((d) => d.id === DEFAULT_SCENE) ? DEFAULT_SCENE : backgrounds.defs[0]!.id);
 
         const setClass = (id: string): void => {
@@ -172,7 +207,41 @@ async function main(): Promise<void> {
                 applyAnimation(next, activeAnim, anims);
             }
             activeClass = id;
+            setWeapon(classById.get(id)?.weapon ?? "none");
         };
+
+        // Drive the weapon anchor from the active character's right-hand socket
+        // every frame. The joint's animated transform is in the character's local
+        // space, so compose it with the character root's world matrix, then
+        // decompose to position + rotation for the anchor. Only a playing group has
+        // up-to-date joint matrices.
+        const wPos: [number, number, number] = [0, 0, 0];
+        const wQuat: [number, number, number, number] = [0, 0, 0, 1];
+        const wScale: [number, number, number] = [1, 1, 1];
+        onBeforeRender(scene, () => {
+            if (activeWeapon === "none") {
+                return;
+            }
+            const char = characters.get(activeClass);
+            if (!char) {
+                return;
+            }
+            let playing: AnimationGroup | undefined;
+            for (const g of char.groups.values()) {
+                if (g.isPlaying) {
+                    playing = g;
+                    break;
+                }
+            }
+            const jointMat = playing ? getJointWorldMatrix(playing, "handslot.r") : null;
+            if (!jointMat) {
+                return;
+            }
+            const world = mat4Multiply(char.roots[0]!.worldMatrix, jointMat);
+            mat4Decompose(world, wPos, wQuat, wScale);
+            weaponAnchor.position.set(wPos[0], wPos[1], wPos[2]);
+            weaponAnchor.rotationQuaternion.set(wQuat[0], wQuat[1], wQuat[2], wQuat[3]);
+        });
 
         const setAnimation = (animId: string): void => {
             activeAnim = animId;
@@ -186,7 +255,18 @@ async function main(): Promise<void> {
         progress.done();
         await startEngine(engine);
 
-        wireUi(classDefs, () => activeClass, setClass, anims, () => activeAnim, setAnimation, backgrounds);
+        wireUi({
+            classDefs,
+            getClassId: () => activeClass,
+            setClass,
+            anims,
+            getAnimId: () => activeAnim,
+            setAnimation,
+            weaponDefs,
+            getWeaponId: () => activeWeapon,
+            setWeapon,
+            backgrounds,
+        });
 
         canvas.dataset.drawCalls = String(engine.drawCallCount);
         canvas.dataset.initMs = String(performance.now() - __initStart);
@@ -200,19 +280,26 @@ async function main(): Promise<void> {
 
 // ─── UI wiring ────────────────────────────────────────────────────────
 
-function wireUi(
-    classDefs: CharacterClass[],
-    getClassId: () => string,
-    setClass: (id: string) => void,
-    anims: AnimationOption[],
-    getAnimId: () => string,
-    setAnimation: (id: string) => void,
-    backgrounds: BackgroundController
-): void {
+interface WireUiParams {
+    classDefs: CharacterClass[];
+    getClassId: () => string;
+    setClass: (id: string) => void;
+    anims: AnimationOption[];
+    getAnimId: () => string;
+    setAnimation: (id: string) => void;
+    weaponDefs: WeaponOption[];
+    getWeaponId: () => string;
+    setWeapon: (id: string) => void;
+    backgrounds: BackgroundController;
+}
+
+function wireUi(p: WireUiParams): void {
+    const { classDefs, getClassId, setClass, anims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, backgrounds } = p;
     const animById = new Map(anims.map((a) => [a.id, a.label] as const));
     const api: DressRoomApi = {
         classes: classDefs.map((c) => ({ id: c.id, label: c.label })),
         scenes: backgrounds.defs.map((d) => ({ id: d.id, label: d.label })),
+        weapons: weaponDefs.map((w) => ({ id: w.id, label: w.label })),
         slots: [],
         animations: anims.map((a) => a.label),
         presets: [],
@@ -221,6 +308,8 @@ function wireUi(
         setClass: (id) => setClass(id),
         getScene: () => backgrounds.current(),
         setScene: (id) => backgrounds.activate(id),
+        getWeapon: () => getWeaponId(),
+        setWeapon: (id) => setWeapon(id),
         getOption: () => "none",
         setOption: () => {},
         cycleOption: () => {},
@@ -237,6 +326,8 @@ function wireUi(
         randomize: () => {
             const pick = classDefs[Math.floor(Math.random() * classDefs.length)]!;
             setClass(pick.id);
+            const w = weaponDefs[Math.floor(Math.random() * weaponDefs.length)]!;
+            setWeapon(w.id);
         },
         applyPreset: () => {},
     };

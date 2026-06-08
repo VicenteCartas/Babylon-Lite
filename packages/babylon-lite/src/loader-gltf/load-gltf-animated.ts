@@ -271,10 +271,12 @@ export async function loadGltfWithAnimations(engine: EngineContext, characterUrl
         };
         const groups = createAnimationGroups(data);
         // Start every group stopped so they don't all fight over the shared bone
-        // texture; the caller plays exactly one.
+        // texture; the caller plays exactly one. Stash the joint-name map so a held
+        // prop can resolve a socket bone (e.g. handslot.r) via getJointWorldMatrix.
         for (const g of groups) {
             g.isPlaying = false;
             g._stopped = true;
+            g._jointNameToIndex = rig.nameToIndex;
         }
         target.container.animationGroups = groups as AnimationGroup[];
     }
