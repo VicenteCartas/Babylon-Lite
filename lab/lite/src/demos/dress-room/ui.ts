@@ -22,7 +22,7 @@ export interface DressRoomApi {
     /** Off-hand options (shields, spellbook, …). Omit or leave a single entry to hide the picker. */
     offhands?: { id: string; label: string }[];
     slots: UiSlot[];
-    animations: string[];
+    animations?: string[];
     presets: string[];
     /** When false, the Armour Tint section is omitted (e.g. image-textured assets). */
     tintable?: boolean;
@@ -42,6 +42,9 @@ export interface DressRoomApi {
     getOption(slot: string): string;
     setOption(slot: string, optionId: string): void;
     cycleOption(slot: string, dir: 1 | -1): void;
+    /** Currently-available animations (changes with equipment, e.g. Guard needs a
+     *  shield). When provided, drives a dynamic Animation picker. */
+    getAnimations?(): { id: string; label: string }[];
     getAnimation(): string;
     setAnimation(name: string): void;
     /** Current tint for a slot's equipped piece, or null when nothing is equipped. */
@@ -311,30 +314,30 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
         panel.appendChild(gearSection);
     }
 
-    // ── Animation switcher (only when the demo exposes animations) ────
-    if (api.animations.length > 0) {
+    // ── Animation switcher (dynamic: the set depends on equipment) ────
+    if (api.getAnimations && api.getAnimations().length > 0) {
         const { section, body, valueEl } = makeAccordion("Animation");
         const animRow = el("div", "dr-acc-grid");
-        const animButtons = new Map<string, HTMLButtonElement>();
-        const syncAnim = () => {
-            const active = api.getAnimation();
-            for (const [anim, btn] of animButtons) {
-                btn.classList.toggle("is-active", anim === active);
-            }
-            valueEl.textContent = active;
-        };
-        for (const anim of api.animations) {
-            const btn = el("button", "dr-chip", anim);
-            btn.type = "button";
-            btn.addEventListener("click", () => {
-                api.setAnimation(anim);
-                syncAnim();
-            });
-            animButtons.set(anim, btn);
-            animRow.appendChild(btn);
-        }
-        refreshers.push(syncAnim);
         body.appendChild(animRow);
+        const syncAnim = () => {
+            const options = api.getAnimations!();
+            const active = api.getAnimation();
+            // Rebuild the chip grid (the available set changes with equipment, e.g.
+            // Guard appears only with a shield).
+            animRow.replaceChildren();
+            for (const opt of options) {
+                const btn = el("button", "dr-chip", opt.label);
+                btn.type = "button";
+                btn.classList.toggle("is-active", opt.id === active);
+                btn.addEventListener("click", () => {
+                    api.setAnimation(opt.id);
+                    syncAnim();
+                });
+                animRow.appendChild(btn);
+            }
+            valueEl.textContent = options.find((o) => o.id === active)?.label ?? "";
+        };
+        refreshers.push(syncAnim);
         panel.appendChild(section);
     }
 

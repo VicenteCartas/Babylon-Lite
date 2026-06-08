@@ -48,8 +48,18 @@ export interface CharacterClass {
 export interface AnimationOption {
     id: string;
     label: string;
-    /** KayKit clip name (AnimationGroup.name) to play. */
+    /** KayKit clip name (AnimationGroup.name) to play. Empty when the clip is
+     *  resolved at play time from the equipped weapon (see `weaponDriven`). */
     clip: string;
+    /** When true, the clip is chosen from the active weapon's hand/kind (the
+     *  Attack action: a 1H/2H melee swing, a bow draw, or a spell cast). */
+    weaponDriven?: boolean;
+    /** When true, the action is only available with a shield in the off-hand
+     *  (the Guard block). */
+    requiresShield?: boolean;
+    /** When true, the clip plays once and settles back into the held animation
+     *  (a one-shot attack / dodge) rather than looping. */
+    oneShot?: boolean;
 }
 
 /** A head/headgear variant for a class. Two flavours:
@@ -127,8 +137,16 @@ export interface LoadedCharacter {
 }
 
 /** Animation-library glTFs (relative to the asset folder) whose clips are
- *  retargeted onto every character's shared Rig_Medium skeleton. */
-const ANIM_FILES = ["animations/Rig_Medium_MovementBasic.glb", "animations/Rig_Medium_General.glb"];
+ *  retargeted onto every character's shared Rig_Medium skeleton. Covers movement,
+ *  the weapon-specific melee / ranged / magic attacks, blocking, and emotes. */
+const ANIM_FILES = [
+    "animations/Rig_Medium_MovementBasic.glb",
+    "animations/Rig_Medium_General.glb",
+    "animations/Rig_Medium_MovementAdvanced.glb",
+    "animations/Rig_Medium_CombatMelee.glb",
+    "animations/Rig_Medium_CombatRanged.glb",
+    "animations/Rig_Medium_Simulation.glb",
+];
 
 /** The character roster, in display order. */
 export function getClasses(): CharacterClass[] {
@@ -278,16 +296,35 @@ export function getOffhands(): OffhandOption[] {
     ];
 }
 
-/** The animation roster, in display order. `clip` must match a KayKit clip name. */
+/** The animation roster, in display order. `clip` must match a KayKit clip name,
+ *  except the weapon-driven Attack (resolved from the equipped weapon) and the
+ *  Guard, which is only offered when a shield is in the off-hand. */
 export function getAnimations(): AnimationOption[] {
     return [
         { id: "idle", label: "Idle", clip: "Idle_A" },
         { id: "walk", label: "Walk", clip: "Walking_A" },
-        { id: "run", label: "Run", clip: "Running_A" },
-        { id: "jump", label: "Jump", clip: "Jump_Idle" },
-        { id: "hit", label: "Hit", clip: "Hit_A" },
-        { id: "throw", label: "Throw", clip: "Throw" },
+        { id: "dodge", label: "Dodge", clip: "Dodge_Backward", oneShot: true },
+        { id: "attack", label: "Attack", clip: "", weaponDriven: true, oneShot: true },
+        { id: "guard", label: "Guard", clip: "Melee_Blocking", requiresShield: true },
+        { id: "cheer", label: "Cheer", clip: "Cheering" },
+        { id: "wave", label: "Wave", clip: "Waving" },
     ];
+}
+
+/** Resolve the Attack clip for a weapon's hand + kind (see {@link WeaponOption}).
+ *  Bare hands punch; melee weapons swing 1- or 2-handed; bows draw; staves and
+ *  wands cast. */
+export function attackClipFor(hand: WeaponHand | undefined, kind: WeaponKind | undefined): string {
+    if (kind === "ranged") {
+        return "Ranged_Bow_Draw";
+    }
+    if (kind === "magic") {
+        return "Ranged_Magic_Spellcasting";
+    }
+    if (kind === "melee") {
+        return hand === "2h" ? "Melee_2H_Attack_Chop" : "Melee_1H_Attack_Slice_Diagonal";
+    }
+    return "Melee_Unarmed_Attack_Punch_A";
 }
 
 /** Walk a node subtree, collecting renderable meshes and a name→node index. */

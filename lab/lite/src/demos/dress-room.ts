@@ -35,7 +35,7 @@ import {
     stopAnimation,
 } from "babylon-lite";
 import type { AnimationGroup, SceneNode } from "babylon-lite";
-import { getAnimations, getClasses, getOffhands, getWeapons, loadCharacter, loadWeapon, applyHead, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
+import { getAnimations, getClasses, getOffhands, getWeapons, loadCharacter, loadWeapon, applyHead, attackClipFor, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
 import type { AnimationOption, CharacterClass, HeadOption, LoadedCharacter, LoadedWeapon, OffhandOption, WeaponOption } from "./dress-room/character.js";
 import { buildPanel } from "./dress-room/ui.js";
 import type { DressRoomApi } from "./dress-room/ui.js";
@@ -63,14 +63,11 @@ const SPAWN_CLIPS = ["Spawn_Air", "Spawn_Ground"] as const;
  *  thematic props alike; individual items may override via {@link OffhandOption.grip}. */
 const OFFHAND_GRIP_EULER: readonly [number, number, number] = [-Math.PI / 2, 0, Math.PI / 2];
 
-/** Play one animation (by roster id) on a character, stopping all its others.
- *  Falls back gracefully if the clip is missing on this character. A class may
- *  remap a roster id to a themed clip via its `clipOverride` (e.g. the
- *  necromancer's skeletal idle/walk). */
-function applyAnimation(character: LoadedCharacter, animId: string, anims: readonly AnimationOption[]): void {
-    const clip = character.clipOverride?.[animId] ?? anims.find((a) => a.id === animId)?.clip;
+/** Play a single clip by name on a character, stopping all its others. An empty
+ *  clip name stops everything. Missing clips simply leave the figure still. */
+function playClip(character: LoadedCharacter, clip: string): void {
     for (const [name, group] of character.groups) {
-        if (name === clip) {
+        if (clip && name === clip) {
             playAnimation(group);
         } else if (group.isPlaying) {
             stopAnimation(group);
@@ -188,6 +185,11 @@ async function main(): Promise<void> {
             }
         }
         let activeWeapon = "none";
+        // Re-run after a weapon or off-hand change (assigned once the animation +
+        // panel wiring exists): re-resolves the equipment-driven Attack/Guard and
+        // refreshes the panel. A no-op during the initial pre-UI setup.
+        let afterEquipChange: () => void = () => {};
+        let panelRefresh: () => void = () => {};
         const setWeapon = (id: string): void => {
             if (id === activeWeapon) {
                 return;
@@ -195,6 +197,7 @@ async function main(): Promise<void> {
             weapons.get(activeWeapon)?.setVisible(false);
             weapons.get(id)?.setVisible(true);
             activeWeapon = id;
+            afterEquipChange();
         };
 
         // Off-hand items (shields + thematic props), held in the LEFT hand socket
@@ -222,6 +225,7 @@ async function main(): Promise<void> {
             offhands.get(activeOffhand)?.setVisible(false);
             offhands.get(id)?.setVisible(true);
             activeOffhand = id;
+            afterEquipChange();
         };
 
         // Pre-build every switchable 3D background scene (hidden); one is
@@ -249,43 +253,64 @@ async function main(): Promise<void> {
 
         // Default class + background scene + animation.
         const anims = getAnimations();
+        const animById = new Map(anims.map((a) => [a.id, a] as const));
         const classById = new Map(classDefs.map((c) => [c.id, c] as const));
         let activeClass = DEFAULT_CLASS;
         let activeAnim = DEFAULT_ANIM;
 
-        // Spawn handling. Selecting a class plays a randomly chosen one-shot spawn
-        // clip, then settles the figure into the active animation when it finishes.
-        //
-        // These clips must NOT loop and must restart from frame 0 each time. The
-        // group-level `loopAnimation`/`currentFrame` fields don't help here: the
-        // container animation ticker advances each clip's controller directly, so
-        // those group fields are never synced to (or from) the controller. We drive
-        // the controller instead — reset its time, disable looping (it then clamps
-        // at the final frame), and ensure it is playing — and read its clamped time
-        // to know when the spawn has finished.
-        let spawnGroup: AnimationGroup | null = null;
-        let spawnChar: LoadedCharacter | null = null;
+        const hasShield = (): boolean => offhandDefs.find((o) => o.id === activeOffhand)?.kind === "shield";
+        /** Animations currently offered: the Guard is hidden without a shield. */
+        const availableAnims = (): AnimationOption[] => anims.filter((a) => !a.requiresShield || hasShield());
+        /** Resolve a roster id to the clip to play on a figure: the weapon-driven
+         *  Attack picks a swing/cast from the equipped weapon; a class may remap
+         *  idle/walk to themed clips (the necromancer's skeletal set); the rest are
+         *  literal clip names. */
+        const resolveClip = (character: LoadedCharacter, animId: string): string => {
+            const opt = animById.get(animId);
+            if (!opt) {
+                return "";
+            }
+            if (opt.weaponDriven) {
+                const w = weaponDefs.find((x) => x.id === activeWeapon);
+                return attackClipFor(w?.hand, w?.kind);
+            }
+            return character.clipOverride?.[animId] ?? opt.clip;
+        };
+
+        // One-shot playback. Used both for the spawn entrance and for transient
+        // actions (Attack, Dodge): the clip plays once and the figure settles back
+        // into the held animation. The container animation ticker advances each
+        // clip's controller directly, so the group-level `loopAnimation`/`currentFrame`
+        // are never synced — we drive the controller (reset time, disable looping so
+        // it clamps at the final frame, ensure playing) and watch its clamped time.
+        let oneShotGroup: AnimationGroup | null = null;
+        let oneShotChar: LoadedCharacter | null = null;
+        const playOnce = (character: LoadedCharacter, clip: string): boolean => {
+            const group = character.groups.get(clip);
+            const ctrl = group?._ctrl;
+            if (!group || !ctrl) {
+                return false;
+            }
+            for (const g of character.groups.values()) {
+                if (g !== group && g.isPlaying) {
+                    stopAnimation(g);
+                }
+            }
+            playAnimation(group);
+            ctrl.time = 0;
+            ctrl.loop = false;
+            ctrl.playing = true;
+            oneShotGroup = group;
+            oneShotChar = character;
+            return true;
+        };
         const playSpawn = (character: LoadedCharacter): void => {
             // A class may pin a themed spawn clip (the necromancer rises from the
             // floor as a skeleton); otherwise pick one of the shared spawns at random.
             const clip = character.clipOverride?.spawn ?? SPAWN_CLIPS[Math.floor(Math.random() * SPAWN_CLIPS.length)]!;
-            const spawn = character.groups.get(clip);
-            const ctrl = spawn?._ctrl;
-            if (!spawn || !ctrl) {
-                applyAnimation(character, activeAnim, anims);
-                return;
+            if (!playOnce(character, clip)) {
+                playClip(character, resolveClip(character, activeAnim));
             }
-            for (const g of character.groups.values()) {
-                if (g !== spawn && g.isPlaying) {
-                    stopAnimation(g);
-                }
-            }
-            playAnimation(spawn);
-            ctrl.time = 0;
-            ctrl.loop = false;
-            ctrl.playing = true;
-            spawnGroup = spawn;
-            spawnChar = character;
         };
 
         // Head/headgear variant per class (remembered as the user toggles, so it
@@ -316,7 +341,7 @@ async function main(): Promise<void> {
             if (id === activeClass || !characters.has(id)) {
                 return;
             }
-            applyAnimation(activeChar, "", anims); // stop the outgoing figure's clips
+            playClip(activeChar, ""); // stop the outgoing figure's clips
             activeChar.setVisible(false);
             activeClass = id;
             activeChar = resolveModel(id, headOf(id));
@@ -337,15 +362,15 @@ async function main(): Promise<void> {
             }
             // Whole-model swap (Rogue hooded ⇄ unhooded): hand the active animation
             // over to the incoming model without replaying the spawn.
-            applyAnimation(activeChar, "", anims);
+            playClip(activeChar, "");
             activeChar.setVisible(false);
             activeChar = next;
             activeChar.setVisible(true);
             applyHead(activeChar, id);
-            // Cancel any in-progress spawn settle so it can't retarget the old model.
-            spawnGroup = null;
-            spawnChar = null;
-            applyAnimation(activeChar, activeAnim, anims);
+            // Cancel any in-progress one-shot so it can't retarget the old model.
+            oneShotGroup = null;
+            oneShotChar = null;
+            playClip(activeChar, resolveClip(activeChar, activeAnim));
         };
 
         // Drive the weapon anchor from the active character's right-hand socket
@@ -402,40 +427,64 @@ async function main(): Promise<void> {
             }
         });
 
-        // Settle a freshly spawned figure into the active animation once its
-        // one-shot spawn clip reaches the end. Looping is disabled on the spawn
-        // controller, so its play head clamps at the clip duration; this runs
-        // before the animation ticker each frame, so the active animation takes
-        // over without the spawn's final frame looping back to the start.
+        // Settle a one-shot clip (spawn entrance, or a transient Attack / Dodge)
+        // back into the held animation once it reaches the end. Looping is disabled
+        // on the one-shot controller, so its play head clamps at the clip duration;
+        // this runs before the animation ticker each frame, so the held animation
+        // takes over without the final frame looping back to the start.
         onBeforeRender(scene, () => {
-            const ctrl = spawnGroup?._ctrl;
-            if (spawnGroup && ctrl && ctrl.time >= spawnGroup.duration - 1 / 120) {
-                const ch = spawnChar;
-                spawnGroup = null;
-                spawnChar = null;
+            const ctrl = oneShotGroup?._ctrl;
+            if (oneShotGroup && ctrl && ctrl.time >= oneShotGroup.duration - 1 / 120) {
+                const ch = oneShotChar;
+                oneShotGroup = null;
+                oneShotChar = null;
                 if (ch) {
-                    applyAnimation(ch, activeAnim, anims);
+                    playClip(ch, resolveClip(ch, activeAnim));
                 }
             }
         });
 
         const setAnimation = (animId: string): void => {
+            const opt = animById.get(animId);
+            if (!opt || (opt.requiresShield && !hasShield())) {
+                return;
+            }
+            if (opt.oneShot) {
+                // Transient action (Attack / Dodge): play once over the held anim,
+                // then settle back into it — `activeAnim` is left unchanged.
+                if (!playOnce(activeChar, resolveClip(activeChar, animId))) {
+                    playClip(activeChar, resolveClip(activeChar, activeAnim));
+                }
+                return;
+            }
             activeAnim = animId;
-            // A manual animation pick cancels any in-progress spawn settle-in.
-            spawnGroup = null;
-            spawnChar = null;
-            applyAnimation(activeChar, animId, anims);
+            oneShotGroup = null;
+            oneShotChar = null;
+            playClip(activeChar, resolveClip(activeChar, animId));
+        };
+
+        // Now that the animation machinery exists, react to equipment changes:
+        // drop the Guard if its shield was removed, then refresh the panel so the
+        // Attack/Guard availability reflects the new loadout.
+        afterEquipChange = (): void => {
+            if (activeAnim === "guard" && !hasShield()) {
+                activeAnim = DEFAULT_ANIM;
+                oneShotGroup = null;
+                oneShotChar = null;
+                playClip(activeChar, resolveClip(activeChar, activeAnim));
+            }
+            panelRefresh();
         };
 
         await registerSceneWithShadowSupport(engine, scene);
         progress.done();
         await startEngine(engine);
 
-        wireUi({
+        panelRefresh = wireUi({
             classDefs,
             getClassId: () => activeClass,
             setClass,
-            anims,
+            getAvailableAnims: availableAnims,
             getAnimId: () => activeAnim,
             setAnimation,
             weaponDefs,
@@ -466,7 +515,7 @@ interface WireUiParams {
     classDefs: CharacterClass[];
     getClassId: () => string;
     setClass: (id: string) => void;
-    anims: AnimationOption[];
+    getAvailableAnims: () => AnimationOption[];
     getAnimId: () => string;
     setAnimation: (id: string) => void;
     weaponDefs: WeaponOption[];
@@ -481,16 +530,14 @@ interface WireUiParams {
     backgrounds: BackgroundController;
 }
 
-function wireUi(p: WireUiParams): void {
-    const { classDefs, getClassId, setClass, anims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, offhandDefs, getOffhandId, setOffhand, getHeads, getHeadId, setHead, backgrounds } = p;
-    const animById = new Map(anims.map((a) => [a.id, a.label] as const));
+function wireUi(p: WireUiParams): () => void {
+    const { classDefs, getClassId, setClass, getAvailableAnims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, offhandDefs, getOffhandId, setOffhand, getHeads, getHeadId, setHead, backgrounds } = p;
     const api: DressRoomApi = {
         classes: classDefs.map((c) => ({ id: c.id, label: c.label })),
         scenes: backgrounds.defs.map((d) => ({ id: d.id, label: d.label })),
         weapons: weaponDefs.map((w) => ({ id: w.id, label: w.label })),
         offhands: offhandDefs.map((o) => ({ id: o.id, label: o.label })),
         slots: [],
-        animations: anims.map((a) => a.label),
         presets: [],
         tintable: false,
         getClass: () => getClassId(),
@@ -507,13 +554,9 @@ function wireUi(p: WireUiParams): void {
         getOption: () => "none",
         setOption: () => {},
         cycleOption: () => {},
-        getAnimation: () => animById.get(getAnimId()) ?? "",
-        setAnimation: (label) => {
-            const opt = anims.find((a) => a.label === label);
-            if (opt) {
-                setAnimation(opt.id);
-            }
-        },
+        getAnimations: () => getAvailableAnims().map((a) => ({ id: a.id, label: a.label })),
+        getAnimation: () => getAnimId(),
+        setAnimation: (id) => setAnimation(id),
         getTint: () => null,
         setTint: () => {},
         resetTint: () => {},
@@ -527,7 +570,7 @@ function wireUi(p: WireUiParams): void {
         },
         applyPreset: () => {},
     };
-    buildPanel(api);
+    return buildPanel(api).refresh;
 }
 
 void main();
