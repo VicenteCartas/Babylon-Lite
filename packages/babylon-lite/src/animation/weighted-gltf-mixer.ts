@@ -8,7 +8,7 @@ import { PATH_ROTATION, PATH_SCALE, PATH_TRANSLATION } from "./types.js";
 import { evaluateSampler } from "./evaluate.js";
 import { mat4ComposeInto } from "../math/mat4-compose-into.js";
 import { mat4MultiplyInto } from "../math/mat4-multiply-into.js";
-import type { Mat4Storage } from "../math/types.js";
+import type { Mat4, Mat4Storage } from "../math/types.js";
 
 const GLTF_CLIP = 0;
 const GLTF_NODES = 1;
@@ -72,6 +72,57 @@ export function setAnimationAdditive(group: AnimationGroup, options?: AnimationA
     if (owner) {
         enableAnimationBlending(owner);
     }
+}
+
+/** Read a joint's blended local-to-asset world matrix while its figure is being
+ *  cross-faded, or null when the figure is in steady state (a single clip at full
+ *  weight) — in which case {@link getJointWorldMatrix} applies.
+ *
+ *  While two or more weighted clips drive one figure, no single animation
+ *  controller holds the figure's pose: the weighted mixer composes it from all
+ *  contributing clips and uploads one blended skeleton. {@link getJointWorldMatrix}
+ *  reads a single controller's last solo pose, which is stale during a blend, so a
+ *  prop attached to a hand socket would freeze mid-transition. This returns the
+ *  mixer's composed pose for one joint so the prop keeps tracking its socket
+ *  through the cross-fade.
+ *
+ *  Same space and convention as {@link getJointWorldMatrix}: the matrix is
+ *  relative to the asset's synthetic root, so multiply the owning asset root's
+ *  world matrix by it to get a world-space transform. Returns null when the
+ *  group's manager has no active blend for this figure this frame, the group was
+ *  never attached to a blending manager, or the joint name is unknown — callers
+ *  fall back to {@link getJointWorldMatrix} for the steady-state pose.
+ *
+ *  Only meaningful after {@link updateAnimationManager} has run for the frame:
+ *  the blend set and composed matrices are recomputed each update. */
+export function getBlendedJointWorldMatrix(group: AnimationGroup, jointName: string): Mat4 | null {
+    const manager = getAnimationGroupOwner(group);
+    const mixer = group._gltfMixer;
+    if (!manager || !mixer) {
+        return null;
+    }
+    const scratch = scratchByManager?.get(manager);
+    const nodes = mixer[GLTF_NODES];
+    // `scratch.keys` holds exactly the figures the last update blended (it is
+    // cleared each update and only repopulated for non-solo, non-stopped groups),
+    // so its membership is the per-frame "is this figure mid-blend" signal.
+    if (!scratch || !scratch.keys.has(nodes)) {
+        return null;
+    }
+    const target = scratch.targets.get(nodes);
+    const idx = group._jointNameToIndex?.get(jointName);
+    if (!target || idx === undefined) {
+        return null;
+    }
+    const off = idx * 16;
+    if (off + 16 > target.worldMat.length) {
+        return null;
+    }
+    const out = new Float32Array(16);
+    for (let i = 0; i < 16; i++) {
+        out[i] = target.worldMat[off + i]!;
+    }
+    return out as unknown as Mat4;
 }
 
 function getScratch(manager: AnimationManager): WeightedGltfScratch {

@@ -203,6 +203,8 @@ export function fadeAnimationWeight(manager: AnimationManager, group: AnimationG
 export function crossFadeAnimationGroups(manager: AnimationManager, fromGroup: AnimationGroup, toGroup: AnimationGroup, options: CrossFadeAnimationGroupsOptions): void;
 export function enableAnimationBlending(manager: AnimationManager): void;
 export function setAnimationAdditive(group: AnimationGroup, options?: AnimationAdditiveOptions): void;
+export function getJointWorldMatrix(group: AnimationGroup, jointName: string): Mat4 | null;
+export function getBlendedJointWorldMatrix(group: AnimationGroup, jointName: string): Mat4 | null;
 
 export function createPropertyAnimationClip(
     name: string,
@@ -407,6 +409,12 @@ The default blend semantics match Babylon.js weights: translation and scale use 
 
 Additive groups are marked with `setAnimationAdditive(group, { referenceFrame })`. The mixer evaluates override/base groups first, then applies additive deltas in manager order before the single skeleton upload. Translation and scale add `sample - reference` by weight; rotations compute `reference^-1 * sample`, multiply that delta onto the base rotation, then slerp from base to the delta-applied rotation by the additive weight.
 
+### Reading an Animated Joint (Socket Attachment)
+
+`getJointWorldMatrix(group, jointName)` returns a named joint's local-to-asset world matrix so callers can attach a held prop (weapon, shield) to a hand-socket bone: resolve the socket each frame, compose with the owning asset root's world matrix, and drive the prop's transform. It reads the group's own controller pose, which is correct while that clip plays solo.
+
+During a cross-fade no single controller holds the figure's pose — the weighted glTF mixer composes it from every contributing clip — so the solo read is stale and a socket-attached prop would freeze for the fade. `getBlendedJointWorldMatrix(group, jointName)` returns the mixer's composed world matrix for one joint instead, in the same space and convention. It returns `null` when the group's figure is not being blended this frame (steady state, group never attached to a blending manager, or unknown joint), so callers select the live source with `getBlendedJointWorldMatrix(...) ?? getJointWorldMatrix(...)`. The "is this figure mid-blend" signal is the mixer's per-update key set (cleared and repopulated each update with exactly the non-solo figures), so the function reflects the most recent `updateAnimationManager` and must be read after it. Living in the mixer module keeps the blend-aware reader out of the default animation path, so non-blending scenes do not pay for it.
+
 ## Pipeline Configuration
 
 N/A — Animation is a CPU-side system. GPU interaction is limited to:
@@ -456,6 +464,7 @@ N/A — No shaders in this module. Skinning WGSL is in `shader/fragments/skeleto
 | manual property weighted blending | `enablePropertyAnimationBlending(manager)` + `setAnimationWeight(group, weight)` |
 | manual weight ramp / blending speed | `fadeAnimationWeight(manager, group, { to, durationMs })` |
 | manual cross-fade | `crossFadeAnimationGroups(manager, from, to, { durationMs })` |
+| bone world matrix for socket attach (e.g. `TransformNode.attachToBone`) | `getJointWorldMatrix(group, jointName)`; `getBlendedJointWorldMatrix(group, jointName)` during a cross-fade |
 | `scene.animationGroups` | `scene.animationGroups` |
 | `Animation.ANIMATIONTYPE_QUATERNION` | `PATH_ROTATION = 1` |
 | `Animation.ANIMATIONTYPE_VECTOR3` | `PATH_TRANSLATION = 0`, `PATH_SCALE = 2` |
