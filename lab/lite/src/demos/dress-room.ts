@@ -235,6 +235,9 @@ async function main(): Promise<void> {
                 const [gx, gy, gz] = o.grip ?? OFFHAND_GRIP_EULER;
                 const grip = createTransformNode("offhandGrip_" + o.id);
                 grip.rotation.set(gx, gy, gz);
+                if (o.offset) {
+                    grip.position.set(o.offset[0], o.offset[1], o.offset[2]);
+                }
                 grip.parent = offhandAnchor;
                 addToScene(scene, grip);
                 offhands.set(o.id, await loadWeapon(engine, scene, ASSET_BASE, o, grip as SceneNode));

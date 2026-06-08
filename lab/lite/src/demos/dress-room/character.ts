@@ -107,6 +107,10 @@ export interface OffhandOption {
     file?: string;
     /** Optional grip-orientation correction (Euler XYZ radians), as for weapons. */
     grip?: readonly [number, number, number];
+    /** Optional grip-position offset in the hand-socket frame (rides with the hand
+     *  through animation). Used when a prop's pivot is not its grip point — e.g. the
+     *  tankard, whose origin is the cup body, is shifted so its handle sits in the hand. */
+    offset?: readonly [number, number, number];
     /** A shield enables the Guard animation; plain items do not. */
     kind?: "shield" | "item";
 }
@@ -282,17 +286,26 @@ export function getWeapons(): WeaponOption[] {
 }
 
 /** The off-hand roster, in display order. Each is a static KayKit prop held in
- *  the left hand socket (`handslot.l`). Shields enable the Guard animation. */
+ *  the left hand socket (`handslot.l`). Shields enable the Guard animation.
+ *
+ *  Shields are modelled as a disc/plate in their local XY plane with the face
+ *  pointing along local +Z. The default off-hand grip stands a prop upright with
+ *  that face toward the front, which leaves a shield staring at the camera; the
+ *  shields override the grip with a quarter-turn so the face points out to the
+ *  side, as a shield carried on the forearm would. The tankard's pivot is its cup
+ *  body rather than its handle, so it carries an offset that slides the handle
+ *  into the hand. */
 export function getOffhands(): OffhandOption[] {
+    const shieldGrip = [-Math.PI, 0, Math.PI / 2] as const;
     return [
         { id: "none", label: "None" },
-        { id: "shield_round", label: "Round Shield", file: "weapons/shield_round.gltf", kind: "shield" },
-        { id: "shield_square", label: "Kite Shield", file: "weapons/shield_square.gltf", kind: "shield" },
-        { id: "shield_spikes", label: "Spiked Shield", file: "weapons/shield_spikes.gltf", kind: "shield" },
-        { id: "shield_badge", label: "Crest Shield", file: "weapons/shield_badge.gltf", kind: "shield" },
+        { id: "shield_round", label: "Round Shield", file: "weapons/shield_round.gltf", grip: shieldGrip, kind: "shield" },
+        { id: "shield_square", label: "Kite Shield", file: "weapons/shield_square.gltf", grip: shieldGrip, kind: "shield" },
+        { id: "shield_spikes", label: "Spiked Shield", file: "weapons/shield_spikes.gltf", grip: shieldGrip, kind: "shield" },
+        { id: "shield_badge", label: "Crest Shield", file: "weapons/shield_badge.gltf", grip: shieldGrip, kind: "shield" },
         { id: "spellbook", label: "Spellbook", file: "weapons/spellbook_open.gltf", kind: "item" },
         { id: "quiver", label: "Quiver", file: "weapons/quiver.gltf", kind: "item" },
-        { id: "mug", label: "Tankard", file: "weapons/mug_full.gltf", kind: "item" },
+        { id: "mug", label: "Tankard", file: "weapons/mug_full.gltf", offset: [0, 0.071, 0.26], kind: "item" },
     ];
 }
 
