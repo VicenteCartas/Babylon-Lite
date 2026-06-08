@@ -58,9 +58,11 @@ const DEFAULT_ANIM = "idle";
 const SPAWN_CLIPS = ["Spawn_Air", "Spawn_Ground"] as const;
 
 /** Play one animation (by roster id) on a character, stopping all its others.
- *  Falls back gracefully if the clip is missing on this character. */
+ *  Falls back gracefully if the clip is missing on this character. A class may
+ *  remap a roster id to a themed clip via its `clipOverride` (e.g. the
+ *  necromancer's skeletal idle/walk). */
 function applyAnimation(character: LoadedCharacter, animId: string, anims: readonly AnimationOption[]): void {
-    const clip = anims.find((a) => a.id === animId)?.clip;
+    const clip = character.clipOverride?.[animId] ?? anims.find((a) => a.id === animId)?.clip;
     for (const [name, group] of character.groups) {
         if (name === clip) {
             playAnimation(group);
@@ -208,7 +210,9 @@ async function main(): Promise<void> {
         let spawnGroup: AnimationGroup | null = null;
         let spawnChar: LoadedCharacter | null = null;
         const playSpawn = (character: LoadedCharacter): void => {
-            const clip = SPAWN_CLIPS[Math.floor(Math.random() * SPAWN_CLIPS.length)]!;
+            // A class may pin a themed spawn clip (the necromancer rises from the
+            // floor as a skeleton); otherwise pick one of the shared spawns at random.
+            const clip = character.clipOverride?.spawn ?? SPAWN_CLIPS[Math.floor(Math.random() * SPAWN_CLIPS.length)]!;
             const spawn = character.groups.get(clip);
             const ctrl = spawn?._ctrl;
             if (!spawn || !ctrl) {

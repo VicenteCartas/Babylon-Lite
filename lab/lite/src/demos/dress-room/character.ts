@@ -25,6 +25,16 @@ export interface CharacterClass {
     file: string;
     /** Default weapon id (see {@link getWeapons}) this class holds. */
     weapon: string;
+    /** Optional override of the animation-library files this class loads (defaults
+     *  to {@link ANIM_FILES}). The skeleton-rigged necromancer also pulls in the
+     *  "Special" set for its undead idle / walk / spawn clips. */
+    animFiles?: readonly string[];
+    /** Optional per-animation clip-name overrides, keyed by animation roster id
+     *  (see {@link getAnimations}) or the literal `"spawn"`. Lets a class swap in a
+     *  themed variant — e.g. the necromancer plays `Skeletons_Idle` /
+     *  `Skeletons_Walking` / `Skeletons_Spawn_Ground` while every other animation
+     *  falls back to the shared clip. */
+    clipOverride?: Readonly<Record<string, string>>;
 }
 
 /** A selectable animation, mapping a friendly label to a KayKit clip name. */
@@ -65,6 +75,8 @@ export interface LoadedCharacter {
     nodeByName: Map<string, SceneNode>;
     /** Clip name → AnimationGroup (all start stopped). */
     groups: Map<string, AnimationGroup>;
+    /** Per-animation clip-name overrides (see {@link CharacterClass.clipOverride}). */
+    clipOverride?: Readonly<Record<string, string>>;
     setVisible(visible: boolean): void;
 }
 
@@ -79,8 +91,22 @@ export function getClasses(): CharacterClass[] {
         { id: "barbarian", label: "Barbarian", file: "characters/Barbarian.glb", weapon: "axe" },
         { id: "mage", label: "Mage", file: "characters/Mage.glb", weapon: "staff" },
         { id: "ranger", label: "Ranger", file: "characters/Ranger.glb", weapon: "bow" },
-        { id: "rogue", label: "Rogue", file: "characters/Rogue.glb", weapon: "dagger" },
-        { id: "rogue_hooded", label: "Rogue (Hooded)", file: "characters/Rogue_Hooded.glb", weapon: "dagger" },
+        // The "rogue" id maps to KayKit's hooded rogue model (the plain rogue was
+        // dropped in favour of the necromancer, keeping the roster at six).
+        { id: "rogue", label: "Rogue", file: "characters/Rogue_Hooded.glb", weapon: "dagger" },
+        // Necromancer = KayKit Skeletons "Skeleton Mage". It shares the Rig_Medium
+        // skeleton + hand sockets, so it uses the same animation library and weapon
+        // attachment as every other class. It also loads the "Special" set and maps
+        // idle / walk / spawn to its skeletal (undead) variants; run / jump / hit /
+        // throw have no special variant and fall back to the shared clips.
+        {
+            id: "necromancer",
+            label: "Necromancer",
+            file: "characters/Necromancer.glb",
+            weapon: "wand",
+            animFiles: [...ANIM_FILES, "animations/Rig_Medium_Special.glb"],
+            clipOverride: { idle: "Skeletons_Idle", walk: "Skeletons_Walking", spawn: "Skeletons_Spawn_Ground" },
+        },
     ];
 }
 
@@ -148,10 +174,11 @@ function indexSubtree(roots: readonly SceneNode[]): { meshes: Mesh[]; nodeByName
 /** Load one character glb with retargeted animations, add it to the scene, and
  *  return a toggleable handle. All animation groups start stopped. */
 export async function loadCharacter(engine: EngineContext, scene: SceneContext, baseUrl: string, cls: CharacterClass): Promise<LoadedCharacter> {
+    const animFiles = cls.animFiles ?? ANIM_FILES;
     const container = await loadGltfWithAnimations(
         engine,
         baseUrl + cls.file,
-        ANIM_FILES.map((f) => baseUrl + f)
+        animFiles.map((f) => baseUrl + f)
     );
     addToScene(scene, container);
     const roots = container.entities as SceneNode[];
@@ -166,6 +193,7 @@ export async function loadCharacter(engine: EngineContext, scene: SceneContext, 
         meshes,
         nodeByName,
         groups,
+        clipOverride: cls.clipOverride,
         setVisible: (visible: boolean) => {
             for (const root of roots) {
                 setSubtreeVisible(root, visible);
