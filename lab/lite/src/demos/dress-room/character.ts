@@ -289,14 +289,14 @@ export function getWeapons(): WeaponOption[] {
  *  the left hand socket (`handslot.l`). Shields enable the Guard animation.
  *
  *  Shields are modelled as a disc/plate in their local XY plane with the face
- *  pointing along local +Z. The default off-hand grip stands a prop upright with
- *  that face toward the front, which leaves a shield staring at the camera; the
- *  shields override the grip with a quarter-turn so the face points out to the
- *  side, as a shield carried on the forearm would. The tankard's pivot is its cup
- *  body rather than its handle, so it carries an offset that slides the handle
- *  into the hand. */
+ *  pointing along local +Z. The default off-hand grip stands a prop upright but
+ *  leaves that face pointing inward, across the body; the shields override the
+ *  grip so the face points out to the side, away from the body, as a shield
+ *  carried on the forearm would. The tankard's pivot is its cup body rather than
+ *  its handle, so it carries an offset that slides the handle into the hand while
+ *  the cup hangs outward. */
 export function getOffhands(): OffhandOption[] {
-    const shieldGrip = [-Math.PI, 0, Math.PI / 2] as const;
+    const shieldGrip = [0, 0, Math.PI / 2] as const;
     return [
         { id: "none", label: "None" },
         { id: "shield_round", label: "Round Shield", file: "weapons/shield_round.gltf", grip: shieldGrip, kind: "shield" },
