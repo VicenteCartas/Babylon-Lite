@@ -20,7 +20,10 @@ import {
     createHemisphericLight,
     createSceneContext,
     createTransformNode,
+    addAnimationGroups,
     addToScene,
+    createAnimationManager,
+    enableAnimationBlending,
     getJointWorldMatrix,
     loadEnvironment,
     mat4Compose,
@@ -33,6 +36,7 @@ import {
     setShadowTaskCasterMeshes,
     startEngine,
     stopAnimation,
+    updateAnimationManager,
 } from "babylon-lite";
 import type { AnimationGroup, SceneNode } from "babylon-lite";
 import { getAnimations, getClasses, getOffhands, getWeapons, loadCharacter, loadWeapon, applyHead, attackClipFor, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
@@ -63,17 +67,10 @@ const SPAWN_CLIPS = ["Spawn_Air", "Spawn_Ground"] as const;
  *  thematic props alike; individual items may override via {@link OffhandOption.grip}. */
 const OFFHAND_GRIP_EULER: readonly [number, number, number] = [-Math.PI / 2, 0, Math.PI / 2];
 
-/** Play a single clip by name on a character, stopping all its others. An empty
- *  clip name stops everything. Missing clips simply leave the figure still. */
-function playClip(character: LoadedCharacter, clip: string): void {
-    for (const [name, group] of character.groups) {
-        if (clip && name === clip) {
-            playAnimation(group);
-        } else if (group.isPlaying) {
-            stopAnimation(group);
-        }
-    }
-}
+/** Duration of a cross-fade between two animation clips, in milliseconds. Short
+ *  enough to feel responsive, long enough to hide the pose mismatch (e.g. the
+ *  spawn landing settling into idle). */
+const FADE_MS = 150;
 
 async function main(): Promise<void> {
     const __initStart = performance.now();
@@ -163,6 +160,24 @@ async function main(): Promise<void> {
          *  if one is registered, otherwise the class's base model. */
         const resolveModel = (classId: string, headId: string): LoadedCharacter =>
             altModels.get(classId)?.get(headId) ?? characters.get(classId)!;
+
+        // One animation manager drives every model's clips. Enabling glTF blending
+        // swaps in the weighted skeleton mixer, so two clips on the same figure can
+        // play at once and be blended by weight — that's what lets one clip cross-fade
+        // into the next instead of popping. Each model's clips start stopped, so only
+        // the clips we explicitly play are ticked; the manager is advanced once per
+        // frame below. (loadCharacter deliberately skips addToScene's per-container
+        // ticker so clips aren't advanced twice.)
+        const animMgr = createAnimationManager({ engine });
+        enableAnimationBlending(animMgr);
+        for (const model of characters.values()) {
+            addAnimationGroups(animMgr, [...model.groups.values()]);
+        }
+        for (const variants of altModels.values()) {
+            for (const model of variants.values()) {
+                addAnimationGroups(animMgr, [...model.groups.values()]);
+            }
+        }
 
         // Held weapons. A single anchor node is driven each frame from the active
         // character's right-hand socket (handslot.r). Each weapon hangs under its
@@ -277,39 +292,82 @@ async function main(): Promise<void> {
             return character.clipOverride?.[animId] ?? opt.clip;
         };
 
-        // One-shot playback. Used both for the spawn entrance and for transient
-        // actions (Attack, Dodge): the clip plays once and the figure settles back
-        // into the held animation. The container animation ticker advances each
-        // clip's controller directly, so the group-level `loopAnimation`/`currentFrame`
-        // are never synced — we drive the controller (reset time, disable looping so
-        // it clamps at the final frame, ensure playing) and watch its clamped time.
+        // Cross-fading animation playback. Because the manager has glTF blending
+        // enabled, two clips on the same figure can play at once; ramping their
+        // weights over FADE_MS blends one into the next so transitions don't pop
+        // (e.g. the spawn landing easing into idle). At most two clips are ever live
+        // on the active figure: the steady `currentGroup` and, mid-fade, the
+        // incoming one.
+        let currentGroup: AnimationGroup | null = null;
+        let fade: { from: AnimationGroup; to: AnimationGroup; t: number } | null = null;
+        // A one-shot clip (spawn entrance, or a transient Attack / Dodge) that plays
+        // once and then settles back into the held animation.
         let oneShotGroup: AnimationGroup | null = null;
         let oneShotChar: LoadedCharacter | null = null;
-        const playOnce = (character: LoadedCharacter, clip: string): boolean => {
-            const group = character.groups.get(clip);
-            const ctrl = group?._ctrl;
-            if (!group || !ctrl) {
+
+        /** Stop every clip on a figure (used when hiding it for a class / model swap). */
+        const stopAll = (character: LoadedCharacter): void => {
+            for (const g of character.groups.values()) {
+                g.weight = 0;
+                stopAnimation(g);
+            }
+        };
+
+        /** Play `clip` on `character`, hard-cutting or cross-fading from whatever is
+         *  already playing. Returns false (leaving the figure as-is) when the clip is
+         *  missing. `immediate` forces a hard cut: used for snappy one-shots (Attack)
+         *  and entrances (spawn) so the destination clip owns the pose from the first
+         *  frame and a held prop tracks the hand without lag. Looping transitions
+         *  cross-fade. */
+        const transition = (character: LoadedCharacter, clip: string, opts: { loop: boolean; oneShot?: boolean; immediate?: boolean }): boolean => {
+            const target = character.groups.get(clip);
+            if (!target) {
                 return false;
             }
-            for (const g of character.groups.values()) {
-                if (g !== group && g.isPlaying) {
-                    stopAnimation(g);
-                }
+            // Collapse any in-progress fade so at most two clips ever blend at once.
+            if (fade) {
+                fade.from.weight = 0;
+                stopAnimation(fade.from);
+                fade.to.weight = 1;
+                fade = null;
             }
-            playAnimation(group);
-            ctrl.time = 0;
-            ctrl.loop = false;
-            ctrl.playing = true;
-            oneShotGroup = group;
-            oneShotChar = character;
+            const from = currentGroup;
+            if (from === target && !opts.oneShot && target.isPlaying) {
+                return true; // already holding this looping clip
+            }
+            if (opts.immediate || !from || !from.isPlaying || from === target) {
+                // Hard cut: stop the others so the target owns the pose immediately.
+                for (const g of character.groups.values()) {
+                    if (g !== target && g.isPlaying) {
+                        stopAnimation(g);
+                    }
+                }
+                target.currentFrame = 0;
+                target.loopAnimation = opts.loop;
+                target.weight = 1;
+                playAnimation(target);
+            } else {
+                // Cross-fade: start the target silent and ramp the weights each frame.
+                target.currentFrame = 0;
+                target.loopAnimation = opts.loop;
+                target.weight = 0;
+                playAnimation(target);
+                fade = { from, to: target, t: 0 };
+            }
+            currentGroup = target;
+            oneShotGroup = opts.oneShot ? target : null;
+            oneShotChar = opts.oneShot ? character : null;
             return true;
         };
-        const playSpawn = (character: LoadedCharacter): void => {
+
+        /** Spawn entrance: a one-shot that hard-cuts in (there's no prior clip to
+         *  blend from) and settles into the held animation once it finishes. */
+        const spawn = (character: LoadedCharacter): void => {
             // A class may pin a themed spawn clip (the necromancer rises from the
             // floor as a skeleton); otherwise pick one of the shared spawns at random.
             const clip = character.clipOverride?.spawn ?? SPAWN_CLIPS[Math.floor(Math.random() * SPAWN_CLIPS.length)]!;
-            if (!playOnce(character, clip)) {
-                playClip(character, resolveClip(character, activeAnim));
+            if (!transition(character, clip, { loop: false, oneShot: true, immediate: true })) {
+                transition(character, resolveClip(character, activeAnim), { loop: true, immediate: true });
             }
         };
 
@@ -332,7 +390,7 @@ async function main(): Promise<void> {
         let activeChar: LoadedCharacter = resolveModel(activeClass, headOf(activeClass));
         activeChar.setVisible(true);
         applyHead(activeChar, headOf(activeClass));
-        playSpawn(activeChar);
+        spawn(activeChar);
         setWeapon(classById.get(activeClass)?.weapon ?? "none");
         setOffhand(classById.get(activeClass)?.offhand ?? "none");
         backgrounds.activate(backgrounds.defs.some((d) => d.id === DEFAULT_SCENE) ? DEFAULT_SCENE : backgrounds.defs[0]!.id);
@@ -341,13 +399,18 @@ async function main(): Promise<void> {
             if (id === activeClass || !characters.has(id)) {
                 return;
             }
-            playClip(activeChar, ""); // stop the outgoing figure's clips
+            stopAll(activeChar); // stop the outgoing figure's clips
             activeChar.setVisible(false);
+            // Reset transition state: the incoming figure has its own clips.
+            fade = null;
+            oneShotGroup = null;
+            oneShotChar = null;
+            currentGroup = null;
             activeClass = id;
             activeChar = resolveModel(id, headOf(id));
             activeChar.setVisible(true);
             applyHead(activeChar, headOf(id));
-            playSpawn(activeChar);
+            spawn(activeChar);
             setWeapon(classById.get(id)?.weapon ?? "none");
             setOffhand(classById.get(id)?.offhand ?? "none");
         };
@@ -361,16 +424,18 @@ async function main(): Promise<void> {
                 return;
             }
             // Whole-model swap (Rogue hooded ⇄ unhooded): hand the active animation
-            // over to the incoming model without replaying the spawn.
-            playClip(activeChar, "");
+            // over to the incoming model without replaying the spawn. The two models
+            // are separate skeletons, so there's nothing to blend — hard-cut.
+            stopAll(activeChar);
             activeChar.setVisible(false);
+            fade = null;
+            oneShotGroup = null;
+            oneShotChar = null;
+            currentGroup = null;
             activeChar = next;
             activeChar.setVisible(true);
             applyHead(activeChar, id);
-            // Cancel any in-progress one-shot so it can't retarget the old model.
-            oneShotGroup = null;
-            oneShotChar = null;
-            playClip(activeChar, resolveClip(activeChar, activeAnim));
+            transition(activeChar, resolveClip(activeChar, activeAnim), { loop: true, immediate: true });
         };
 
         // Drive the weapon anchor from the active character's right-hand socket
@@ -418,28 +483,43 @@ async function main(): Promise<void> {
             anchor.position.set(wPos[0], wPos[1], wPos[2]);
             anchor.rotationQuaternion!.set(wQuat[0], wQuat[1], wQuat[2], wQuat[3]);
         };
-        onBeforeRender(scene, () => {
-            if (activeWeapon !== "none") {
-                driveAnchor(weaponAnchor as SceneNode, "handslot.r");
+        // Per-frame animation update, in strict order: advance any cross-fade
+        // weights, tick the manager (which blends the live clips on each figure and
+        // uploads one skeleton per figure), settle a finished one-shot back into the
+        // held animation, then drive the held props from the hand sockets. While a
+        // cross-fade is in flight the blended hand pose isn't read back through a
+        // single controller, so the props hold steady for the ~FADE_MS and resume
+        // onto the hand once a single clip owns the pose again — invisible for the
+        // small hand deltas of the transitions we fade (spawn→idle, idle↔walk, the
+        // settle out of an action).
+        onBeforeRender(scene, (deltaMs) => {
+            if (fade) {
+                fade.t += deltaMs;
+                const k = Math.min(1, fade.t / FADE_MS);
+                fade.from.weight = 1 - k;
+                fade.to.weight = k;
+                if (k >= 1) {
+                    fade.from.weight = 0;
+                    stopAnimation(fade.from);
+                    fade.to.weight = 1;
+                    fade = null;
+                }
             }
-            if (activeOffhand !== "none") {
-                driveAnchor(offhandAnchor as SceneNode, "handslot.l");
-            }
-        });
-
-        // Settle a one-shot clip (spawn entrance, or a transient Attack / Dodge)
-        // back into the held animation once it reaches the end. Looping is disabled
-        // on the one-shot controller, so its play head clamps at the clip duration;
-        // this runs before the animation ticker each frame, so the held animation
-        // takes over without the final frame looping back to the start.
-        onBeforeRender(scene, () => {
-            const ctrl = oneShotGroup?._ctrl;
-            if (oneShotGroup && ctrl && ctrl.time >= oneShotGroup.duration - 1 / 120) {
+            updateAnimationManager(animMgr, deltaMs);
+            if (oneShotGroup && oneShotGroup.currentFrame >= oneShotGroup.duration - 1 / 120) {
                 const ch = oneShotChar;
                 oneShotGroup = null;
                 oneShotChar = null;
                 if (ch) {
-                    playClip(ch, resolveClip(ch, activeAnim));
+                    transition(ch, resolveClip(ch, activeAnim), { loop: true });
+                }
+            }
+            if (!fade) {
+                if (activeWeapon !== "none") {
+                    driveAnchor(weaponAnchor as SceneNode, "handslot.r");
+                }
+                if (activeOffhand !== "none") {
+                    driveAnchor(offhandAnchor as SceneNode, "handslot.l");
                 }
             }
         });
@@ -450,17 +530,16 @@ async function main(): Promise<void> {
                 return;
             }
             if (opt.oneShot) {
-                // Transient action (Attack / Dodge): play once over the held anim,
-                // then settle back into it — `activeAnim` is left unchanged.
-                if (!playOnce(activeChar, resolveClip(activeChar, animId))) {
-                    playClip(activeChar, resolveClip(activeChar, activeAnim));
+                // Transient action (Attack / Dodge): hard-cut in so it reads snappy
+                // and a held weapon tracks the swing from the first frame, then settle
+                // back into the held animation — `activeAnim` is left unchanged.
+                if (!transition(activeChar, resolveClip(activeChar, animId), { loop: false, oneShot: true, immediate: true })) {
+                    transition(activeChar, resolveClip(activeChar, activeAnim), { loop: true });
                 }
                 return;
             }
             activeAnim = animId;
-            oneShotGroup = null;
-            oneShotChar = null;
-            playClip(activeChar, resolveClip(activeChar, animId));
+            transition(activeChar, resolveClip(activeChar, animId), { loop: true });
         };
 
         // Now that the animation machinery exists, react to equipment changes:
@@ -469,9 +548,7 @@ async function main(): Promise<void> {
         afterEquipChange = (): void => {
             if (activeAnim === "guard" && !hasShield()) {
                 activeAnim = DEFAULT_ANIM;
-                oneShotGroup = null;
-                oneShotChar = null;
-                playClip(activeChar, resolveClip(activeChar, activeAnim));
+                transition(activeChar, resolveClip(activeChar, activeAnim), { loop: true });
             }
             panelRefresh();
         };

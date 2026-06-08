@@ -348,7 +348,12 @@ function indexSubtree(roots: readonly SceneNode[]): { meshes: Mesh[]; nodeByName
 }
 
 /** Load one character glb with retargeted animations, add it to the scene, and
- *  return a toggleable handle. All animation groups start stopped. */
+ *  return a toggleable handle. All animation groups start stopped.
+ *
+ *  Only the renderable entities are added to the scene; the animation groups are
+ *  driven by a caller-owned {@link createAnimationManager} (so the demo can
+ *  cross-fade between clips), not by `addToScene`'s built-in per-container ticker
+ *  — registering both would advance every clip twice per frame. */
 export async function loadCharacter(engine: EngineContext, scene: SceneContext, baseUrl: string, cls: CharacterClass): Promise<LoadedCharacter> {
     const animFiles = cls.animFiles ?? ANIM_FILES;
     const container = await loadGltfWithAnimations(
@@ -356,7 +361,9 @@ export async function loadCharacter(engine: EngineContext, scene: SceneContext, 
         baseUrl + cls.file,
         animFiles.map((f) => baseUrl + f)
     );
-    addToScene(scene, container);
+    for (const entity of container.entities) {
+        addToScene(scene, entity);
+    }
     const roots = container.entities as SceneNode[];
     const { meshes, nodeByName } = indexSubtree(roots);
     const groups = new Map<string, AnimationGroup>();
