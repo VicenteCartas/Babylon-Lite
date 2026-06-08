@@ -71,7 +71,14 @@ const OFFHAND_GRIP_EULER: readonly [number, number, number] = [-Math.PI / 2, 0, 
 /** Duration of a cross-fade between two animation clips, in milliseconds. Short
  *  enough to feel responsive, long enough to hide the pose mismatch (e.g. the
  *  spawn landing settling into idle). */
-const FADE_MS = 150;
+const FADE_MS = 220;
+
+/** Smoothstep ease (3t²−2t³): zero velocity at both ends. Easing the cross-fade
+ *  weight this way means the incoming clip's influence ramps in and out gently
+ *  instead of snapping to a constant rate on the first and last frame — which
+ *  otherwise reads as a small "catch" when one clip is still in motion as the
+ *  next takes over (e.g. the spawn landing still rising as idle settles it down). */
+const ease = (t: number): number => t * t * (3 - 2 * t);
 
 async function main(): Promise<void> {
     const __initStart = performance.now();
@@ -497,8 +504,9 @@ async function main(): Promise<void> {
             if (fade) {
                 fade.t += deltaMs;
                 const k = Math.min(1, fade.t / FADE_MS);
-                fade.from.weight = 1 - k;
-                fade.to.weight = k;
+                const w = ease(k);
+                fade.from.weight = 1 - w;
+                fade.to.weight = w;
                 if (k >= 1) {
                     fade.from.weight = 0;
                     stopAnimation(fade.from);
