@@ -27,6 +27,11 @@ export interface CharacterClass {
     weapon: string;
     /** Default off-hand item id (see {@link getOffhands}); defaults to `"none"`. */
     offhand?: string;
+    /** Head/headgear variants for this class, toggled by showing/hiding meshes
+     *  (see {@link HeadOption}). Omit for classes with no head variants. */
+    heads?: HeadOption[];
+    /** Default head-variant id; defaults to the first {@link CharacterClass.heads} entry. */
+    head?: string;
     /** Optional override of the animation-library files this class loads (defaults
      *  to {@link ANIM_FILES}). The skeleton-rigged necromancer also pulls in the
      *  "Special" set for its undead idle / walk / spawn clips. */
@@ -45,6 +50,18 @@ export interface AnimationOption {
     label: string;
     /** KayKit clip name (AnimationGroup.name) to play. */
     clip: string;
+}
+
+/** A head/headgear variant for a class, expressed as the set of toggleable head
+ *  meshes that should be visible. A mesh is "toggleable" if its last name segment
+ *  (after the final `_`) appears in any of the class's head options' `show` lists;
+ *  every such mesh is shown only when this option lists it, and hidden otherwise.
+ *  Meshes never mentioned by any option (body, arms, skull, …) are left alone. */
+export interface HeadOption {
+    id: string;
+    label: string;
+    /** Mesh name-suffixes to show for this variant (e.g. `["Head", "Helmet"]`). */
+    show: string[];
 }
 
 /** What hand(s) a weapon occupies and how it is wielded — used to resolve the
@@ -101,6 +118,8 @@ export interface LoadedCharacter {
     groups: Map<string, AnimationGroup>;
     /** Per-animation clip-name overrides (see {@link CharacterClass.clipOverride}). */
     clipOverride?: Readonly<Record<string, string>>;
+    /** Head/headgear variants (see {@link CharacterClass.heads}). */
+    heads?: HeadOption[];
     setVisible(visible: boolean): void;
 }
 
@@ -111,9 +130,40 @@ const ANIM_FILES = ["animations/Rig_Medium_MovementBasic.glb", "animations/Rig_M
 /** The character roster, in display order. */
 export function getClasses(): CharacterClass[] {
     return [
-        { id: "knight", label: "Knight", file: "characters/Knight.glb", weapon: "sword", offhand: "shield_round" },
-        { id: "barbarian", label: "Barbarian", file: "characters/Barbarian.glb", weapon: "axe", offhand: "shield_spikes" },
-        { id: "mage", label: "Mage", file: "characters/Mage.glb", weapon: "staff", offhand: "none" },
+        {
+            id: "knight",
+            label: "Knight",
+            file: "characters/Knight.glb",
+            weapon: "sword",
+            offhand: "shield_round",
+            heads: [
+                { id: "fullhelm", label: "Full Helm", show: ["Head", "Helmet", "HelmetVisor"] },
+                { id: "openhelm", label: "Open Helm", show: ["Head", "Helmet"] },
+                { id: "bare", label: "Bareheaded", show: ["Head"] },
+            ],
+        },
+        {
+            id: "barbarian",
+            label: "Barbarian",
+            file: "characters/Barbarian.glb",
+            weapon: "axe",
+            offhand: "shield_spikes",
+            heads: [
+                { id: "bearhat", label: "Bear Hood", show: ["Head", "BearHat"] },
+                { id: "bare", label: "Bareheaded", show: ["Head"] },
+            ],
+        },
+        {
+            id: "mage",
+            label: "Mage",
+            file: "characters/Mage.glb",
+            weapon: "staff",
+            offhand: "none",
+            heads: [
+                { id: "hat", label: "Wizard Hat", show: ["Head", "Hat"] },
+                { id: "bare", label: "Bareheaded", show: ["Head"] },
+            ],
+        },
         { id: "ranger", label: "Ranger", file: "characters/Ranger.glb", weapon: "bow", offhand: "quiver" },
         // The "rogue" id maps to KayKit's hooded rogue model (the plain rogue was
         // dropped in favour of the necromancer, keeping the roster at six).
@@ -122,7 +172,8 @@ export function getClasses(): CharacterClass[] {
         // skeleton + hand sockets, so it uses the same animation library and weapon
         // attachment as every other class. It also loads the "Special" set and maps
         // idle / walk / spawn to its skeletal (undead) variants; run / jump / hit /
-        // throw have no special variant and fall back to the shared clips.
+        // throw have no special variant and fall back to the shared clips. The skull
+        // always shows; only the witch hat toggles.
         {
             id: "necromancer",
             label: "Necromancer",
@@ -131,8 +182,42 @@ export function getClasses(): CharacterClass[] {
             offhand: "spellbook",
             animFiles: [...ANIM_FILES, "animations/Rig_Medium_Special.glb"],
             clipOverride: { idle: "Skeletons_Idle", walk: "Skeletons_Walking", spawn: "Skeletons_Spawn_Ground" },
+            heads: [
+                { id: "hat", label: "Witch Hat", show: ["Hat"] },
+                { id: "bare", label: "Bare Skull", show: [] },
+            ],
         },
     ];
+}
+
+/** Apply a head variant to a loaded character by toggling its head meshes. Safe
+ *  to call only while the character is visible (it explicitly shows/hides meshes;
+ *  `setVisible(true)` resets them, so re-apply the head after showing).
+ *
+ *  The loader names mesh nodes generically (`gltf_mesh_N`) but keeps each mesh
+ *  under a parent TransformNode carrying the real glTF node name (e.g.
+ *  `Knight_Helmet`), so the variant's mesh suffixes are matched against that
+ *  parent name's last `_`-segment. */
+export function applyHead(character: LoadedCharacter, headId: string): void {
+    const heads = character.heads;
+    if (!heads || heads.length === 0) {
+        return;
+    }
+    const option = heads.find((h) => h.id === headId) ?? heads[0]!;
+    const toggleable = new Set<string>();
+    for (const h of heads) {
+        for (const s of h.show) {
+            toggleable.add(s);
+        }
+    }
+    for (const mesh of character.meshes) {
+        const parentName = (mesh as unknown as { parent?: { name?: string } }).parent?.name ?? mesh.name;
+        const seg = parentName.slice(parentName.lastIndexOf("_") + 1);
+        if (!toggleable.has(seg)) {
+            continue;
+        }
+        setSubtreeVisible(mesh as unknown as SceneNode, option.show.includes(seg));
+    }
 }
 
 /** Default grip-orientation correction (Euler XYZ radians) for held weapons.
@@ -234,6 +319,7 @@ export async function loadCharacter(engine: EngineContext, scene: SceneContext, 
         nodeByName,
         groups,
         clipOverride: cls.clipOverride,
+        heads: cls.heads,
         setVisible: (visible: boolean) => {
             for (const root of roots) {
                 setSubtreeVisible(root, visible);

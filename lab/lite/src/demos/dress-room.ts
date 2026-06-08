@@ -35,8 +35,8 @@ import {
     stopAnimation,
 } from "babylon-lite";
 import type { AnimationGroup, SceneNode } from "babylon-lite";
-import { getAnimations, getClasses, getOffhands, getWeapons, loadCharacter, loadWeapon, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
-import type { AnimationOption, CharacterClass, LoadedCharacter, LoadedWeapon, OffhandOption, WeaponOption } from "./dress-room/character.js";
+import { getAnimations, getClasses, getOffhands, getWeapons, loadCharacter, loadWeapon, applyHead, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
+import type { AnimationOption, CharacterClass, HeadOption, LoadedCharacter, LoadedWeapon, OffhandOption, WeaponOption } from "./dress-room/character.js";
 import { buildPanel } from "./dress-room/ui.js";
 import type { DressRoomApi } from "./dress-room/ui.js";
 import { createBackgrounds, getBackgrounds } from "./dress-room/background.js";
@@ -265,9 +265,22 @@ async function main(): Promise<void> {
             spawnChar = character;
         };
 
+        // Head/headgear variant per class (remembered as the user toggles, so it
+        // persists when switching away and back). `setVisible(true)` re-shows every
+        // mesh, so the head is re-applied after a class is shown.
+        const headByClass = new Map<string, string>();
+        for (const c of classDefs) {
+            const def = c.head ?? c.heads?.[0]?.id;
+            if (def) {
+                headByClass.set(c.id, def);
+            }
+        }
+        const headOf = (classId: string): string => headByClass.get(classId) ?? "";
+
         const startChar = characters.get(activeClass);
         if (startChar) {
             startChar.setVisible(true);
+            applyHead(startChar, headOf(activeClass));
             playSpawn(startChar);
         }
         setWeapon(classById.get(activeClass)?.weapon ?? "none");
@@ -286,11 +299,20 @@ async function main(): Promise<void> {
             const next = characters.get(id);
             if (next) {
                 next.setVisible(true);
+                applyHead(next, headOf(id));
                 playSpawn(next);
             }
             activeClass = id;
             setWeapon(classById.get(id)?.weapon ?? "none");
             setOffhand(classById.get(id)?.offhand ?? "none");
+        };
+
+        const setHead = (id: string): void => {
+            headByClass.set(activeClass, id);
+            const character = characters.get(activeClass);
+            if (character) {
+                applyHead(character, id);
+            }
         };
 
         // Drive the weapon anchor from the active character's right-hand socket
@@ -392,6 +414,9 @@ async function main(): Promise<void> {
             offhandDefs,
             getOffhandId: () => activeOffhand,
             setOffhand,
+            getHeads: () => classById.get(activeClass)?.heads ?? [],
+            getHeadId: () => headOf(activeClass),
+            setHead,
             backgrounds,
         });
 
@@ -420,11 +445,14 @@ interface WireUiParams {
     offhandDefs: OffhandOption[];
     getOffhandId: () => string;
     setOffhand: (id: string) => void;
+    getHeads: () => HeadOption[];
+    getHeadId: () => string;
+    setHead: (id: string) => void;
     backgrounds: BackgroundController;
 }
 
 function wireUi(p: WireUiParams): void {
-    const { classDefs, getClassId, setClass, anims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, offhandDefs, getOffhandId, setOffhand, backgrounds } = p;
+    const { classDefs, getClassId, setClass, anims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, offhandDefs, getOffhandId, setOffhand, getHeads, getHeadId, setHead, backgrounds } = p;
     const animById = new Map(anims.map((a) => [a.id, a.label] as const));
     const api: DressRoomApi = {
         classes: classDefs.map((c) => ({ id: c.id, label: c.label })),
@@ -443,6 +471,9 @@ function wireUi(p: WireUiParams): void {
         setWeapon: (id) => setWeapon(id),
         getOffhand: () => getOffhandId(),
         setOffhand: (id) => setOffhand(id),
+        getHeads: () => getHeads().map((h) => ({ id: h.id, label: h.label })),
+        getHead: () => getHeadId(),
+        setHead: (id) => setHead(id),
         getOption: () => "none",
         setOption: () => {},
         cycleOption: () => {},

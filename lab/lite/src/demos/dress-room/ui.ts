@@ -34,6 +34,11 @@ export interface DressRoomApi {
     setWeapon?(id: string): void;
     getOffhand?(): string;
     setOffhand?(id: string): void;
+    /** Head/headgear options for the CURRENT class (changes when the class changes;
+     *  empty or single-entry hides the picker). */
+    getHeads?(): { id: string; label: string }[];
+    getHead?(): string;
+    setHead?(id: string): void;
     getOption(slot: string): string;
     setOption(slot: string, optionId: string): void;
     cycleOption(slot: string, dir: 1 | -1): void;
@@ -201,6 +206,39 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
         }
         refreshers.push(syncOffhand);
         body.appendChild(offRow);
+        panel.appendChild(section);
+    }
+
+    // ── Head / headgear (dynamic: options depend on the active class) ─
+    if (api.getHeads && api.getHead && api.setHead) {
+        const { section, body, valueEl } = makeAccordion("Head");
+        const headRow = el("div", "dr-acc-grid");
+        body.appendChild(headRow);
+        const syncHead = () => {
+            const options = api.getHeads!();
+            // Hide the whole section when the class offers no real choice.
+            if (options.length < 2) {
+                section.style.display = "none";
+                section.classList.remove("is-open");
+                return;
+            }
+            section.style.display = "";
+            const active = api.getHead!();
+            // Rebuild the chip grid (options change per class).
+            headRow.replaceChildren();
+            for (const h of options) {
+                const btn = el("button", "dr-chip", h.label);
+                btn.type = "button";
+                btn.classList.toggle("is-active", h.id === active);
+                btn.addEventListener("click", () => {
+                    api.setHead!(h.id);
+                    syncHead();
+                });
+                headRow.appendChild(btn);
+            }
+            valueEl.textContent = options.find((h) => h.id === active)?.label ?? "";
+        };
+        refreshers.push(syncHead);
         panel.appendChild(section);
     }
 
