@@ -62,7 +62,7 @@ function makeGroup(clip: AnimationClip, weight: number, rig: ReturnType<typeof m
         loopAnimation: true,
         weight,
         _stopped: false,
-        _gltfMixer: [clip, rig.nodes, rig.skeletons],
+        _gltfMixer: [clip, rig.nodes, rig.skeletons, [], new Set<number>()],
         _jointNameToIndex: new Map([["joint", 1]]),
     };
 }

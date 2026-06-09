@@ -3,7 +3,7 @@
 
 import type { EngineContext } from "../engine/engine.js";
 import type { Mat4 } from "../math/types.js";
-import type { AnimationClip, AnimationSampler, GltfAnimationData, NodeRest, SkeletonBinding } from "./types.js";
+import type { AnimatedNodeTarget, AnimationClip, AnimationSampler, GltfAnimationData, NodeRest, SkeletonBinding } from "./types.js";
 import { PATH_POINTER, PATH_TRANSLATION, PATH_ROTATION, PATH_SCALE } from "./types.js";
 import { createAnimationController } from "../skeleton/skeleton-updater.js";
 import type { AnimationController } from "../skeleton/skeleton-updater.js";
@@ -19,7 +19,11 @@ export interface AnimationPropertyRuntimeTrack {
     readonly mixProperty: string;
 }
 export type AnimationPropertyMixer = readonly [readonly AnimationPropertyRuntimeTrack[], number, number, number];
-export type AnimationGltfMixer = readonly [AnimationClip, readonly NodeRest[], readonly SkeletonBinding[]];
+/** glTF skeleton mixer state: `[clip, nodes, skeletons, nodeTargets, excludedNodeIndices]`.
+ *  The trailing two carry the node-TRS writeback targets so the weighted blend
+ *  path can drive non-skinned meshes parented to a bone (e.g. a static helmet or
+ *  cape) the same way the solo controller does. */
+export type AnimationGltfMixer = readonly [AnimationClip, readonly NodeRest[], readonly SkeletonBinding[], readonly (AnimatedNodeTarget | undefined)[], ReadonlySet<number>];
 export interface AnimationAdditiveMixer {
     readonly referenceTime: number;
 }
@@ -169,7 +173,7 @@ export function createAnimationGroups(animData: GltfAnimationData): AnimationGro
             _stopped: false,
         };
         if (skeletons[0]) {
-            group._gltfMixer = [clip, nodes, skeletons];
+            group._gltfMixer = [clip, nodes, skeletons, nodeTargets, excludedNodeIndices];
         }
         return group;
     });

@@ -42,7 +42,7 @@ function makeGroup(name: string, weight: number, rig: ReturnType<typeof makeRig>
         loopAnimation: true,
         weight,
         _stopped: false,
-        _gltfMixer: [rig.clip, rig.nodes, rig.skeletons],
+        _gltfMixer: [rig.clip, rig.nodes, rig.skeletons, [], new Set<number>()],
         _jointNameToIndex: new Map([["handslot.r", 1]]),
     };
 }

@@ -3,7 +3,7 @@ import type { AnimationGltfMixer, AnimationGroup } from "./animation-group.js";
 import { ANIMATION_GROUP_TASK_CATEGORY, getAnimationGroupOwner, getAnimationGroups } from "./animation-group-task.js";
 import { setAnimationTaskCategoryHandler } from "./animation-manager.js";
 import type { AnimationManager } from "./animation-manager.js";
-import type { NodeRest, SkeletonBinding } from "./types.js";
+import type { AnimatedNodeTarget, NodeRest, SkeletonBinding } from "./types.js";
 import { PATH_ROTATION, PATH_SCALE, PATH_TRANSLATION } from "./types.js";
 import { evaluateSampler } from "./evaluate.js";
 import { mat4ComposeInto } from "../math/mat4-compose-into.js";
@@ -13,6 +13,8 @@ import type { Mat4, Mat4Storage } from "../math/types.js";
 const GLTF_CLIP = 0;
 const GLTF_NODES = 1;
 const GLTF_SKELETONS = 2;
+const GLTF_NODE_TARGETS = 3;
+const GLTF_EXCLUDED = 4;
 const TRS_STRIDE = 12;
 const T_OFF = 0;
 const R_OFF = 3;
@@ -27,6 +29,8 @@ const _boneTmp = new Float32Array(16);
 interface WeightedGltfTarget {
     readonly nodes: readonly NodeRest[];
     readonly skeletons: readonly SkeletonBinding[];
+    readonly nodeTargets: readonly (AnimatedNodeTarget | undefined)[];
+    readonly excluded: ReadonlySet<number>;
     readonly trs: Float32Array;
     readonly localMat: Float32Array;
     readonly worldMat: Float32Array;
@@ -215,6 +219,8 @@ function getTarget(scratch: WeightedGltfScratch, mixer: AnimationGltfMixer): Wei
         target = {
             nodes,
             skeletons: mixer[GLTF_SKELETONS],
+            nodeTargets: mixer[GLTF_NODE_TARGETS],
+            excluded: mixer[GLTF_EXCLUDED],
             trs: new Float32Array(numNodes * TRS_STRIDE),
             localMat: new Float32Array(numNodes * 16),
             worldMat: new Float32Array(numNodes * 16),
@@ -428,6 +434,31 @@ function uploadTarget(manager: AnimationManager, target: WeightedGltfTarget): vo
             trs[off] = trs[off]! + node.sx * fill;
             trs[off + 1] = trs[off + 1]! + node.sy * fill;
             trs[off + 2] = trs[off + 2]! + node.sz * fill;
+        }
+    }
+
+    // Write the blended local TRS back to any animated, non-excluded node that has a
+    // scene-node target — the same writeback the solo controller performs. Skinning
+    // reads the bone texture below, so this does not touch the skinned body; it lets
+    // a non-skinned mesh parented to a bone (a static helmet, cape, …) follow the
+    // blended pose instead of freezing at the fade-start pose for the cross-fade.
+    const { nodeTargets, excluded } = target;
+    if (nodeTargets) {
+        for (let i = 0; i < nodes.length; i++) {
+            if (target.tWeight[i]! === 0 && target.rWeight[i]! === 0 && target.sWeight[i]! === 0) {
+                continue;
+            }
+            if (excluded?.has(i)) {
+                continue;
+            }
+            const nodeTarget = nodeTargets[i];
+            if (!nodeTarget) {
+                continue;
+            }
+            const off = i * TRS_STRIDE;
+            nodeTarget.position.set(trs[off + T_OFF]!, trs[off + T_OFF + 1]!, trs[off + T_OFF + 2]!);
+            nodeTarget.rotationQuaternion.set(trs[off + R_OFF]!, trs[off + R_OFF + 1]!, trs[off + R_OFF + 2]!, trs[off + R_OFF + 3]!);
+            nodeTarget.scaling.set(trs[off + S_OFF]!, trs[off + S_OFF + 1]!, trs[off + S_OFF + 2]!);
         }
     }
 
