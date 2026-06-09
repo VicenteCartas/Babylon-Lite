@@ -93,23 +93,7 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
     injectStyles();
     const panel = el("div", "dr-panel");
 
-    // The title is built one letter at a time so each glyph can carry its own
-    // left-to-right faceted gold gradient — a bright ridge down the centre with a
-    // lit left face and a shadowed right face — like the beveled Warcraft letters.
-    // A single gradient on the whole word would only shade the word left-to-right.
-    // Each word is wrapped so it stays intact and only the space between words wraps.
-    const title = el("div", "dr-title");
-    title.setAttribute("aria-label", "Dressing Room");
-    "Dressing Room".split(" ").forEach((word, i) => {
-        if (i > 0) {
-            title.appendChild(document.createTextNode(" "));
-        }
-        const wordEl = el("span", "dr-tw");
-        for (const ch of word) {
-            wordEl.appendChild(el("span", "dr-tl", ch));
-        }
-        title.appendChild(wordEl);
-    });
+    const title = el("div", "dr-title", "Dressing Room");
     panel.appendChild(title);
     panel.appendChild(el("div", "dr-rule"));
 
@@ -537,28 +521,21 @@ function injectStyles(): void {
   position: relative;
   font-family: var(--display); font-size: 1.24rem; font-weight: 700; text-align: center;
   letter-spacing: 2.4px; text-transform: uppercase;
-  color: var(--gold-hi);
-  margin: 1px 0 3px; padding: 0 14px;
-}
-/* Each title letter is faceted like the Warcraft logo: a horizontal gold gradient
-   runs a bright ridge down the letter's centre, with a lit left face and a
-   shadowed right face. Per-letter (not per-word) so every glyph gets its own ridge. */
-.dr-tw { white-space: nowrap; }
-.dr-tl {
-  display: inline-block;
-  background: linear-gradient(90deg, #e9c468 0%, #f6dd92 38%, #fffbe6 49%, #c2902f 53%, #6f4a14 100%);
+  /* Solid warm gold with a subtle top-lit gradient. */
+  color: var(--gold);
+  background: linear-gradient(180deg, var(--gold-hi) 0%, var(--gold) 55%, #a9802f 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-  /* Chisel bevel: a light highlight to the upper-left, a dark edge to the
-     lower-right, then a soft cast shadow and a crisp outline for depth. */
+  /* Shadow bevel: a light top edge, a dark bottom edge, and a soft cast shadow
+     to lift the letters off the panel. */
   filter:
-    drop-shadow(-1px -1px 0 rgba(255,247,210,0.45))
-    drop-shadow(1px 1px 0 #4a3110)
-    drop-shadow(0 2px 1px rgba(0,0,0,0.5))
-    drop-shadow(0 0 1px rgba(28,16,4,0.92));
+    drop-shadow(0 -1px 0 rgba(255,247,210,0.45))
+    drop-shadow(0 1px 0 #5a3c12)
+    drop-shadow(0 2px 2px rgba(0,0,0,0.55));
+  margin: 1px 0 3px; padding: 0 14px;
 }
 .dr-title::before, .dr-title::after {
   content: "◆"; position: absolute; top: 50%; transform: translateY(-52%);
-  color: var(--brass); font-size: 0.5rem;
+  -webkit-text-fill-color: var(--brass); color: var(--brass); font-size: 0.5rem;
   text-shadow: 0 0 5px rgba(255,177,60,0.5);
 }
 .dr-title::before { left: 0; } .dr-title::after { right: 0; }
