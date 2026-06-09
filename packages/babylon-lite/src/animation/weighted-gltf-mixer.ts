@@ -400,13 +400,34 @@ function uploadTarget(manager: AnimationManager, target: WeightedGltfTarget): vo
     const { nodes, trs, localMat, worldMat } = target;
 
     for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i]!;
+        // Fill any blend weight a channel did not cover with the node's rest pose,
+        // so a node animated by only some of the blended clips eases toward rest for
+        // the remainder instead of collapsing toward zero. Rotation slerps rest →
+        // accumulated by its weight; translation and scale add the rest value scaled
+        // by the missing weight (their accumulators hold the weighted sum so far).
         const rotationWeight = target.rWeight[i]!;
         if (rotationWeight > 0 && rotationWeight < 1) {
             const off = i * TRS_STRIDE + R_OFF;
-            const node = nodes[i]!;
             quatSlerpInto(trs, off, node.rx, node.ry, node.rz, node.rw, trs[off]!, trs[off + 1]!, trs[off + 2]!, trs[off + 3]!, rotationWeight);
         } else if (rotationWeight > 0) {
             normalizeQuaternionAt(trs, i * TRS_STRIDE + R_OFF);
+        }
+        const translationWeight = target.tWeight[i]!;
+        if (translationWeight > 0 && translationWeight < 1) {
+            const off = i * TRS_STRIDE + T_OFF;
+            const fill = 1 - translationWeight;
+            trs[off] = trs[off]! + node.tx * fill;
+            trs[off + 1] = trs[off + 1]! + node.ty * fill;
+            trs[off + 2] = trs[off + 2]! + node.tz * fill;
+        }
+        const scaleWeight = target.sWeight[i]!;
+        if (scaleWeight > 0 && scaleWeight < 1) {
+            const off = i * TRS_STRIDE + S_OFF;
+            const fill = 1 - scaleWeight;
+            trs[off] = trs[off]! + node.sx * fill;
+            trs[off + 1] = trs[off + 1]! + node.sy * fill;
+            trs[off + 2] = trs[off + 2]! + node.sz * fill;
         }
     }
 

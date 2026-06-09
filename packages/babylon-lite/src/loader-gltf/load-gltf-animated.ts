@@ -144,14 +144,18 @@ function buildSkinnedRig(
         }
     }
 
-    // Exclude skin joints + skinned-mesh nodes and their ancestors from node-TRS
-    // writeback (they are driven by the skeleton path / bake invMeshWorld at load).
+    // Exclude skinned-mesh nodes and their ancestors from node-TRS writeback:
+    // their bone matrices bake an `invMeshWorld` captured at load, so moving them at
+    // runtime would double-transform the skinned vertices.
+    //
+    // Skin joints are intentionally NOT blanket-excluded. A joint that is not an
+    // ancestor of a skinned mesh is safe to write back (skinning reads the bone
+    // texture, computed independently of the joint's scene node), and writing it
+    // back is what lets a non-skinned mesh parented to that joint — e.g. a static
+    // helmet or cape pinned to the head/chest bone — follow the animation instead of
+    // floating at its rest pose. Any joint that *is* an ancestor of a skinned mesh is
+    // still excluded by the loop below.
     const excludedNodeIndices = new Set<number>();
-    for (const skin of json.skins ?? []) {
-        for (const ji of skin.joints ?? []) {
-            excludedNodeIndices.add(ji);
-        }
-    }
     for (let ni = 0; ni < nodeCount; ni++) {
         if (json.nodes[ni]?.skin === undefined) {
             continue;
