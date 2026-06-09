@@ -77,7 +77,7 @@
     {
         "slug": "dress-room",
         "name": "Dressing Room",
-        "description": "Fantasy character dresser: pick an adventurer class (Knight, Barbarian, Mage, Ranger, Rogue), arm it with a held weapon (sword, axe, dagger, staff, wand, or bow), and play animations (idle, walk, run, jump, and more) inside a switchable 3D environment assembled from modular kit pieces — a torch-lit stone dungeon or a wooded forest clearing. All classes share one rigged skeleton with hand sockets, so weapons mount and animations retarget onto every class the same way. CC0 1.0 art from the KayKit packs by Kay Lousberg (https://kaylousberg.itch.io).",
+        "description": "Fantasy character dresser: choose a race (Human or Undead) and one of its classes — Humans field a Warrior, Barbarian, Wizard, Ranger, and Rogue; the Undead skeletons field a Warrior, Mage, and Rogue — then arm it with a held weapon (sword, axe, dagger, staff, wand, or bow), a shield or off-hand item, a head/helmet variant, and play equipment-driven animations (idle, walk, attack, guard, and more) inside a switchable 3D environment assembled from modular kit pieces — a torch-lit stone dungeon or a wooded forest clearing. Every race and class shares one rigged skeleton with hand sockets, so gear mounts and animations retarget the same way across all of them. CC0 1.0 art from the KayKit packs by Kay Lousberg (https://kaylousberg.itch.io).",
         "tags": ["showcase", "character"],
         "mobile": false
     }

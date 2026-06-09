@@ -13,6 +13,8 @@ export interface UiSlot {
 
 /** The contract the demo provides to drive the panel. */
 export interface DressRoomApi {
+    /** Race options (Human / Undead). Omit or leave a single entry to hide the picker. */
+    races?: { id: string; label: string }[];
     /** Character class options (Knight / Mage / …). Omit or leave a single entry to hide the picker. */
     classes?: { id: string; label: string }[];
     /** Background scene options (forest, dungeon, …). Omit or leave a single entry to hide the picker. */
@@ -26,6 +28,11 @@ export interface DressRoomApi {
     presets: string[];
     /** When false, the Armour Tint section is omitted (e.g. image-textured assets). */
     tintable?: boolean;
+    getRace?(): string;
+    setRace?(id: string): void;
+    /** Classes for the CURRENT race (changes when the race changes; drives a dynamic
+     *  Class picker). Falls back to the static {@link DressRoomApi.classes} when absent. */
+    getClasses?(): { id: string; label: string }[];
     getClass?(): string;
     setClass?(id: string): void;
     getScene?(): string;
@@ -131,30 +138,59 @@ export function buildPanel(api: DressRoomApi): { refresh: () => void } {
         return { section, body, valueEl };
     };
 
-    // ── Character class (only when more than one class is offered) ────
-    if (api.classes && api.classes.length > 1 && api.getClass && api.setClass) {
-        const { section, body, valueEl } = makeAccordion("Class", true);
-        const classRow = el("div", "dr-acc-grid");
-        const classButtons = new Map<string, HTMLButtonElement>();
-        const syncClass = () => {
-            const active = api.getClass!();
-            for (const [id, btn] of classButtons) {
+    // ── Race (only when more than one race is offered) ───────────────
+    if (api.races && api.races.length > 1 && api.getRace && api.setRace) {
+        const { section, body, valueEl } = makeAccordion("Race", true);
+        const raceRow = el("div", "dr-acc-grid");
+        const raceButtons = new Map<string, HTMLButtonElement>();
+        const syncRace = () => {
+            const active = api.getRace!();
+            for (const [id, btn] of raceButtons) {
                 btn.classList.toggle("is-active", id === active);
             }
-            valueEl.textContent = api.classes!.find((c) => c.id === active)?.label ?? "";
+            valueEl.textContent = api.races!.find((r) => r.id === active)?.label ?? "";
         };
-        for (const cls of api.classes) {
-            const btn = el("button", "dr-chip", cls.label);
+        for (const race of api.races) {
+            const btn = el("button", "dr-chip", race.label);
             btn.type = "button";
             btn.addEventListener("click", () => {
-                api.setClass!(cls.id);
+                api.setRace!(race.id);
                 refreshAll();
             });
-            classButtons.set(cls.id, btn);
-            classRow.appendChild(btn);
+            raceButtons.set(race.id, btn);
+            raceRow.appendChild(btn);
         }
-        refreshers.push(syncClass);
+        refreshers.push(syncRace);
+        body.appendChild(raceRow);
+        panel.appendChild(section);
+    }
+
+    // ── Character class (dynamic when getClasses is provided — the available
+    //    classes change with the race; otherwise a static list) ──────────
+    const classProvider = api.getClasses ?? (api.classes ? () => api.classes! : null);
+    if (classProvider && api.getClass && api.setClass) {
+        const openByDefault = !(api.races && api.races.length > 1);
+        const { section, body, valueEl } = makeAccordion("Class", openByDefault);
+        const classRow = el("div", "dr-acc-grid");
         body.appendChild(classRow);
+        const syncClass = () => {
+            const options = classProvider();
+            const active = api.getClass!();
+            // Rebuild the chip grid (options change per race).
+            classRow.replaceChildren();
+            for (const cls of options) {
+                const btn = el("button", "dr-chip", cls.label);
+                btn.type = "button";
+                btn.classList.toggle("is-active", cls.id === active);
+                btn.addEventListener("click", () => {
+                    api.setClass!(cls.id);
+                    refreshAll();
+                });
+                classRow.appendChild(btn);
+            }
+            valueEl.textContent = options.find((c) => c.id === active)?.label ?? "";
+        };
+        refreshers.push(syncClass);
         panel.appendChild(section);
     }
 

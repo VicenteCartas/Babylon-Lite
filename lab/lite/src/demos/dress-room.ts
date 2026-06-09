@@ -40,8 +40,8 @@ import {
     updateAnimationManager,
 } from "babylon-lite";
 import type { AnimationGroup, SceneNode } from "babylon-lite";
-import { getAnimations, getClasses, getOffhands, getWeapons, loadCharacter, loadWeapon, applyHead, attackClipFor, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
-import type { AnimationOption, CharacterClass, HeadOption, LoadedCharacter, LoadedWeapon, OffhandOption, WeaponOption } from "./dress-room/character.js";
+import { getAnimations, getClasses, getRaces, getOffhands, getWeapons, loadCharacter, loadWeapon, applyHead, attackClipFor, DEFAULT_GRIP_EULER } from "./dress-room/character.js";
+import type { AnimationOption, CharacterClass, HeadOption, LoadedCharacter, LoadedWeapon, OffhandOption, Race, WeaponOption } from "./dress-room/character.js";
 import { buildPanel } from "./dress-room/ui.js";
 import type { DressRoomApi } from "./dress-room/ui.js";
 import { createBackgrounds, getBackgrounds } from "./dress-room/background.js";
@@ -52,7 +52,8 @@ import { installFetchProgress } from "./loading-progress.js";
 /** Asset folder served next to the demo bundle (downscaled CC0 KayKit assets). */
 const ASSET_BASE = demoAssetUrl("./dress-room/", import.meta.url);
 
-const DEFAULT_CLASS = "knight";
+const DEFAULT_RACE = "human";
+const DEFAULT_CLASS = "warrior";
 const DEFAULT_SCENE = "dungeon";
 const DEFAULT_ANIM = "idle";
 
@@ -281,6 +282,25 @@ async function main(): Promise<void> {
         const anims = getAnimations();
         const animById = new Map(anims.map((a) => [a.id, a] as const));
         const classById = new Map(classDefs.map((c) => [c.id, c] as const));
+        // Race grouping: the Race picker chooses a race and the Class picker then
+        // offers only that race's classes. `classByRace` remembers the last class
+        // chosen per race, so switching race and back restores your selection.
+        const races = getRaces();
+        const classesOfRace = (raceId: string): CharacterClass[] => races.find((r) => r.id === raceId)?.classes ?? [];
+        const raceOfClass = new Map<string, string>();
+        for (const r of races) {
+            for (const c of r.classes) {
+                raceOfClass.set(c.id, r.id);
+            }
+        }
+        const classByRace = new Map<string, string>();
+        for (const r of races) {
+            if (r.classes[0]) {
+                classByRace.set(r.id, r.classes[0].id);
+            }
+        }
+        classByRace.set(DEFAULT_RACE, DEFAULT_CLASS);
+        let activeRace = DEFAULT_RACE;
         let activeClass = DEFAULT_CLASS;
         let activeAnim = DEFAULT_ANIM;
 
@@ -289,7 +309,7 @@ async function main(): Promise<void> {
         const availableAnims = (): AnimationOption[] => anims.filter((a) => !a.requiresShield || hasShield());
         /** Resolve a roster id to the clip to play on a figure: the weapon-driven
          *  Attack picks a swing/cast from the equipped weapon; a class may remap
-         *  idle/walk to themed clips (the necromancer's skeletal set); the rest are
+         *  idle/walk to themed clips (the undead skeletal set); the rest are
          *  literal clip names. */
         const resolveClip = (character: LoadedCharacter, animId: string): string => {
             const opt = animById.get(animId);
@@ -374,7 +394,7 @@ async function main(): Promise<void> {
         /** Spawn entrance: a one-shot that hard-cuts in (there's no prior clip to
          *  blend from) and settles into the held animation once it finishes. */
         const spawn = (character: LoadedCharacter): void => {
-            // A class may pin a themed spawn clip (the necromancer rises from the
+            // A class may pin a themed spawn clip (the undead rise from the
             // floor as a skeleton); otherwise pick one of the shared spawns at random.
             const clip = character.clipOverride?.spawn ?? SPAWN_CLIPS[Math.floor(Math.random() * SPAWN_CLIPS.length)]!;
             if (!transition(character, clip, { loop: false, oneShot: true, immediate: true })) {
@@ -418,12 +438,27 @@ async function main(): Promise<void> {
             oneShotChar = null;
             currentGroup = null;
             activeClass = id;
+            // Keep the race in sync and remember this class for its race, so a class
+            // picked directly (or via Randomize, which may cross races) updates the
+            // Race picker and is restored when you return to that race.
+            activeRace = raceOfClass.get(id) ?? activeRace;
+            classByRace.set(activeRace, id);
             activeChar = resolveModel(id, headOf(id));
             activeChar.setVisible(true);
             applyHead(activeChar, headOf(id));
             spawn(activeChar);
             setWeapon(classById.get(id)?.weapon ?? "none");
             setOffhand(classById.get(id)?.offhand ?? "none");
+        };
+
+        // Switch race: show the class last chosen for that race (or its first), which
+        // routes through setClass to swap the model, gear, and animation.
+        const setRace = (id: string): void => {
+            if (id === activeRace || classesOfRace(id).length === 0) {
+                return;
+            }
+            const target = classByRace.get(id) ?? classesOfRace(id)[0]!.id;
+            setClass(target);
         };
 
         const setHead = (id: string): void => {
@@ -588,7 +623,10 @@ async function main(): Promise<void> {
         await startEngine(engine);
 
         panelRefresh = wireUi({
-            classDefs,
+            races,
+            getRaceId: () => activeRace,
+            setRace,
+            getRaceClasses: () => classesOfRace(activeRace),
             getClassId: () => activeClass,
             setClass,
             getAvailableAnims: availableAnims,
@@ -619,7 +657,10 @@ async function main(): Promise<void> {
 // ─── UI wiring ────────────────────────────────────────────────────────
 
 interface WireUiParams {
-    classDefs: CharacterClass[];
+    races: Race[];
+    getRaceId: () => string;
+    setRace: (id: string) => void;
+    getRaceClasses: () => CharacterClass[];
     getClassId: () => string;
     setClass: (id: string) => void;
     getAvailableAnims: () => AnimationOption[];
@@ -638,15 +679,19 @@ interface WireUiParams {
 }
 
 function wireUi(p: WireUiParams): () => void {
-    const { classDefs, getClassId, setClass, getAvailableAnims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, offhandDefs, getOffhandId, setOffhand, getHeads, getHeadId, setHead, backgrounds } = p;
+    const { races, getRaceId, setRace, getRaceClasses, getClassId, setClass, getAvailableAnims, getAnimId, setAnimation, weaponDefs, getWeaponId, setWeapon, offhandDefs, getOffhandId, setOffhand, getHeads, getHeadId, setHead, backgrounds } = p;
     const api: DressRoomApi = {
-        classes: classDefs.map((c) => ({ id: c.id, label: c.label })),
+        races: races.map((r) => ({ id: r.id, label: r.label })),
+        classes: getRaceClasses().map((c) => ({ id: c.id, label: c.label })),
         scenes: backgrounds.defs.map((d) => ({ id: d.id, label: d.label })),
         weapons: weaponDefs.map((w) => ({ id: w.id, label: w.label })),
         offhands: offhandDefs.map((o) => ({ id: o.id, label: o.label })),
         slots: [],
         presets: [],
         tintable: false,
+        getRace: () => getRaceId(),
+        setRace: (id) => setRace(id),
+        getClasses: () => getRaceClasses().map((c) => ({ id: c.id, label: c.label })),
         getClass: () => getClassId(),
         setClass: (id) => setClass(id),
         getScene: () => backgrounds.current(),
@@ -668,7 +713,10 @@ function wireUi(p: WireUiParams): () => void {
         setTint: () => {},
         resetTint: () => {},
         randomize: () => {
-            const pick = classDefs[Math.floor(Math.random() * classDefs.length)]!;
+            // Pick a random race, then a random class within it; setClass keeps the
+            // Race picker in sync.
+            const race = races[Math.floor(Math.random() * races.length)]!;
+            const pick = race.classes[Math.floor(Math.random() * race.classes.length)]!;
             setClass(pick.id);
             const w = weaponDefs[Math.floor(Math.random() * weaponDefs.length)]!;
             setWeapon(w.id);

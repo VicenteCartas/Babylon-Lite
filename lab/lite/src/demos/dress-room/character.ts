@@ -1,9 +1,11 @@
-/** KayKit fantasy character classes + animations for the dress-room demo.
+/** KayKit fantasy races, classes + animations for the dress-room demo.
  *
  *  Each "class" is a self-contained rigged KayKit character (.glb with embedded
- *  texture): Knight, Barbarian, Mage, Ranger, Rogue. They share one skeleton
- *  ("Rig_Medium") whose hand-socket bones (`handslot.l` / `handslot.r`) are
- *  purpose-built mount points for weapons and shields.
+ *  texture), grouped under a race: the Human Adventurers (Warrior, Barbarian,
+ *  Wizard, Ranger, Rogue) and the Undead Skeletons (Warrior, Mage, Rogue). They
+ *  all share one skeleton ("Rig_Medium") whose hand-socket bones (`handslot.l` /
+ *  `handslot.r`) are purpose-built mount points for weapons and shields, so gear
+ *  and animation work identically across every race and class.
  *
  *  The characters ship no clips of their own; animation comes from KayKit's
  *  separate animation-library glTFs, retargeted onto each character's skeleton by
@@ -33,14 +35,14 @@ export interface CharacterClass {
     /** Default head-variant id; defaults to the first {@link CharacterClass.heads} entry. */
     head?: string;
     /** Optional override of the animation-library files this class loads (defaults
-     *  to {@link ANIM_FILES}). The skeleton-rigged necromancer also pulls in the
-     *  "Special" set for its undead idle / walk / spawn clips. */
+     *  to {@link ANIM_FILES}). The skeleton-rigged undead classes also pull in the
+     *  "Special" set for their undead idle / walk / spawn clips. */
     animFiles?: readonly string[];
     /** Optional per-animation clip-name overrides, keyed by animation roster id
      *  (see {@link getAnimations}) or the literal `"spawn"`. Lets a class swap in a
-     *  themed variant — e.g. the necromancer plays `Skeletons_Idle` /
-     *  `Skeletons_Walking` / `Skeletons_Spawn_Ground` while every other animation
-     *  falls back to the shared clip. */
+     *  themed variant — e.g. the undead play `Skeletons_Idle` / `Skeletons_Walking`
+     *  / `Skeletons_Spawn_Ground` while every other animation falls back to the
+     *  shared clip. */
     clipOverride?: Readonly<Record<string, string>>;
 }
 
@@ -152,78 +154,134 @@ const ANIM_FILES = [
     "animations/Rig_Medium_Simulation.glb",
 ];
 
-/** The character roster, in display order. */
-export function getClasses(): CharacterClass[] {
+/** A playable race. Each race offers its own set of {@link CharacterClass}es;
+ *  the dress-room's Race picker selects the race and the Class picker then offers
+ *  only that race's classes. */
+export interface Race {
+    id: string;
+    label: string;
+    classes: CharacterClass[];
+}
+
+/** Animation overrides shared by every undead (skeleton) class: they load the
+ *  "Special" library and play its skeletal idle / walk / spawn instead of the
+ *  human clips; everything else falls back to the shared clips. */
+const UNDEAD_ANIM: Pick<CharacterClass, "animFiles" | "clipOverride"> = {
+    animFiles: [...ANIM_FILES, "animations/Rig_Medium_Special.glb"],
+    clipOverride: { idle: "Skeletons_Idle", walk: "Skeletons_Walking", spawn: "Skeletons_Spawn_Ground" },
+};
+
+/** The playable races and their classes, in display order. Humans are the KayKit
+ *  Adventurers; the undead are the KayKit Skeletons, which share the same
+ *  Rig_Medium skeleton and hand sockets, so weapons, off-hands, and the animation
+ *  retargeting all work on them unchanged. */
+export function getRaces(): Race[] {
     return [
         {
-            id: "knight",
-            label: "Knight",
-            file: "characters/Knight.glb",
-            weapon: "sword",
-            offhand: "shield_round",
-            heads: [
-                { id: "fullhelm", label: "Full Helm", show: ["Head", "Helmet", "HelmetVisor"] },
-                { id: "openhelm", label: "Open Helm", show: ["Head", "Helmet"] },
-                { id: "bare", label: "Bareheaded", show: ["Head"] },
+            id: "human",
+            label: "Human",
+            classes: [
+                {
+                    id: "warrior",
+                    label: "Warrior",
+                    file: "characters/Knight.glb",
+                    weapon: "sword",
+                    offhand: "shield_round",
+                    heads: [
+                        { id: "fullhelm", label: "Full Helm", show: ["Head", "Helmet", "HelmetVisor"] },
+                        { id: "openhelm", label: "Open Helm", show: ["Head", "Helmet"] },
+                        { id: "bare", label: "Bareheaded", show: ["Head"] },
+                    ],
+                },
+                {
+                    id: "barbarian",
+                    label: "Barbarian",
+                    file: "characters/Barbarian.glb",
+                    weapon: "axe",
+                    offhand: "shield_spikes",
+                    heads: [
+                        { id: "bearhat", label: "Bear Hood", show: ["Head", "BearHat"] },
+                        { id: "bare", label: "Bareheaded", show: ["Head"] },
+                    ],
+                },
+                {
+                    id: "wizard",
+                    label: "Wizard",
+                    file: "characters/Mage.glb",
+                    weapon: "staff",
+                    offhand: "none",
+                    heads: [
+                        { id: "hat", label: "Wizard Hat", show: ["Head", "Hat"] },
+                        { id: "bare", label: "Bareheaded", show: ["Head"] },
+                    ],
+                },
+                { id: "ranger", label: "Ranger", file: "characters/Ranger.glb", weapon: "bow", offhand: "quiver" },
+                // The hooded rogue's head variants are whole-model swaps (the hood is
+                // baked into the body mesh), so each option carries a `file`.
+                {
+                    id: "rogue",
+                    label: "Rogue",
+                    file: "characters/Rogue_Hooded.glb",
+                    weapon: "dagger",
+                    offhand: "none",
+                    heads: [
+                        { id: "hooded", label: "Hooded", show: [], file: "characters/Rogue_Hooded.glb" },
+                        { id: "unhooded", label: "Unhooded", show: [], file: "characters/Rogue.glb" },
+                    ],
+                },
             ],
         },
         {
-            id: "barbarian",
-            label: "Barbarian",
-            file: "characters/Barbarian.glb",
-            weapon: "axe",
-            offhand: "shield_spikes",
-            heads: [
-                { id: "bearhat", label: "Bear Hood", show: ["Head", "BearHat"] },
-                { id: "bare", label: "Bareheaded", show: ["Head"] },
-            ],
-        },
-        {
-            id: "mage",
-            label: "Mage",
-            file: "characters/Mage.glb",
-            weapon: "staff",
-            offhand: "none",
-            heads: [
-                { id: "hat", label: "Wizard Hat", show: ["Head", "Hat"] },
-                { id: "bare", label: "Bareheaded", show: ["Head"] },
-            ],
-        },
-        { id: "ranger", label: "Ranger", file: "characters/Ranger.glb", weapon: "bow", offhand: "quiver" },
-        // The "rogue" id maps to KayKit's hooded rogue model. Its head variants are
-        // whole-model swaps (hood baked into the body mesh), so each option carries
-        // a `file` instead of a mesh-toggle list; the default is the hooded body.
-        {
-            id: "rogue",
-            label: "Rogue",
-            file: "characters/Rogue_Hooded.glb",
-            weapon: "dagger",
-            offhand: "none",
-            heads: [
-                { id: "hooded", label: "Hooded", show: [], file: "characters/Rogue_Hooded.glb" },
-                { id: "unhooded", label: "Unhooded", show: [], file: "characters/Rogue.glb" },
-            ],
-        },
-        // Necromancer = KayKit Skeletons "Skeleton Mage". It shares the Rig_Medium
-        // skeleton + hand sockets, so it uses the same animation library and weapon
-        // attachment as every other class. It also loads the "Special" set and maps
-        // idle / walk / spawn to its skeletal (undead) variants; run / jump / hit /
-        // throw have no special variant and fall back to the shared clips. The skull
-        // always shows; only the witch hat toggles.
-        {
-            id: "necromancer",
-            label: "Necromancer",
-            file: "characters/Necromancer.glb",
-            weapon: "wand",
-            offhand: "spellbook",
-            animFiles: [...ANIM_FILES, "animations/Rig_Medium_Special.glb"],
-            clipOverride: { idle: "Skeletons_Idle", walk: "Skeletons_Walking", spawn: "Skeletons_Spawn_Ground" },
-            heads: [
-                { id: "hat", label: "Witch Hat", show: ["Hat"] },
-                { id: "bare", label: "Bare Skull", show: [] },
+            id: "undead",
+            label: "Undead",
+            classes: [
+                // The skeletons keep a separate Head (skull) mesh from their headgear,
+                // so a bare skull is a simple mesh toggle (no model swap needed).
+                {
+                    id: "undead_warrior",
+                    label: "Warrior",
+                    file: "characters/Skeleton_Warrior.glb",
+                    weapon: "sword",
+                    offhand: "shield_round",
+                    ...UNDEAD_ANIM,
+                    heads: [
+                        { id: "helm", label: "Helm", show: ["Helmet"] },
+                        { id: "bare", label: "Bare Skull", show: [] },
+                    ],
+                },
+                {
+                    id: "undead_mage",
+                    label: "Mage",
+                    file: "characters/Skeleton_Mage.glb",
+                    weapon: "wand",
+                    offhand: "spellbook",
+                    ...UNDEAD_ANIM,
+                    heads: [
+                        { id: "hat", label: "Witch Hat", show: ["Hat"] },
+                        { id: "bare", label: "Bare Skull", show: [] },
+                    ],
+                },
+                {
+                    id: "undead_rogue",
+                    label: "Rogue",
+                    file: "characters/Skeleton_Rogue.glb",
+                    weapon: "dagger",
+                    offhand: "none",
+                    ...UNDEAD_ANIM,
+                    heads: [
+                        { id: "hood", label: "Hood", show: ["Hood"] },
+                        { id: "bare", label: "Bare Skull", show: [] },
+                    ],
+                },
             ],
         },
     ];
+}
+
+/** Every character class across all races, flattened — the demo preloads them all
+ *  (hidden) and the Race / Class pickers select which is shown. */
+export function getClasses(): CharacterClass[] {
+    return getRaces().flatMap((r) => r.classes);
 }
 
 /** Apply a head variant to a loaded character by toggling its head meshes. Safe
