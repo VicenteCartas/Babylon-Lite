@@ -521,21 +521,19 @@ function injectStyles(): void {
   position: relative;
   font-family: var(--display); font-size: 1.24rem; font-weight: 700; text-align: center;
   letter-spacing: 2.4px; text-transform: uppercase;
-  /* Solid warm gold with a subtle top-lit gradient. */
+  /* Solid warm gold — both lines the same colour. */
   color: var(--gold);
-  background: linear-gradient(180deg, var(--gold-hi) 0%, var(--gold) 55%, #a9802f 100%);
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   /* Shadow bevel: a light top edge, a dark bottom edge, and a soft cast shadow
      to lift the letters off the panel. */
-  filter:
-    drop-shadow(0 -1px 0 rgba(255,247,210,0.45))
-    drop-shadow(0 1px 0 #5a3c12)
-    drop-shadow(0 2px 2px rgba(0,0,0,0.55));
+  text-shadow:
+    0 -1px 0 rgba(255,247,210,0.45),
+    0 1px 0 #5a3c12,
+    0 2px 2px rgba(0,0,0,0.55);
   margin: 1px 0 3px; padding: 0 14px;
 }
 .dr-title::before, .dr-title::after {
   content: "◆"; position: absolute; top: 50%; transform: translateY(-52%);
-  -webkit-text-fill-color: var(--brass); color: var(--brass); font-size: 0.5rem;
+  color: var(--brass); font-size: 0.5rem;
   text-shadow: 0 0 5px rgba(255,177,60,0.5);
 }
 .dr-title::before { left: 0; } .dr-title::after { right: 0; }
