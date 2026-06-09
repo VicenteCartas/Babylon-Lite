@@ -481,13 +481,13 @@ function injectStyles(): void {
 .dr-frame {
   --gold-hi: #f7e6ad; --gold: #d8b25e; --brass: #b07d33; --gold-dim: #6b4e25;
   --amber: #ffb13c; --amber-deep: #9c4f16;
-  --parch: #e7e2d2; --parch-dim: #93a0bc;
-  --steel: rgba(124,158,214,0.26);
+  --parch: #e7e2d2; --parch-dim: #9fb0d4;
+  --steel: rgba(150,182,240,0.32);
   --display: "Cinzel", "Trajan Pro", "Iowan Old Style", Georgia, serif;
   position: fixed; top: 18px; left: 18px; z-index: 50;
   border: 2px solid transparent; border-radius: 9px;
   background:
-    linear-gradient(180deg, #2c3a5a, #15203a 45%, #0a1020) padding-box,
+    linear-gradient(180deg, #37569a, #1c3568 45%, #0c1a3e) padding-box,
     linear-gradient(160deg, var(--gold-hi), var(--brass) 35%, #4a3416 70%, var(--gold)) border-box;
   box-shadow: 0 16px 44px rgba(0,0,0,0.62), 0 2px 0 rgba(255,236,190,0.08);
   user-select: none;
@@ -497,9 +497,9 @@ function injectStyles(): void {
   padding: 17px 16px 15px; box-sizing: border-box; margin: 3px;
   color: var(--parch);
   background:
-    linear-gradient(180deg, rgba(28,38,62,0.97), rgba(8,12,24,0.985)),
-    repeating-linear-gradient(45deg, rgba(210,225,255,0.016) 0 2px, transparent 2px 7px),
-    radial-gradient(125% 70% at 50% -12%, rgba(96,128,190,0.22), transparent 70%);
+    linear-gradient(180deg, rgba(36,62,116,0.97), rgba(9,17,44,0.985)),
+    repeating-linear-gradient(45deg, rgba(214,229,255,0.018) 0 2px, transparent 2px 7px),
+    radial-gradient(125% 70% at 50% -12%, rgba(112,154,232,0.30), transparent 70%);
   border: 1px solid rgba(0,0,0,0.7); border-radius: 5px;
   box-shadow: inset 0 0 0 1px rgba(216,178,94,0.4), inset 0 1px 0 rgba(255,236,190,0.14), inset 0 0 28px rgba(0,0,0,0.55);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -519,13 +519,21 @@ function injectStyles(): void {
 .dr-corner-br { bottom: -2px; right: -2px; } .dr-corner-br::before { bottom: 0; right: 0; } .dr-corner-br::after { bottom: 0; right: 0; }
 .dr-title {
   position: relative;
-  font-family: var(--display); font-size: 1.16rem; font-weight: 700; text-align: center;
-  letter-spacing: 2.2px; text-transform: uppercase;
+  font-family: var(--display); font-size: 1.24rem; font-weight: 700; text-align: center;
+  letter-spacing: 2.4px; text-transform: uppercase;
   color: var(--gold-hi);
-  background: linear-gradient(180deg, #fbeec0 0%, var(--gold) 48%, #8a6526 100%);
+  /* Bright band near the vertical centre reads as a raised ridge catching light,
+     like the beveled Warcraft letters. */
+  background: linear-gradient(180deg, #fff7d8 0%, #efc251 30%, #fff2b2 49%, #dca23a 60%, #8a5e1e 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.85));
-  margin: 1px 0 2px; padding: 0 14px;
+  /* Stacked drop-shadows give the letters volume: a light top bevel, a dark
+     bottom edge, a soft cast shadow, and a crisp outline. */
+  filter:
+    drop-shadow(0 -1px 0 rgba(255,246,205,0.5))
+    drop-shadow(0 1px 0 #5c3c10)
+    drop-shadow(0 2px 1px rgba(0,0,0,0.5))
+    drop-shadow(0 0 1px rgba(28,16,4,0.92));
+  margin: 1px 0 3px; padding: 0 14px;
 }
 .dr-title::before, .dr-title::after {
   content: "◆"; position: absolute; top: 50%; transform: translateY(-52%);
@@ -541,11 +549,11 @@ function injectStyles(): void {
 .dr-acc { margin-bottom: 8px; border: 1px solid rgba(0,0,0,0.6); border-radius: 6px; overflow: hidden; background: rgba(0,0,0,0.28); box-shadow: inset 0 0 0 1px rgba(176,125,51,0.22); }
 .dr-acc-header {
   width: 100%; display: flex; align-items: center; gap: 8px; padding: 9px 11px; cursor: pointer;
-  background: linear-gradient(180deg, #2a3854, #131d33); border: none; border-bottom: 1px solid rgba(0,0,0,0.55);
+  background: linear-gradient(180deg, #31528f, #172a54); border: none; border-bottom: 1px solid rgba(0,0,0,0.55);
   color: var(--gold); font-family: var(--display); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.4px;
   box-shadow: inset 0 1px 0 rgba(247,230,173,0.18);
 }
-.dr-acc-header:hover { background: linear-gradient(180deg, #35466a, #1b2840); color: var(--gold-hi); }
+.dr-acc-header:hover { background: linear-gradient(180deg, #3c61a6, #1f3464); color: var(--gold-hi); }
 .dr-acc-title { font-weight: 700; text-shadow: 0 1px 1px rgba(0,0,0,0.6); }
 .dr-acc-value { margin-left: auto; color: var(--parch-dim); font-size: 0.78rem; font-family: system-ui, sans-serif; text-transform: none; letter-spacing: 0; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-acc-chevron { color: var(--brass); transition: transform 0.25s ease; font-size: 0.66rem; }
@@ -555,12 +563,12 @@ function injectStyles(): void {
 .dr-acc-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 11px 12px; }
 .dr-chip {
   padding: 6px 11px; border-radius: 5px; cursor: pointer; font-size: 0.8rem; color: var(--parch);
-  background: linear-gradient(180deg, #283650, #111a2c);
+  background: linear-gradient(180deg, #2c477e, #121f44);
   border: 1px solid #000;
   box-shadow: inset 0 1px 0 rgba(216,178,94,0.3), inset 0 0 0 1px var(--steel), 0 1px 2px rgba(0,0,0,0.55);
   transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease, transform 0.08s ease;
 }
-.dr-chip:hover { background: linear-gradient(180deg, #35476c, #1a2840); box-shadow: inset 0 1px 0 rgba(247,230,173,0.42), inset 0 0 0 1px rgba(216,178,94,0.5), 0 0 9px rgba(216,178,94,0.28); color: #fff; }
+.dr-chip:hover { background: linear-gradient(180deg, #3a5896, #1b2c54); box-shadow: inset 0 1px 0 rgba(247,230,173,0.42), inset 0 0 0 1px rgba(216,178,94,0.5), 0 0 9px rgba(216,178,94,0.28); color: #fff; }
 .dr-chip:active { transform: translateY(1px); }
 .dr-chip.is-active {
   background: linear-gradient(180deg, #ffd27a, var(--amber) 45%, var(--amber-deep));
@@ -590,15 +598,15 @@ function injectStyles(): void {
 .dr-swatch-col { flex: 1; }
 .dr-slot-name { flex: 1; text-align: center; font-size: 0.85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-arrow { width: 24px; height: 24px; border-radius: 6px; border: 1px solid #000; cursor: pointer;
-  background: linear-gradient(180deg, #283650, #111a2c); color: var(--gold); font-size: 1rem; line-height: 1;
+  background: linear-gradient(180deg, #2c477e, #121f44); color: var(--gold); font-size: 1rem; line-height: 1;
   box-shadow: inset 0 1px 0 rgba(216,178,94,0.3); }
 .dr-arrow:hover { background: linear-gradient(180deg, var(--amber), var(--amber-deep)); color: #2a1808; }
 .dr-select { flex: 1; padding: 5px; border-radius: 6px; border: 1px solid #000;
-  background: #111a2c; color: var(--parch); font-size: 0.8rem; box-shadow: inset 0 1px 0 rgba(216,178,94,0.2); }
+  background: #121f44; color: var(--parch); font-size: 0.8rem; box-shadow: inset 0 1px 0 rgba(216,178,94,0.2); }
 .dr-color { width: 36px; height: 28px; padding: 0; border: 1px solid #000; border-radius: 4px; background: none; cursor: pointer; }
 .dr-color:disabled { opacity: 0.35; cursor: not-allowed; }
 .dr-mini { padding: 5px 8px; border-radius: 6px; border: 1px solid #000; cursor: pointer;
-  background: linear-gradient(180deg, #283650, #111a2c); color: var(--gold); font-size: 0.72rem; box-shadow: inset 0 1px 0 rgba(216,178,94,0.25); }
+  background: linear-gradient(180deg, #2c477e, #121f44); color: var(--gold); font-size: 0.72rem; box-shadow: inset 0 1px 0 rgba(216,178,94,0.25); }
 .dr-mini:hover { color: var(--gold-hi); }
 .dr-mini:disabled { opacity: 0.35; cursor: not-allowed; }
 `;
