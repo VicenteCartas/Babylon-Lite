@@ -1,3 +1,4 @@
+import { F32, I32, U8 } from "../engine/typed-arrays.js";
 import { tickAnimation } from "./animation-group.js";
 import type { AnimationGltfMixer, AnimationGroup } from "./animation-group.js";
 import { ANIMATION_GROUP_TASK_CATEGORY, getAnimationGroupOwner, getAnimationGroups } from "./animation-group-task.js";
@@ -22,9 +23,9 @@ const S_OFF = 7;
 
 // RH->LH root transform (same as skeleton-updater.ts)
 // prettier-ignore
-const RH_TO_LH = new Float32Array([-1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1]);
+const RH_TO_LH = new F32([-1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1]);
 
-const _boneTmp = new Float32Array(16);
+const _boneTmp = new F32(16);
 
 interface WeightedGltfTarget {
     readonly nodes: readonly NodeRest[];
@@ -136,9 +137,9 @@ function getScratch(manager: AnimationManager): WeightedGltfScratch {
         scratch = {
             keys: new Set<object>(),
             targets: new Map<object, WeightedGltfTarget>(),
-            sample: new Float32Array(16),
-            reference: new Float32Array(16),
-            delta: new Float32Array(16),
+            sample: new F32(16),
+            reference: new F32(16),
+            delta: new F32(16),
         };
         scratchByManager.set(manager, scratch);
     }
@@ -221,13 +222,13 @@ function getTarget(scratch: WeightedGltfScratch, mixer: AnimationGltfMixer): Wei
             skeletons: mixer[GLTF_SKELETONS],
             nodeTargets: mixer[GLTF_NODE_TARGETS],
             excluded: mixer[GLTF_EXCLUDED],
-            trs: new Float32Array(numNodes * TRS_STRIDE),
-            localMat: new Float32Array(numNodes * 16),
-            worldMat: new Float32Array(numNodes * 16),
+            trs: new F32(numNodes * TRS_STRIDE),
+            localMat: new F32(numNodes * 16),
+            worldMat: new F32(numNodes * 16),
             topoOrder: computeTopoOrder(nodes),
-            tWeight: new Float32Array(numNodes),
-            rWeight: new Float32Array(numNodes),
-            sWeight: new Float32Array(numNodes),
+            tWeight: new F32(numNodes),
+            rWeight: new F32(numNodes),
+            sWeight: new F32(numNodes),
             active: false,
         };
         // Seed the rest pose now. A target created mid-update misses the per-frame
@@ -509,8 +510,8 @@ function uploadTarget(manager: AnimationManager, target: WeightedGltfTarget): vo
 }
 
 function computeTopoOrder(nodes: readonly { readonly parentIdx: number }[]): Int32Array {
-    const order = new Int32Array(nodes.length);
-    const visited = new Uint8Array(nodes.length);
+    const order = new I32(nodes.length);
+    const visited = new U8(nodes.length);
     let cursor = 0;
 
     function visit(idx: number): void {

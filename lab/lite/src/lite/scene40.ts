@@ -1,13 +1,48 @@
 // Scene 40: Physics V2 — Havok sphere drop (matches playground #Z8HTUN#1)
 
 import HavokPhysics from "@babylonjs/havok";
-import { addToScene, startEngine, createEngine, createSceneContext, createFreeCamera, createHemisphericLight, createSphere, createGround, createStandardMaterial, onBeforeRender, createHavokWorld, createPhysicsAggregate, PhysicsShapeType, registerScene } from "babylon-lite";
+import {
+    addToScene,
+    createEngine,
+    createFreeCamera,
+    createGround,
+    createHavokWorld,
+    createHemisphericLight,
+    createPhysicsAggregate,
+    createSceneContext,
+    createSphere,
+    createStandardMaterial,
+    onBeforeRender,
+    PhysicsShapeType,
+    registerScene,
+    startEngine,
+    stopEngine,
+} from "babylon-lite";
+
+const PHYSICS_FPS = 60;
+
+function readCaptureAfterFrames(): number | null {
+    const params = new URLSearchParams(window.location.search);
+    const frameValue = params.get("captureFrame");
+    if (frameValue !== null) {
+        const frame = Number(frameValue);
+        return Number.isFinite(frame) && frame >= 0 ? Math.round(frame) : null;
+    }
+    const value = params.get("captureAfter");
+    if (value === null) {
+        return null;
+    }
+    const seconds = Number(value);
+    return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * PHYSICS_FPS) : null;
+}
 
 async function main(): Promise<void> {
     const __initStart = performance.now();
     const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
     const engine = await createEngine(canvas);
     const scene = createSceneContext(engine);
+    scene.fixedDeltaMs = 1000 / PHYSICS_FPS;
+    const captureAfterFrames = readCaptureAfterFrames();
 
     // Camera — FreeCamera at (0, 5, -10) targeting origin
     scene.camera = createFreeCamera({ x: 0, y: 5, z: -10 }, { x: 0, y: 0, z: 0 });
@@ -28,6 +63,27 @@ async function main(): Promise<void> {
     ground.material = createStandardMaterial();
     addToScene(scene, ground);
 
+    // Render live. Register before the physics world so Havok's unshifted
+    // before-render callback steps first, then this capture hook observes the
+    // freshly simulated transform for the frame about to be drawn. In parity
+    // capture mode, freeze after the requested number of 60 Hz physics frames.
+    let simulationStarted = false;
+    let simulatedFrames = 0;
+    let captureQueued = false;
+    onBeforeRender(scene, () => {
+        canvas.dataset.drawCalls = String(engine.drawCallCount);
+        if (simulationStarted) {
+            simulatedFrames++;
+        }
+        if (captureAfterFrames !== null && !captureQueued && simulatedFrames >= captureAfterFrames) {
+            captureQueued = true;
+            window.setTimeout(() => {
+                canvas.dataset.captureReady = "true";
+                stopEngine(engine);
+            }, 0);
+        }
+    });
+
     // Havok physics — gravity (0, -9.8, 0)
     const hknp = await HavokPhysics({ locateFile: () => "/HavokPhysics.wasm" });
     const world = createHavokWorld(scene, hknp, { x: 0, y: -9.8, z: 0 });
@@ -43,24 +99,17 @@ async function main(): Promise<void> {
         mass: 0,
     });
 
-    // Wait for sphere to settle (y ≈ 1.0 for 30 consecutive frames)
-    let settleFrames = 0;
-    onBeforeRender(scene, () => {
-        canvas.dataset.drawCalls = String(engine.drawCallCount);
-        const y = sphere.position.y;
-        if (Math.abs(y - 1.0) < 0.05) {
-            settleFrames++;
-            if (settleFrames > 30) {
-                canvas.dataset.initMs = String(performance.now() - __initStart);
-                canvas.dataset.ready = "true";
-            }
-        } else {
-            settleFrames = 0;
-        }
-    });
-
-    await registerScene(engine, scene);
+    await registerScene(scene);
     await startEngine(engine);
+    simulationStarted = true;
+    canvas.dataset.initMs = String(performance.now() - __initStart);
+    canvas.dataset.ready = "true";
 }
 
-main().catch(console.error);
+main().catch((err) => {
+    const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement | null;
+    if (canvas) {
+        canvas.dataset.error = err instanceof Error ? err.message : String(err);
+    }
+    console.error(err);
+});

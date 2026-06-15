@@ -5,6 +5,8 @@
  *  after an asset declares KHR_texture_basisu.
  */
 
+import { U8C, U8 } from "../engine/typed-arrays.js";
+import { TU } from "../engine/gpu-flags.js";
 import type { EngineContext } from "../engine/engine.js";
 import { acquireTexture, getOrCreateSampler } from "../resource/gpu-pool.js";
 import type { Texture2D } from "./texture-2d.js";
@@ -47,7 +49,21 @@ interface Ktx2DecoderModule {
     WASMMemoryManager: { LoadBinariesFromCurrentThread: boolean };
 }
 
-const KTX2_DECODER_URL = "https://cdn.babylonjs.com/babylon.ktx2Decoder.js";
+// Public URL of the KTX2/Basis decoder script (default: the Babylon CDN). Override via
+// `setKtx2DecoderUrl()` to self-host the decoder (e.g. to avoid the cross-origin CDN dependency).
+let _ktx2DecoderUrl = "https://cdn.babylonjs.com/babylon.ktx2Decoder.js";
+// Optional overrides for the WASM/JS modules the decoder pulls after it loads (keyed by the property
+// name on the matching KTX2DECODER transcoder, e.g. MSCTranscoder→{JSModuleURL,WASMModuleURL},
+// ZSTDDecoder→{WASMModuleURL}, LiteTranscoder_*→{WASMModuleURL}). Needed to FULLY self-host — the
+// decoder otherwise fetches these from the CDN regardless of the script URL above.
+let _ktx2WasmUrls: Record<string, Record<string, string>> | null = null;
+
+/** Override the URL of the KTX2/Basis decoder script (and, optionally, the URLs of the WASM/JS transcoder
+ *  modules it pulls). Call before the first KHR_texture_basisu texture loads. */
+export function setKtx2DecoderUrl(url: string, wasmUrls?: Record<string, Record<string, string>>): void {
+    _ktx2DecoderUrl = url;
+    _ktx2WasmUrls = wasmUrls ?? null;
+}
 let _ktx2DecoderPromise: Promise<Ktx2Decoder> | null = null;
 
 const GL_RGBA8 = 0x8058;
@@ -69,6 +85,20 @@ function loadKtx2Decoder(): Promise<Ktx2Decoder> {
             }
             mod.MSCTranscoder.UseFromWorkerThread = false;
             mod.WASMMemoryManager.LoadBinariesFromCurrentThread = true;
+            // Redirect the decoder's WASM/JS module fetches to self-hosted copies, if configured. Each key
+            // names a transcoder on the module (MSCTranscoder, ZSTDDecoder, LiteTranscoder_*); set props
+            // that exist (JSModuleURL/WASMModuleURL) and ignore the rest, so it survives decoder updates.
+            if (_ktx2WasmUrls) {
+                const m = mod as unknown as Record<string, Record<string, string> | undefined>;
+                for (const tName of Object.keys(_ktx2WasmUrls)) {
+                    const t = m[tName];
+                    if (t) {
+                        for (const prop of Object.keys(_ktx2WasmUrls[tName]!)) {
+                            t[prop] = _ktx2WasmUrls[tName]![prop]!;
+                        }
+                    }
+                }
+            }
             resolve(new mod.KTX2Decoder());
         };
         if (w.KTX2DECODER) {
@@ -76,7 +106,7 @@ function loadKtx2Decoder(): Promise<Ktx2Decoder> {
             return;
         }
         const script = document.createElement("script");
-        script.src = KTX2_DECODER_URL;
+        script.src = _ktx2DecoderUrl;
         script.async = true;
         script.onload = init;
         script.onerror = (): void => reject(new Error(`KTX2: failed to load ${script.src}`));
@@ -188,7 +218,7 @@ function uploadCompressed(engine: EngineContext, mips: Ktx2DecodedMip[], format:
         size: { width, height },
         format: sRGB ? srgbFormat(format.gpuFormat) : format.gpuFormat,
         mipLevelCount: mips.length,
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        usage: TU.TEXTURE_BINDING | TU.COPY_DST,
     });
     for (let level = 0; level < mips.length; level++) {
         const mip = mips[level]!;
@@ -212,7 +242,7 @@ function uploadUncompressed(engine: EngineContext, mips: Ktx2DecodedMip[], info:
         size: { width, height },
         format: sRGB ? srgbFormat(info.format) : info.format,
         mipLevelCount: mips.length,
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        usage: TU.TEXTURE_BINDING | TU.COPY_DST,
     });
     for (let level = 0; level < mips.length; level++) {
         const mip = mips[level]!;
@@ -236,7 +266,7 @@ function uploadUncompressed(engine: EngineContext, mips: Ktx2DecodedMip[], info:
  *  decoder-provided full mip chain directly to a Texture2D. */
 export async function uploadKtx2Texture2D(engine: EngineContext, buffer: ArrayBuffer, sRGB: boolean): Promise<Texture2D> {
     const decoder = await loadKtx2Decoder();
-    const decoded = await decoder.decode(new Uint8Array(buffer), RGBA_CAPS, { forceRGBA: true });
+    const decoded = await decoder.decode(new U8(buffer), RGBA_CAPS, { forceRGBA: true });
     const mips = validateDecoded(decoded);
 
     const compressed = getCompressedFormat(decoded.transcodedFormat);
@@ -256,12 +286,12 @@ export async function uploadKtx2Texture2D(engine: EngineContext, buffer: ArrayBu
  *  material extensions can reuse the core image upload path. */
 export async function decodeKtx2ImageBitmapFromBuffer(buffer: ArrayBuffer): Promise<ImageBitmap> {
     const decoder = await loadKtx2Decoder();
-    const decoded = await decoder.decode(new Uint8Array(buffer), RGBA_CAPS, { forceRGBA: true });
+    const decoded = await decoder.decode(new U8(buffer), RGBA_CAPS, { forceRGBA: true });
     const mip0 = validateDecoded(decoded)[0]!;
     if (mip0.data.length !== mip0.width * mip0.height * 4) {
         throw new Error("KTX2: RGBA decode size does not match image dimensions");
     }
-    const pixels = new Uint8ClampedArray(mip0.data.length);
+    const pixels = new U8C(mip0.data.length);
     pixels.set(mip0.data);
     return createImageBitmap(new ImageData(pixels, mip0.width, mip0.height));
 }

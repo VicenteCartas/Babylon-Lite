@@ -7,6 +7,7 @@
  *  asset lists KHR_texture_basisu in `extensionsUsed`.
  */
 
+import { F32, U32, U8, DV } from "../engine/typed-arrays.js";
 import type { GltfMatExtCtx } from "./gltf-material.js";
 import type { GltfFeature } from "./gltf-feature.js";
 import type { DecodedPrimitive } from "./gltf-feature.js";
@@ -17,6 +18,9 @@ import { decodeKtx2ImageBitmapFromBuffer, uploadKtx2Texture2D } from "../texture
 
 const NAME = "KHR_texture_basisu";
 const FLOAT = 5126;
+// glTF accessor component types → byte size. Interleaved (strided) vertex attributes can be any of these,
+// not just FLOAT (e.g. a normalized `COLOR_0: UNSIGNED_BYTE`), so the strided reader must handle them all.
+const COMPONENT_BYTES: Record<number, number> = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
 const TYPE_SIZES: Record<string, number> = {
     SCALAR: 1,
     VEC2: 2,
@@ -98,8 +102,8 @@ async function resolveImageBuffer(ctx: BasisuMaterialData, imageIdx: number): Pr
             throw new Error(`${NAME}: bufferView ${image.bufferView} not found`);
         }
         const offset = ctx.binChunk.byteOffset + (bv.byteOffset ?? 0);
-        const copy = new Uint8Array(bv.byteLength);
-        copy.set(new Uint8Array(ctx.binChunk.buffer, offset, bv.byteLength));
+        const copy = new U8(bv.byteLength);
+        copy.set(new U8(ctx.binChunk.buffer, offset, bv.byteLength));
         return copy.buffer;
     }
     if (image.uri) {
@@ -193,25 +197,60 @@ async function uploadOrmTexture(data: BasisuMaterialData, ctx: GltfMatExtCtx): P
     return tex;
 }
 
+// Read one interleaved attribute component, decoding its glTF component type to a float. NORMALIZED integer
+// attributes (the `normalized` accessor flag) map to [0,1] (unsigned) or [-1,1] (signed); non-normalized ones
+// pass through as their integer value. DataView handles unaligned little-endian reads, so any stride is fine.
+function readComponent(view: DataView, offset: number, componentType: number, normalized: boolean): number {
+    switch (componentType) {
+        case FLOAT:
+            return view.getFloat32(offset, true);
+        case 5125: {
+            const v = view.getUint32(offset, true);
+            return normalized ? v / 4294967295 : v;
+        }
+        case 5123: {
+            const v = view.getUint16(offset, true);
+            return normalized ? v / 65535 : v;
+        }
+        case 5122: {
+            const v = view.getInt16(offset, true);
+            return normalized ? Math.max(v / 32767, -1) : v;
+        }
+        case 5121: {
+            const v = view.getUint8(offset);
+            return normalized ? v / 255 : v;
+        }
+        case 5120: {
+            const v = view.getInt8(offset);
+            return normalized ? Math.max(v / 127, -1) : v;
+        }
+        default:
+            throw new Error(`${NAME}: strided accessor uses unsupported component type: ${componentType}`);
+    }
+}
+
 function readStridedFloat(json: any, binChunk: DataView, accessorIdx: number): Float32Array {
     const accessor = json.accessors[accessorIdx];
     const bufferView = json.bufferViews[accessor.bufferView];
-    if (accessor.componentType !== FLOAT) {
-        throw new Error(`${NAME}: strided accessor ${accessorIdx} uses unsupported component type: ${accessor.componentType}`);
+    const componentType = accessor.componentType;
+    const compBytes = COMPONENT_BYTES[componentType];
+    if (!compBytes) {
+        throw new Error(`${NAME}: strided accessor ${accessorIdx} uses unsupported component type: ${componentType}`);
     }
     const componentCount = TYPE_SIZES[accessor.type] ?? 1;
-    const elementBytes = componentCount * 4;
+    const elementBytes = componentCount * compBytes;
     const byteStride = bufferView.byteStride ?? elementBytes;
     if (byteStride < elementBytes) {
         throw new Error(`${NAME}: invalid accessor stride ${byteStride} for accessor ${accessorIdx}`);
     }
+    const normalized = accessor.normalized === true;
     const baseOffset = binChunk.byteOffset + (bufferView.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
-    const view = new DataView(binChunk.buffer);
-    const out = new Float32Array(accessor.count * componentCount);
+    const view = new DV(binChunk.buffer);
+    const out = new F32(accessor.count * componentCount);
     for (let i = 0, o = 0; i < accessor.count; i++) {
         const src = baseOffset + i * byteStride;
         for (let c = 0; c < componentCount; c++, o++) {
-            out[o] = view.getFloat32(src + c * 4, true);
+            out[o] = readComponent(view, src + c * compBytes, componentType, normalized);
         }
     }
     return out;
@@ -240,9 +279,7 @@ const ext: GltfFeature = {
                 }
                 const posAcc = gltf.accessors[attrs.POSITION];
                 const idx =
-                    primitive.indices === undefined
-                        ? new Uint32Array(0)
-                        : new Uint32Array(resolveAccessor(gltf, binChunk, primitive.indices)._data as Uint16Array | Uint32Array | Uint8Array);
+                    primitive.indices === undefined ? new U32(0) : new U32(resolveAccessor(gltf, binChunk, primitive.indices)._data as Uint16Array | Uint32Array | Uint8Array);
                 decoded.set(primitive, {
                     _attributes: attributes,
                     _indices: idx,

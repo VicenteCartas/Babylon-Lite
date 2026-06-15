@@ -618,7 +618,7 @@ async function main(): Promise<void> {
             panelRefresh();
         };
 
-        await registerSceneWithShadowSupport(engine, scene);
+        await registerSceneWithShadowSupport(scene);
         progress.done();
         await startEngine(engine);
 

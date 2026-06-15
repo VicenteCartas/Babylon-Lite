@@ -1,3 +1,4 @@
+import { F32 } from "../../engine/typed-arrays.js";
 import type { Material } from "../material.js";
 import type { MeshGroupBuilder } from "../../render/renderable.js";
 import type { Texture2D } from "../../texture/texture-2d.js";
@@ -37,10 +38,24 @@ export interface ShaderMaterialOptions {
      *  standard src-over; "additive" adds the fragment's premultiplied-by-alpha
      *  color to the framebuffer, which is the right choice for glows/light FX. */
     readonly blendMode?: "alpha" | "additive";
+    /** Mark this surface as transmissive/refractive: the renderer grabs the opaque scene color
+     *  behind it just before it draws, so the fragment can sample what is *through* it (water,
+     *  glass). Requires `needAlphaBlending` (the surface composites over the grabbed scene
+     *  color). Enable the scene-color grab on the surface's render task with
+     *  `enableRenderTaskTransmission`, then bind the resulting texture via `setShaderTexture`.
+     *  Default false. */
+    readonly transmissive?: boolean;
     readonly needAlphaTesting?: boolean;
     readonly backFaceCulling?: boolean;
     readonly depthWrite?: boolean;
     readonly depthCompare?: GPUCompareFunction;
+    /** Constant depth-bias added in the pipeline's depth-stencil state (units of the depth format's minimum
+     *  representable value). Lets a surface that hugs another (e.g. tiles overlapping a cone, decals) win the
+     *  depth test consistently and avoid z-fighting. Default 0 (no bias). */
+    readonly depthBias?: number;
+    /** Slope-scaled depth bias — extra bias proportional to the depth gradient, so steeply-angled (grazing)
+     *  surfaces get more bias. Pairs with `depthBias` to kill z-fighting at oblique angles. Default 0. */
+    readonly depthBiasSlopeScale?: number;
 }
 
 /** A custom uniform declaration: WGSL identifier, type, and optional default. */
@@ -91,10 +106,14 @@ export interface ShaderMaterial extends Material {
     readonly defines: readonly ShaderDefine[];
     readonly needAlphaBlending: boolean;
     readonly blendMode: "alpha" | "additive";
+    /** True for transmissive/refractive surfaces (see `ShaderMaterialOptions.transmissive`). */
+    readonly transmissive: boolean;
     readonly needAlphaTesting: boolean;
     readonly backFaceCulling: boolean;
     readonly depthWrite: boolean;
     readonly depthCompare: GPUCompareFunction;
+    readonly depthBias: number;
+    readonly depthBiasSlopeScale: number;
     /** @internal */
     _uniformValues: Map<string, ShaderUniformSlot>;
     /** @internal */
@@ -214,6 +233,10 @@ export function createShaderMaterial(options: ShaderMaterialOptions): ShaderMate
     }
     defines.sort((a, b) => a.name.localeCompare(b.name));
 
+    if (options.transmissive && !(options.needAlphaBlending ?? false)) {
+        throw new Error("ShaderMaterial: `transmissive` requires `needAlphaBlending` (the surface composites over the grabbed opaque scene color).");
+    }
+
     return {
         name: options.name,
         vertexSource: options.vertexSource,
@@ -224,10 +247,13 @@ export function createShaderMaterial(options: ShaderMaterialOptions): ShaderMate
         defines,
         needAlphaBlending: options.needAlphaBlending ?? false,
         blendMode: options.blendMode ?? "alpha",
+        transmissive: options.transmissive ?? false,
         needAlphaTesting: options.needAlphaTesting ?? false,
         backFaceCulling: options.backFaceCulling ?? true,
         depthWrite: options.depthWrite ?? true,
         depthCompare: options.depthCompare ?? "greater-equal",
+        depthBias: options.depthBias ?? 0,
+        depthBiasSlopeScale: options.depthBiasSlopeScale ?? 0,
         _buildGroup: shaderGroupBuilder as MeshGroupBuilder,
         _uboVersion: 0,
         _uniformValues: uniformValues,
@@ -290,7 +316,7 @@ function defaultUniformValue(decl: ShaderUniformDecl): ShaderUniformValue {
 
 function normalizeUniformValue(decl: ShaderUniformDecl, value: ShaderUniformValue): Float32Array {
     const count = elementCount(decl.type);
-    const arr = typeof value === "number" ? new Float32Array([value]) : value instanceof Float32Array ? new Float32Array(value) : new Float32Array(value);
+    const arr = typeof value === "number" ? new F32([value]) : value instanceof F32 ? new F32(value) : new F32(value);
     if (arr.length !== count) {
         throw new Error(`ShaderMaterial: uniform "${decl.name}" of type ${decl.type} expects ${count} value(s), got ${arr.length}.`);
     }
