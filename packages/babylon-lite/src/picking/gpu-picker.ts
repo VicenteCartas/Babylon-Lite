@@ -5,10 +5,7 @@ import type { Mesh } from "../mesh/mesh.js";
 import type { PickingInfo } from "./picking-info.js";
 import type { EngineContext } from "../engine/engine.js";
 import type * as DeformedGeometry from "./deformed-geometry.js";
-import type * as GsPickingPipeline from "./gs-picking-pipeline.js";
-import type * as BillboardPickPipeline from "./billboard-pick-pipeline.js";
-import type { GaussianSplattingMesh } from "../mesh/GaussianSplatting/gaussian-splatting-mesh.js";
-import type { BillboardSpriteSystem } from "../sprite/billboard-sprite.js";
+import type { PickContributor, PickPassContext, PickContributorState } from "./pick-contributor.js";
 import { createEmptyPickingInfo } from "./picking-info.js";
 import { createPickingRay } from "./ray.js";
 import { mat4Invert } from "../math/mat4-invert.js";
@@ -19,7 +16,6 @@ import { createEmptyUniformBuffer, createMappedBuffer, createUniformBuffer } fro
 
 // ─── Scratch arrays — allocated once, reused across all picks ──────
 const _pickVP = new F32(16);
-const _gsPickMatrix = new F32(16);
 const PICK_MESH_UBO_BYTES = 80;
 const PICK_TI_UBO_BYTES = 16;
 const _uboScratch = new ArrayBuffer(PICK_MESH_UBO_BYTES);
@@ -42,10 +38,9 @@ export interface GpuPicker {
     _sceneUbo: GPUBuffer | null;
     /** @internal Reusable scene bind group. */
     _sceneBG: GPUBindGroup | null;
-    /** @internal Per-GS-mesh picking resources (created on demand). */
-    _gsMeshResources: Map<GaussianSplattingMesh, GsPickingPipeline.GsPickMeshResources> | null;
-    /** @internal Per-billboard-system picking resources (created on demand). */
-    _billboardResources: Map<BillboardSpriteSystem, BillboardPickPipeline.BillboardPickResources> | null;
+    /** @internal Per-contributor GPU state (created on demand, keyed by contributor). Disposed
+     *  generically via each state's `dispose()` — the picker never names an entity type. */
+    _contributorState: Map<PickContributor, PickContributorState> | null;
 }
 
 interface PickTargets1x1 {
@@ -67,8 +62,7 @@ export function createGpuPicker(scene: SceneContext): GpuPicker {
         _rt: null,
         _sceneUbo: null,
         _sceneBG: null,
-        _gsMeshResources: null,
-        _billboardResources: null,
+        _contributorState: null,
     };
 }
 
@@ -347,42 +341,24 @@ export async function pickAsync(picker: GpuPicker, x: number, y: number, options
         }
     }
 
-    // ── Gaussian-splatting meshes ────────────────────────────────────
-    // Drawn from the same pass against the same depth target.  Each GS mesh
-    // gets one pick id (no thin-instance support — BJS GS picking is per-mesh
-    // too).  The GS picking pipeline applies an independent pickMatrix to the
-    // GS clip-space output so the EWA Jacobian / `u.focal` math stays intact.
-    const gsMeshes = (scene as unknown as { _gsMeshes: GaussianSplattingMesh[] })._gsMeshes;
-    const gsMeshCount = gsMeshes.length;
-    const gsNextIdStart = nextId;
-    if (gsMeshCount > 0) {
-        const gsModule = await import("./gs-picking-pipeline.js");
-        gsModule.computeGsPickMatrix(_gsPickMatrix, px, py, w, h);
-        gsModule.gsPickWritePickMatrixAndBind(pass, engine, _gsPickMatrix);
-        const resMap = picker._gsMeshResources ?? (picker._gsMeshResources = new Map());
-        for (let gi = 0; gi < gsMeshCount; gi++) {
-            const gsMesh = gsMeshes[gi]!;
-            let res = resMap.get(gsMesh);
-            if (!res) {
-                res = gsModule.createGsPickMeshResources(engine, gsMesh);
-                resMap.set(gsMesh, res);
+    // ── Pick contributors (optional entity types) ───────────────────
+    // Meshes above own ids 1..M. Each registered contributor (a GS mesh, a billboard system, …)
+    // then draws into the SAME pass against the SAME depth target — so contributor entities
+    // depth-sort against meshes and each other (an occluded one loses the pick) — and owns a
+    // contiguous id range [base, next). The picker names no entity type: the per-type draw,
+    // resolve, resources, and view math all live in the contributor's own (lazily imported)
+    // module, so a scene with no contributors fetches zero contributor pick bytes.
+    const contribRanges: { base: number; count: number; contributor: PickContributor }[] = [];
+    if (scene._pickContributors.length > 0) {
+        const pickCtx: PickPassContext = { picker, pass, engine, scene, camera, sceneBG: picker._sceneBG!, px, py, w, h };
+        for (let ci = 0; ci < scene._pickContributors.length; ci++) {
+            const contributor = scene._pickContributors[ci]!;
+            const base = nextId;
+            nextId = await contributor.draw(pickCtx, base);
+            if (nextId > base) {
+                contribRanges.push({ base, count: nextId - base, contributor });
             }
-            gsModule.drawGsForPicking(pass, engine, scene, gsMesh, res, nextId, w, h);
-            nextId++;
         }
-    }
-
-    // ── Billboard sprite systems ─────────────────────────────────────
-    // Drawn from the same pass against the same depth target, so billboards depth-sort against
-    // meshes (and each other) — a billboard occluded by a wall loses the pick. The entire billboard
-    // pass (draw loop, resolve scan, per-system resources, view math) lives in the dynamic-imported
-    // pick module, so a picker scene with no billboards never fetches it; the shared entry keeps only
-    // this guarded dispatch plus a numeric id-range compare at resolve time.
-    const billboardIdStart = nextId;
-    let bbPick: typeof BillboardPickPipeline | null = null;
-    if (scene._billboardSystems.length > 0) {
-        bbPick = await import("./billboard-pick-pipeline.js");
-        nextId = bbPick.drawBillboardsForPicking(picker, pass, engine, scene, camera, nextId, picker._sceneBG!);
     }
     pass.end();
 
@@ -418,9 +394,8 @@ export async function pickAsync(picker: GpuPicker, x: number, y: number, options
         }
         return createEmptyPickingInfo();
     }
-    let hitMesh: Mesh | GaussianSplattingMesh | null = null;
+    let hitMesh: Mesh | null = null;
     let hitThinIdx = -1;
-    let hitIsGs = false;
     let scanId = 1;
     for (let mi = 0; mi < meshCount; mi++) {
         const mesh = meshes[mi]!;
@@ -449,19 +424,21 @@ export async function pickAsync(picker: GpuPicker, x: number, y: number, options
             scanId++;
         }
     }
-    if (!hitMesh && gsMeshCount > 0 && pickId >= gsNextIdStart) {
-        const gsIdx = pickId - gsNextIdStart;
-        if (gsIdx < gsMeshCount) {
-            hitMesh = gsMeshes[gsIdx]!;
-            hitIsGs = true;
+    // Contributor resolve: meshes own ids 1..M, so any unresolved id belongs to a contributor.
+    // Find the owning contributor by its id range (a numeric compare, no entity-type knowledge).
+    let hitContributor: PickContributor | null = null;
+    let contribLocalId = -1;
+    if (!hitMesh) {
+        for (let ri = 0; ri < contribRanges.length; ri++) {
+            const r = contribRanges[ri]!;
+            if (pickId >= r.base && pickId < r.base + r.count) {
+                hitContributor = r.contributor;
+                contribLocalId = pickId - r.base;
+                break;
+            }
         }
     }
-    // Billboard sprite resolve. The billboard id range is [billboardIdStart, nextId); since the GPU
-    // only writes ids it drew and meshes/GS own every id below billboardIdStart, a non-mesh id at or
-    // above that start is necessarily a billboard hit — a numeric compare, no module call. The
-    // system+index lookup and payload attach are deferred to resolveAndAttachBillboard below.
-    const hitBillboard = !hitMesh && pickId >= billboardIdStart;
-    if (!hitMesh && !hitBillboard) {
+    if (!hitMesh && !hitContributor) {
         if (debugLabel) {
             console.trace("pick-debug", {
                 label: debugLabel,
@@ -500,13 +477,13 @@ export async function pickAsync(picker: GpuPicker, x: number, y: number, options
         info.distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    if (hitBillboard) {
-        // Resolve which system/sprite owns the id and attach the payload (pickBillboardSprite reads
-        // it). No mesh, no detailed CPU pick — picked point/distance come from the pick-depth readback.
-        bbPick!.resolveAndAttachBillboard(info, scene, pickId, billboardIdStart);
+    if (hitContributor) {
+        // The contributor attaches its own payload (GS sets pickedMesh; a billboard sets _spritePick).
+        // pickedPoint/distance were reconstructed above from the shared pick depth.
+        hitContributor.resolve(info, contribLocalId);
     }
 
-    if (picker._detailedPick && hitMesh && !hitIsGs) {
+    if (picker._detailedPick && hitMesh) {
         const ray = createPickingRay(pickX - viewport.x, pickY - viewport.y, vp, w, h);
         if (ray) {
             info.ray = ray;
@@ -521,7 +498,7 @@ export async function pickAsync(picker: GpuPicker, x: number, y: number, options
             pickId,
             depth,
             hit: true,
-            mesh: hitMesh ? ((hitMesh as Mesh).name ?? "(unnamed)") : "(billboard-sprite)",
+            mesh: hitMesh ? (hitMesh.name ?? "(unnamed)") : "(contributor)",
             thinInstanceIndex: hitThinIdx,
             pickedPoint: info.pickedPoint,
             distance: info.distance,
@@ -546,23 +523,12 @@ export function disposePicker(picker: GpuPicker): void {
         picker._sceneUbo = null;
         picker._sceneBG = null;
     }
-    if (picker._gsMeshResources) {
-        // Async dispose — destroy() is synchronous so we can run inline once
-        // the module is loaded.  If the module was never imported (no GS pick
-        // ever happened) the map is empty and there's nothing to do.
-        void import("./gs-picking-pipeline.js").then((m) => {
-            if (!picker._gsMeshResources) {
-                return;
-            }
-            for (const res of picker._gsMeshResources.values()) {
-                m.disposeGsPickMeshResources(res);
-            }
-            picker._gsMeshResources = null;
-        });
-    }
-    if (picker._billboardResources) {
-        // The dispose helper lives in the dynamic-imported pick module, so a billboard-free scene
-        // never fetches it (mirrors the GS dispose path).
-        void import("./billboard-pick-pipeline.js").then((m) => m.disposeBillboardResources(picker));
+    if (picker._contributorState) {
+        // Each contributor captured its own disposer at draw time, so cleanup is synchronous and
+        // generic — the picker frees per-contributor GPU state without naming any entity type.
+        for (const state of picker._contributorState.values()) {
+            state.dispose();
+        }
+        picker._contributorState = null;
     }
 }

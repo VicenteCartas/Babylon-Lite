@@ -1188,7 +1188,7 @@
         "slug": "scene115-alien-picking-frame100",
         "name": "Scene 115 — Alien Picking Frame 100",
         "maxMad": 0.01,
-        "maxRawKB": 126.5,
+        "maxRawKB": 125.9,
         "description": "Precise picking validation on the animated Alien glTF at frame 100: BJS and Lite CPU PickInfo values drive a surface sphere and normal marker.",
         "tags": ["pbr", "gltf", "anim", "skeleton", "picking"],
         "skipPerf": true
@@ -1220,7 +1220,7 @@
         "slug": "scene118-billboard-picking",
         "name": "Scene 118 — Billboard Sprite Picking",
         "maxMad": 0.15,
-        "maxRawKB": 76.8,
+        "maxRawKB": 76.4,
         "description": "Visual billboard-picking validation: pickBillboardSprite resolves the centre camera-facing billboard and a small marker mesh floats in front of it. The BJS oracle does the same with scene.pickSprite.",
         "tags": ["sprite", "billboard", "picking"],
         "skipPerf": true

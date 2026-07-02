@@ -24,10 +24,7 @@ import type { Mat4 } from "../math/types.js";
 import type { BillboardOrientation, BillboardSpriteSystem } from "../sprite/billboard-sprite.js";
 import { BILLBOARD_INSTANCE_STRIDE_BYTES } from "../sprite/billboard-sprite.js";
 import { getPickingSceneBGL } from "./picking-pipeline.js";
-import type { GpuPicker } from "./gpu-picker.js";
-import type { PickingInfo } from "./picking-info.js";
-import type { SceneContext } from "../scene/scene-core.js";
-import type { Camera } from "../camera/camera.js";
+import type { PickPassContext } from "./pick-contributor.js";
 import { getViewMatrix } from "../camera/camera.js";
 
 /** Result of a successful {@link pickBillboardSprite} hit (re-exported from the public picker). */
@@ -343,78 +340,18 @@ export function drawBillboardForPicking(
 }
 
 // ─── Contributor orchestration ──────────────────────────────────────────────
-// These run the whole billboard pass on behalf of the GPU picker. They live here (the
-// dynamic-imported pick module) rather than in `gpu-picker.ts` so a picker scene with no
-// billboards never fetches this code — `gpu-picker.ts` keeps only a thin guarded dispatch.
+// The per-system pick draw runs on behalf of the GPU picker's generic contributor loop. It lives
+// here (the dynamic-imported pick module) rather than in `gpu-picker.ts` so a picker scene with no
+// billboards never fetches it; the picker iterates `scene._pickContributors` and the billboard
+// contributor (registered in `billboard-scene.ts`) lazy-imports this module on the first pick.
 
 /**
- * Draw every billboard system in `scene` into the shared pick pass and return the next free pick id.
- * Reads `scene._billboardSystems` and computes the camera view internally, so the caller
- * (`gpu-picker`) ships none of that. Each system consumes a contiguous id range
- * `[baseId, baseId + count)`; ids advance by `count` even for a hidden system so id↔system mapping
- * stays positional with {@link resolveAndAttachBillboard}. Per-system GPU resources are created on
- * demand and cached on the picker.
+ * Draw one billboard system into the shared pick pass, assigning pick ids `[baseId, baseId + system.count)`.
+ * Rebinds group 0 to the mesh pick view-projection (a prior contributor, e.g. GS, may have rebound
+ * it) and derives the camera basis from the view matrix. Only called when the system is visible and
+ * non-empty; the contributor consumes the id range for hidden/empty systems without drawing.
  */
-export function drawBillboardsForPicking(
-    picker: GpuPicker,
-    pass: GPURenderPassEncoder,
-    engine: EngineContext,
-    scene: SceneContext,
-    camera: Camera,
-    nextId: number,
-    sceneBG: GPUBindGroup
-): number {
-    const systems = scene._billboardSystems;
-    // GS may have rebound group 0 to its own pick matrix; restore the shared pick-zoomed VP.
-    pass.setBindGroup(0, sceneBG);
-    const view = getViewMatrix(camera);
-    const resMap = picker._billboardResources ?? (picker._billboardResources = new Map());
-    for (let i = 0; i < systems.length; i++) {
-        const system = systems[i]!;
-        const baseId = nextId;
-        nextId += system.count;
-        if (!system.visible || system.count === 0) {
-            continue;
-        }
-        let res = resMap.get(system);
-        if (!res) {
-            res = createBillboardPickResources(engine, system);
-            resMap.set(system, res);
-        }
-        drawBillboardForPicking(pass, engine, system, res, baseId, view);
-    }
-    return nextId;
-}
-
-/**
- * Resolve a read-back pick id to its owning billboard system + sprite index and attach the sprite
- * payload to `info` (read by `pickBillboardSprite`). Scans `count` exactly as
- * {@link drawBillboardsForPicking} advanced ids, so the mapping is positional. Pure CPU; a no-op if
- * the id matches no system. The caller has already classified the id as in-range (a numeric compare
- * against the billboard range start), so this only finds *which* system owns it.
- */
-export function resolveAndAttachBillboard(info: PickingInfo, scene: SceneContext, pickId: number, startId: number): void {
-    const systems = scene._billboardSystems;
-    let scanId = startId;
-    for (let i = 0; i < systems.length; i++) {
-        const system = systems[i]!;
-        const count = system.count;
-        if (pickId >= scanId && pickId < scanId + count) {
-            info._spritePick = { system, spriteIndex: pickId - scanId, pickedPoint: info.pickedPoint, distance: info.distance };
-            return;
-        }
-        scanId += count;
-    }
-}
-
-/** Dispose all per-system pick resources held by the picker (and clear the cache). */
-export function disposeBillboardResources(picker: GpuPicker): void {
-    const resMap = picker._billboardResources;
-    if (!resMap) {
-        return;
-    }
-    for (const res of resMap.values()) {
-        disposeBillboardPickResources(res);
-    }
-    picker._billboardResources = null;
+export function drawBillboardSystemForPicking(ctx: PickPassContext, system: BillboardSpriteSystem, res: BillboardPickResources, baseId: number): void {
+    ctx.pass.setBindGroup(0, ctx.sceneBG);
+    drawBillboardForPicking(ctx.pass, ctx.engine, system, res, baseId, getViewMatrix(ctx.camera));
 }

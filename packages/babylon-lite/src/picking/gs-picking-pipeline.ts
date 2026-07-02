@@ -31,6 +31,7 @@ import { getPickingSceneBGL } from "./picking-pipeline.js";
 import { getRenderTargetSize } from "../engine/engine.js";
 import { getViewMatrix, getProjectionMatrix } from "../camera/camera.js";
 import type { SceneContext } from "../scene/scene-core.js";
+import type { PickPassContext } from "./pick-contributor.js";
 
 interface GsPickingCache {
     device: GPUDevice;
@@ -44,6 +45,9 @@ interface GsPickingCache {
 }
 
 let _cache: GsPickingCache | null = null;
+
+/** Scratch pick matrix, reused across GS pick draws (recomputed per draw from the pick pixel). */
+const _gsPickMx = new F32(16);
 
 /** Build the GS picking WGSL as a self-contained template literal.
  *
@@ -356,6 +360,16 @@ export function drawGsForPicking(
     pass.setVertexBuffer(1, mesh._gs._splatIndexBuffer);
     pass.setIndexBuffer(mesh._gs._indexBuffer, "uint16");
     pass.drawIndexed(6, mesh.vertexCount);
+}
+
+/** Draw one GS mesh into the shared pick pass as a pick contributor: (re)binds the GS pick
+ *  matrix at group 0, then issues the pick draw with id `baseId`. The GS pipeline zooms its own
+ *  clip-space output onto the pick pixel, so it rebinds group 0 — the next contributor must
+ *  rebind what it needs (billboards rebind the mesh pick VP). */
+export function drawGsMeshForPicking(ctx: PickPassContext, mesh: GaussianSplattingMesh, res: GsPickMeshResources, baseId: number): void {
+    computeGsPickMatrix(_gsPickMx, ctx.px, ctx.py, ctx.w, ctx.h);
+    gsPickWritePickMatrixAndBind(ctx.pass, ctx.engine, _gsPickMx);
+    drawGsForPicking(ctx.pass, ctx.engine, ctx.scene, mesh, res, baseId, ctx.w, ctx.h);
 }
 
 /** Compute the pickMatrix for GS picking — same matrix `computePickVP` builds,
