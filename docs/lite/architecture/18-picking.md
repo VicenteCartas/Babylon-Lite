@@ -112,7 +112,7 @@ a contiguous id range `[base, next)` that the picker records for resolve. Adding
 new pickable type is a new module that calls `registerPickContributor` — no edits
 to `gpu-picker.ts` or `scene-core.ts`.
 
-The registered factory is a thin dynamic-import thunk, so *rendering* a billboard
+The registered factory is a thin dynamic-import thunk, so _rendering_ a billboard
 or GS entity pulls no pick-pipeline bytes — only the picker (on the first pick)
 imports `gs-picking-pipeline.ts` / `billboard-pick-pipeline.ts`, builds the
 contributor, and caches its per-picker GPU resources in the contributor closure
