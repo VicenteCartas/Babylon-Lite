@@ -1779,42 +1779,26 @@ registry — the caller chooses what to pick by passing the right layer array.
 
 `pickBillboardSprite(scene, xPx, yPx)` creates a transient `GpuPicker`, runs one
 `pickAsync`, and returns the billboard payload that pass attaches on a hit, or
-`null`. Billboards are drawn into the **same** 1×1 pick render pass as meshes —
-after the mesh and Gaussian-splatting draws, sharing the pick-ID colour target,
-the `r32float` depth target, and the `greater` reverse-Z depth test — so a
-billboard occluded by a mesh or a nearer billboard loses the pick. This mirrors
-the Gaussian-splatting picking integration.
+`null`. Billboards are drawn into the **same** 1×1 pick render pass as meshes,
+sharing the pick-ID colour target, the `r32float` depth target, and the `greater`
+reverse-Z depth test — so a billboard occluded by a mesh or a nearer billboard
+loses the pick.
 
-Picking uses a generic `PickContributor` seam so `gpu-picker.ts` names no optional
-entity type. It draws meshes itself (the always-present base case, ids `1..M`),
-then iterates `scene._pickContributors` — a list of
-`PickContributor { draw, resolve }` defined in `picking/pick-contributor.ts`. Each
-optional pickable entity registers one contributor when it is added: a billboard
-system via `addFacingBillboardSystem` / `addAxisLockedBillboardSystem`, a GS mesh
-via `attachGaussianSplattingMesh`. A new pickable type is a new module that calls
-`registerPickContributor` — no edits to `gpu-picker.ts` or `scene-core.ts`, which
-hold a single `_pickContributors` array and no per-entity-type registries,
-mirroring how every drawable is a uniform `Renderable`.
+Billboards plug into the picker through the generic `PickContributor` seam
+(`registerPickContributor` / `scene._pickContributors`) — the seam itself is
+documented in [18-picking.md](18-picking.md). `addFacingBillboardSystem` /
+`addAxisLockedBillboardSystem` register **one contributor per billboard system**
+in `billboard-scene.ts`. The contributor is lightweight: its `draw` lazy-imports
+the heavy `billboard-pick-pipeline.ts` on the first pick, so billboard _rendering_
+pulls no pick code, and per-picker GPU resources are cached on
+`picker._contributorState`.
 
-**Pay-for-use.** A contributor is a lightweight object registered by the entity's
-scene-wiring module (`billboard-scene.ts`, `gs-pick-contributor.ts` — already
-loaded for _rendering_); its `draw` lazy-imports the heavy pick pipeline on the
-first pick, and per-picker GPU resources are cached on `picker._contributorState`
-(a generic `Map<PickContributor, { dispose() }>`, disposed generically — GUIDANCE
-forbids module-level maps). A picker scene with no billboards/GS fetches zero
-contributor-pick bytes; a scene that never picks fetches none. Moving the
-per-entity code out of the shared picker also shrank it for every picker scene.
-
-**Draw + pick-ID ranges.** The picker calls `contributor.draw(pickCtx, baseId)` in
-registration order (meshes first), where `pickCtx` (`PickPassContext`) bundles the
-pass, engine, scene, camera, the group-0 pick scene BG, and the pick pixel. `draw`
-returns the next free id, so `[baseId, next)` is the contributor's id range, which
-the picker records for resolve. The billboard contributor consumes `system.count`
-ids (even for a hidden or empty system, so the mapping stays positional) and, when
-there is something to draw, calls `drawBillboardSystemForPicking`, which rebinds
-`@group(0)` to the shared pick scene UBO (the GS contributor may have rebound it to
-its own pick matrix) and issues the draw; per-system GPU resources are cached on
-`picker._contributorState`. The GS contributor consumes one id per mesh.
+**Draw + pick-ID ranges.** On `draw(pickCtx, baseId)` the billboard contributor
+consumes `system.count` pick IDs — even for a hidden or empty system, so the
+id-to-sprite mapping stays positional — and, when there is something to draw,
+calls `drawBillboardSystemForPicking`, which rebinds `@group(0)` to the shared
+pick scene UBO (an earlier contributor may have rebound group 0) and issues the
+draw.
 
 **Per-system 48-byte pick UBO** (`BILLBOARD_PICK_UBO_BYTES = 48`), packed by
 `packBillboardPickUbo`; the float layout matches the WGSL `BB` struct (`vec3` +
@@ -1850,16 +1834,13 @@ axis. The fragment writes the pick ID as RGB at `@location(0)` and NDC depth at
 pipelines `discard` below `cutoff`. Depth state is `depth24plus`, compare
 `greater`, write enabled.
 
-**Resolution.** The picker reads back one pick ID. If it is not a mesh id, the
-picker finds the owning contributor by its recorded id range (a numeric compare,
-no module call) and calls `contributor.resolve(info, pickId - baseId)`. The
-billboard contributor sets
-`info._spritePick = { system, spriteIndex, pickedPoint, distance }` (the local id
-is the sprite index directly); the GS contributor sets `info.pickedMesh`. The
-picked point and distance come from the shared pick-depth readback (the same
-world-point reconstruction the mesh picker performs, done once for any hit before
-`resolve`); there is no per-billboard CPU ray test and no per-hit UV
-reconstruction. Detailed CPU ray picking runs only for regular mesh hits.
+**Resolution.** When the picker reads back a pick ID that the billboard
+contributor owns, it calls the contributor's `resolve(info, spriteIndex)`, which
+sets `info._spritePick = { system, spriteIndex, pickedPoint, distance }` (the
+local id is the sprite index directly). The picked point and distance come from
+the shared pick-depth readback (the same world-point reconstruction the mesh
+picker performs, done once before `resolve`); there is no per-billboard CPU ray
+test and no per-hit UV reconstruction.
 
 ---
 
