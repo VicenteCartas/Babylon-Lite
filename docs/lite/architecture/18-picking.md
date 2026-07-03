@@ -38,7 +38,7 @@ interface PickingInfo {
 interface GpuPicker {
     _scene: SceneContext;
     _detailedPick: ((info: PickingInfo, ray: Ray) => void | Promise<void>) | null;
-    _contributorState: Map<PickContributor, { dispose(): void }> | null; // per-contributor GPU state
+    _contributors: Map<PickContributorFactory, PickContributor> | null; // built once per factory, cached
     // + lazily-allocated 1×1 render targets, scene UBO, and scene bind group
 }
 
@@ -59,7 +59,7 @@ function createGpuPicker(scene: SceneContext): GpuPicker;
  *  inject a GPU discard rule, or set a debug label. */
 function pickAsync(picker: GpuPicker, x: number, y: number, options?: PickOptions): Promise<PickingInfo>;
 
-/** Free the picker's GPU resources (render targets, scene UBO, per-contributor state). */
+/** Free the picker's GPU resources (render targets, scene UBO, and each cached contributor's state). */
 function disposePicker(picker: GpuPicker): void;
 
 /** Enable detailed picking (Phase 2 CPU ray-triangle) on an existing GPU picker. */
@@ -98,26 +98,30 @@ and .babylon loader. No copies needed — the arrays already exist in JS memory.
 ### Pick contributors (optional entity types)
 
 The picker draws meshes itself (Phase 1, ids `1..M`), then iterates
-`scene._pickContributors` — a generic list of `PickContributor { draw, resolve }`
-(`pick-contributor.ts`) — with no knowledge of any specific entity type. Each
-_optional_ pickable entity registers one contributor when it is added to the
-scene: a Gaussian-splatting mesh (`attachGaussianSplattingMesh`, one id per mesh)
-and a billboard sprite system (`addFacingBillboardSystem` /
-`addAxisLockedBillboardSystem`, `system.count` ids). Contributors draw into the
-**same** 1×1 pass against the **same** depth target, so they depth-sort against
-meshes and each other; each owns a contiguous id range `[base, next)` that the
-picker records for resolve. Adding a new pickable type is a new module that calls
-`registerPickContributor` — no edits to `gpu-picker.ts` or `scene-core.ts`.
+`scene._pickContributors` — a generic list of `PickContributorFactory`
+(`() => Promise<PickContributor>`) thunks (`pick-contributor.ts`) — with no
+knowledge of any specific entity type. Each _optional_ pickable entity registers
+one factory when it is added to the scene: a Gaussian-splatting mesh
+(`attachGaussianSplattingMesh`, one id per mesh) and a billboard sprite system
+(`addFacingBillboardSystem` / `addAxisLockedBillboardSystem`, `system.count`
+ids). On the first pick the picker invokes each factory once — which lazy-imports
+the heavy pick pipeline and builds the contributor — and caches the result in
+`picker._contributors`. Contributors draw into the **same** 1×1 pass against the
+**same** depth target, so they depth-sort against meshes and each other; each owns
+a contiguous id range `[base, next)` that the picker records for resolve. Adding a
+new pickable type is a new module that calls `registerPickContributor` — no edits
+to `gpu-picker.ts` or `scene-core.ts`.
 
-Contributors are lightweight objects registered by the entity's scene-wiring
-module; their `draw` lazy-imports the heavy pick pipeline
-(`gs-picking-pipeline.ts` / `billboard-pick-pipeline.ts`) on the first pick, and
-per-picker GPU state is cached on `picker._contributorState` and disposed
-generically. A scene with no such entities fetches zero contributor-pick bytes; a
-scene that never picks fetches no picking code at all. On resolve a GS contributor
-sets `info.pickedMesh` (the hit point comes from the shared depth readback) and a
-billboard sets `info._spritePick`; detailed CPU ray picking (Phase 2) runs only
-for regular mesh hits.
+The registered factory is a thin dynamic-import thunk, so *rendering* a billboard
+or GS entity pulls no pick-pipeline bytes — only the picker (on the first pick)
+imports `gs-picking-pipeline.ts` / `billboard-pick-pipeline.ts`, builds the
+contributor, and caches its per-picker GPU resources in the contributor closure
+(freed generically via each contributor's optional `dispose`). A scene with no
+such entities fetches zero contributor-pick bytes; a scene that never picks
+fetches no picking code at all. On resolve a GS contributor sets `info.pickedMesh`
+(the hit point comes from the shared depth readback) and a billboard sets
+`info._spritePick`; detailed CPU ray picking (Phase 2) runs only for regular mesh
+hits.
 
 ### Phase 2: CPU Ray-Triangle Intersection
 

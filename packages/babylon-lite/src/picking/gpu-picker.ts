@@ -5,7 +5,7 @@ import type { Mesh } from "../mesh/mesh.js";
 import type { PickingInfo } from "./picking-info.js";
 import type { EngineContext } from "../engine/engine.js";
 import type * as DeformedGeometry from "./deformed-geometry.js";
-import type { PickContributor, PickPassContext, PickContributorState } from "./pick-contributor.js";
+import type { PickContributor, PickContributorFactory, PickPassContext } from "./pick-contributor.js";
 import { createEmptyPickingInfo } from "./picking-info.js";
 import { createPickingRay } from "./ray.js";
 import { mat4Invert } from "../math/mat4-invert.js";
@@ -38,9 +38,10 @@ export interface GpuPicker {
     _sceneUbo: GPUBuffer | null;
     /** @internal Reusable scene bind group. */
     _sceneBG: GPUBindGroup | null;
-    /** @internal Per-contributor GPU state (created on demand, keyed by contributor). Disposed
-     *  generically via each state's `dispose()` — the picker never names an entity type. */
-    _contributorState: Map<PickContributor, PickContributorState> | null;
+    /** @internal Contributor built per factory (once per picker) and cached, so each contributor's
+     *  GPU pick resources live in its closure and dispose generically — the picker never names an
+     *  entity type. */
+    _contributors: Map<PickContributorFactory, PickContributor> | null;
     /** @internal Tail of the serialized pick queue for this picker — see pickAsync(). */
     _pending: Promise<void> | null;
 }
@@ -64,7 +65,7 @@ export function createGpuPicker(scene: SceneContext): GpuPicker {
         _rt: null,
         _sceneUbo: null,
         _sceneBG: null,
-        _contributorState: null,
+        _contributors: null,
         _pending: null,
     };
 }
@@ -357,9 +358,16 @@ async function pickAsyncImpl(picker: GpuPicker, x: number, y: number, options?: 
     if (scene._pickContributors.length > 0) {
         const pickCtx: PickPassContext = { picker, pass, engine, scene, camera, sceneBG: picker._sceneBG!, px, py, w, h };
         for (let ci = 0; ci < scene._pickContributors.length; ci++) {
-            const contributor = scene._pickContributors[ci]!;
+            const factory = scene._pickContributors[ci]!;
+            // Build each contributor once (per picker) and cache it — its first draw lazy-imports the
+            // pick pipeline, so a scene that never picks fetches zero contributor pick bytes.
+            let contributor = picker._contributors?.get(factory);
+            if (!contributor) {
+                contributor = await factory();
+                (picker._contributors ??= new Map()).set(factory, contributor);
+            }
             const base = nextId;
-            nextId = await contributor.draw(pickCtx, base);
+            nextId = contributor.draw(pickCtx, base);
             if (nextId > base) {
                 contribRanges.push({ base, count: nextId - base, contributor });
             }
@@ -554,12 +562,12 @@ export function disposePicker(picker: GpuPicker): void {
         picker._sceneUbo = null;
         picker._sceneBG = null;
     }
-    if (picker._contributorState) {
-        // Each contributor captured its own disposer at draw time, so cleanup is synchronous and
-        // generic — the picker frees per-contributor GPU state without naming any entity type.
-        for (const state of picker._contributorState.values()) {
-            state.dispose();
+    if (picker._contributors) {
+        // Each contributor was built once and cached here; it owns its GPU pick resources in its
+        // closure and frees them in dispose() — so cleanup is generic (the picker names no entity type).
+        for (const contributor of picker._contributors.values()) {
+            contributor.dispose?.();
         }
-        picker._contributorState = null;
+        picker._contributors = null;
     }
 }

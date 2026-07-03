@@ -3,9 +3,15 @@
  *  The GPU picker draws meshes itself (the always-present base case, kept intrinsic so a
  *  scene that never picks pays zero pick bytes), then iterates `scene._pickContributors`
  *  with no knowledge of any specific entity type. Each *optional* pickable entity (a
- *  Gaussian-splatting mesh, a billboard system, …) registers one contributor when it is
- *  added to the scene. Adding a new pickable type is a new module that calls
+ *  Gaussian-splatting mesh, a billboard system, …) registers one contributor *factory* when it
+ *  is added to the scene. Adding a new pickable type is a new module that calls
  *  `registerPickContributor` — no edits to `gpu-picker.ts` or `scene-core.ts`.
+ *
+ *  A factory is a `() => Promise<PickContributor>` thunk whose body reaches the (heavy) pick
+ *  pipeline only through a dynamic `import()`, so *rendering* an entity pulls only the tiny thunk
+ *  + this push; the pipeline, GPU-resource, and resolve code stay in a split chunk the picker
+ *  fetches on the first pick. The picker builds each contributor once (per picker) and caches it,
+ *  so a contributor's GPU state lives in its closure and disposes generically.
  *
  *  Contributors draw into the SAME 1×1 pick pass as meshes (shared pick-id colour target,
  *  `r32float` depth, and reverse-Z depth test), so occlusion is respected across entity
@@ -19,7 +25,7 @@ import type { GpuPicker } from "./gpu-picker.js";
 
 /** Shared state for the single 1×1 pick pass, handed to each contributor's `draw`. */
 export interface PickPassContext {
-    /** The picker running this pass — contributors cache per-picker GPU state on `_contributorState`. */
+    /** The picker running this pass. */
     readonly picker: GpuPicker;
     /** The open pick render pass (meshes already drawn into ids `1..M`). */
     readonly pass: GPURenderPassEncoder;
@@ -37,33 +43,35 @@ export interface PickPassContext {
     readonly h: number;
 }
 
-/** Per-picker GPU state a contributor caches (keyed by the contributor on the picker).
- *  `dispose` is captured at draw time so the picker can free it synchronously and generically,
- *  without knowing the entity type or re-importing the heavy pipeline module. */
-export interface PickContributorState {
-    dispose(): void;
-}
-
-/** A pluggable pick handler for one optional pickable entity. Registered on the scene when the
- *  entity is added; the picker iterates contributors with no entity-type knowledge. */
+/** A pluggable pick handler for one optional pickable entity. Built lazily (once per picker) by a
+ *  factory the entity registered when it was added; the picker iterates contributors with no
+ *  entity-type knowledge. Reused across picks, so `draw` may cache GPU resources in its closure
+ *  and free them in `dispose`. */
 export interface PickContributor {
     /** Draw this entity's pickables into the shared pass, assigning ids from `baseId`.
      *  Returns the next free id, so `nextId - baseId` is the id count this contributor owns
-     *  (a hidden/empty entity still consumes its ids so id↔entity mapping stays positional).
-     *  May be async so heavy pick-pipeline code can be lazy-imported on first pick. */
-    draw(ctx: PickPassContext, baseId: number): Promise<number>;
+     *  (a hidden/empty entity still consumes its ids so id↔entity mapping stays positional). */
+    draw(ctx: PickPassContext, baseId: number): number;
     /** Resolve a read-back id owned by this contributor (`localId = pickId - baseId`) by
      *  attaching its payload to `info`. `info.pickedPoint` / `info.distance` are already set
      *  from the shared pick-depth readback. */
     resolve(info: PickingInfo, localId: number): void;
+    /** Free any GPU resources this contributor created (called by `disposePicker`). */
+    dispose?(): void;
 }
 
-/** Register a pick contributor on the scene. Called by entity modules when the entity is added
- *  (mirrors pushing a `Renderable`). Returns an unregister function for the entity's disposer. */
-export function registerPickContributor(scene: SceneContext, contributor: PickContributor): () => void {
-    scene._pickContributors.push(contributor);
+/** A thunk that lazy-imports its pick pipeline and builds the contributor for one entity.
+ *  Registered on the scene at entity-add time; invoked (once per picker) on the first pick. */
+export type PickContributorFactory = () => Promise<PickContributor>;
+
+/** Register a pick-contributor factory on the scene. Called by entity modules when the entity is
+ *  added (mirrors pushing a `Renderable`). The factory stays a thin dynamic-import thunk, so
+ *  rendering the entity pulls no pick-pipeline bytes. Returns an unregister function for the
+ *  entity's disposer. */
+export function registerPickContributor(scene: SceneContext, factory: PickContributorFactory): () => void {
+    scene._pickContributors.push(factory);
     return () => {
-        const i = scene._pickContributors.indexOf(contributor);
+        const i = scene._pickContributors.indexOf(factory);
         if (i >= 0) {
             scene._pickContributors.splice(i, 1);
         }

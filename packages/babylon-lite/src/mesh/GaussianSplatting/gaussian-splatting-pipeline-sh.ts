@@ -37,7 +37,7 @@ import { getViewMatrix, getProjectionMatrix, getCameraPosition } from "../../cam
 import { getSceneBindGroupLayout } from "../../render/scene-helpers.js";
 import { getRenderTargetSize } from "../../engine/engine.js";
 import { disposeGaussianSplattingMesh, type GaussianSplattingMesh, type GsShaderFragment } from "./gaussian-splatting-mesh.js";
-import { registerGsPickContributor } from "./gs-pick-contributor.js";
+import { registerPickContributor } from "../../picking/pick-contributor.js";
 import { applyGsFragments } from "./gaussian-splatting-pipeline.js";
 
 interface PipelineEntry {
@@ -554,7 +554,7 @@ export function attachGaussianSplattingMeshSH(scene: SceneContext, mesh: Gaussia
 
     const ctx = scene as unknown as { _renderables: Renderable[]; _disposables: (() => void)[] };
     ctx._renderables.push(buildGaussianSplattingRenderableSH(scene, mesh, fragments));
-    const unregisterPick = registerGsPickContributor(scene, mesh);
+    const unregisterPick = registerPickContributor(scene, () => import("../../picking/gs-picking-pipeline.js").then((m) => m.createGsPickContributor(mesh)));
     ctx._disposables.push(() => {
         unregisterPick();
         disposeGaussianSplattingMesh(mesh);

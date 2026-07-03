@@ -31,7 +31,7 @@ import { getPickingSceneBGL } from "./picking-pipeline.js";
 import { getRenderTargetSize } from "../engine/engine.js";
 import { getViewMatrix, getProjectionMatrix } from "../camera/camera.js";
 import type { SceneContext } from "../scene/scene-core.js";
-import type { PickPassContext } from "./pick-contributor.js";
+import type { PickContributor, PickPassContext } from "./pick-contributor.js";
 
 interface GsPickingCache {
     device: GPUDevice;
@@ -397,4 +397,27 @@ export function computeGsPickMatrix(out: Float32Array, px: number, py: number, w
     out[13] = -ndcY * h;
     out[14] = 0;
     out[15] = 1;
+}
+
+/** Build the pick contributor for one GS mesh (one pick id). The picker calls this factory once (via
+ *  the lazy thunk registered in the GS pipeline) and reuses the result, so the pick GPU resources
+ *  live in this closure and free in `dispose`. */
+export function createGsPickContributor(mesh: GaussianSplattingMesh): PickContributor {
+    let res: GsPickMeshResources | null = null;
+    return {
+        draw(ctx, baseId) {
+            res ??= createGsPickMeshResources(ctx.engine, mesh);
+            drawGsMeshForPicking(ctx, mesh, res, baseId);
+            return baseId + 1;
+        },
+        resolve(info) {
+            info.pickedMesh = mesh;
+        },
+        dispose() {
+            if (res) {
+                disposeGsPickMeshResources(res);
+                res = null;
+            }
+        },
+    };
 }

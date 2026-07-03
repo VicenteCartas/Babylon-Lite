@@ -1787,11 +1787,12 @@ loses the pick.
 Billboards plug into the picker through the generic `PickContributor` seam
 (`registerPickContributor` / `scene._pickContributors`) — the seam itself is
 documented in [18-picking.md](18-picking.md). `addFacingBillboardSystem` /
-`addAxisLockedBillboardSystem` register **one contributor per billboard system**
-in `billboard-scene.ts`. The contributor is lightweight: its `draw` lazy-imports
-the heavy `billboard-pick-pipeline.ts` on the first pick, so billboard _rendering_
-pulls no pick code, and per-picker GPU resources are cached on
-`picker._contributorState`.
+`addAxisLockedBillboardSystem` register **one contributor factory per billboard
+system** in `billboard-scene.ts`. The factory is a thin dynamic-import thunk, so
+billboard _rendering_ pulls no pick code; only on the first pick does the picker
+import `billboard-pick-pipeline.ts`, build the contributor via
+`createBillboardPickContributor`, and cache its per-picker GPU resources in the
+contributor closure.
 
 **Draw + pick-ID ranges.** On `draw(pickCtx, baseId)` the billboard contributor
 consumes `system.count` pick IDs — even for a hidden or empty system, so the

@@ -22,7 +22,7 @@ import { createRenderTarget } from "../engine/render-target.js";
 import type { AssetContainer } from "../asset-container.js";
 import type { SceneLightGpuState } from "../render/lights-ubo.js";
 import type { ClusteredLightContainer } from "../light/clustered.js";
-import type { PickContributor } from "../picking/pick-contributor.js";
+import type { PickContributorFactory } from "../picking/pick-contributor.js";
 
 /** Image processing configuration. */
 export interface ImageProcessingConfig {
@@ -79,12 +79,12 @@ export interface SceneContext extends RenderingContext {
     _renderables: Renderable[];
     /** @internal Pre-pass work (shadow maps, compute, etc.). */
     _prePasses: PrePassRenderable[];
-    /** Pick contributors — one per optional pickable entity (GS mesh, billboard system, …).
-     *  Registered by the entity module via `registerPickContributor` when the entity is added;
-     *  the GPU picker iterates them with no entity-type knowledge. Scene-core stays pick-agnostic
-     *  apart from this opaque list. */
+    /** Pick-contributor factories — one per optional pickable entity (GS mesh, billboard system, …).
+     *  Registered by the entity module via `registerPickContributor` when the entity is added; each
+     *  is a dynamic-import thunk the GPU picker invokes (once) on the first pick, so rendering the
+     *  entity pulls no pick-pipeline bytes. Scene-core stays pick-agnostic apart from this opaque list. */
     /** @internal */
-    _pickContributors: PickContributor[];
+    _pickContributors: PickContributorFactory[];
     /** @internal Scene uniform updaters (one per shared UBO). */
     _uniformUpdaters: SceneUniformUpdater[];
     /** @internal Opt-in feature writers for the SceneUniforms UBO (fog, clip plane, env SH).

@@ -1,42 +1,13 @@
 import type { SceneContext } from "../scene/scene-core.js";
 import { addDeferredSceneRenderables } from "../scene/scene-core.js";
 import type { AxisLockedBillboardSpriteSystem, BillboardSpriteSystem, FacingBillboardSpriteSystem } from "./billboard-sprite.js";
-import type { PickContributor } from "../picking/pick-contributor.js";
 import { registerPickContributor } from "../picking/pick-contributor.js";
-import type { BillboardPickResources } from "../picking/billboard-pick-pipeline.js";
-
-/** Build the (lightweight) pick contributor for one billboard system. The heavy pick pipeline is
- *  lazy-imported inside `draw`, so billboard *rendering* pulls no pick code; per-picker GPU pick
- *  resources are cached on the picker and disposed generically. */
-function makeBillboardPickContributor(system: BillboardSpriteSystem): PickContributor {
-    const contributor: PickContributor = {
-        async draw(ctx, baseId) {
-            const count = system.count;
-            if (!system.visible || count === 0) {
-                return baseId + count; // consume the id range, but nothing to draw
-            }
-            const m = await import("../picking/billboard-pick-pipeline.js");
-            let state = ctx.picker._contributorState?.get(contributor) as { res: BillboardPickResources; dispose(): void } | undefined;
-            if (!state) {
-                const res = m.createBillboardPickResources(ctx.engine, system);
-                state = { res, dispose: () => m.disposeBillboardPickResources(res) };
-                (ctx.picker._contributorState ??= new Map()).set(contributor, state);
-            }
-            m.drawBillboardSystemForPicking(ctx, system, state.res, baseId);
-            return baseId + count;
-        },
-        resolve(info, localId) {
-            info._spritePick = { system, spriteIndex: localId, pickedPoint: info.pickedPoint, distance: info.distance };
-        },
-    };
-    return contributor;
-}
 
 function addBillboardSystem(scene: SceneContext, system: BillboardSpriteSystem): void {
-    // Register a pick contributor so `pickBillboardSprite` hits this system's sprites in the shared
-    // depth-sorted pick pass. Lightweight: the pick pipeline is lazy-imported on the first pick, so
-    // billboard rendering pulls no pick code.
-    scene._disposables.push(registerPickContributor(scene, makeBillboardPickContributor(system)));
+    // Register a pick-contributor factory so `pickBillboardSprite` hits this system's sprites in the
+    // shared depth-sorted pick pass. The factory is a thin dynamic-import thunk, so billboard
+    // *rendering* pulls no pick-pipeline bytes — the picker builds the contributor on the first pick.
+    scene._disposables.push(registerPickContributor(scene, () => import("../picking/billboard-pick-pipeline.js").then((m) => m.createBillboardPickContributor(system))));
     addDeferredSceneRenderables(scene, async (engine) => {
         const { buildBillboardRenderable } = await import("./billboard-renderable.js");
         const built = buildBillboardRenderable(engine, system);

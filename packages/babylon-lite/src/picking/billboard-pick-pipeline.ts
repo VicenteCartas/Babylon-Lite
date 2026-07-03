@@ -24,7 +24,7 @@ import type { Mat4 } from "../math/types.js";
 import type { BillboardOrientation, BillboardSpriteSystem } from "../sprite/billboard-sprite.js";
 import { BILLBOARD_INSTANCE_STRIDE_BYTES } from "../sprite/billboard-sprite.js";
 import { getPickingSceneBGL } from "./picking-pipeline.js";
-import type { PickPassContext } from "./pick-contributor.js";
+import type { PickContributor, PickPassContext } from "./pick-contributor.js";
 import { getViewMatrix } from "../camera/camera.js";
 
 /** Result of a successful {@link pickBillboardSprite} hit (re-exported from the public picker). */
@@ -354,4 +354,32 @@ export function drawBillboardForPicking(
 export function drawBillboardSystemForPicking(ctx: PickPassContext, system: BillboardSpriteSystem, res: BillboardPickResources, baseId: number): void {
     ctx.pass.setBindGroup(0, ctx.sceneBG);
     drawBillboardForPicking(ctx.pass, ctx.engine, system, res, baseId, getViewMatrix(ctx.camera));
+}
+
+/** Build the pick contributor for one billboard system. The picker calls this factory once (via the
+ *  lazy thunk registered in `billboard-scene.ts`) and reuses the result, so the GPU pick resources
+ *  live in this closure and free in `dispose`. A hidden/empty system still consumes its id range so
+ *  id↔sprite mapping stays positional. */
+export function createBillboardPickContributor(system: BillboardSpriteSystem): PickContributor {
+    let res: BillboardPickResources | null = null;
+    return {
+        draw(ctx, baseId) {
+            const count = system.count;
+            if (!system.visible || count === 0) {
+                return baseId + count; // consume the id range, but nothing to draw
+            }
+            res ??= createBillboardPickResources(ctx.engine, system);
+            drawBillboardSystemForPicking(ctx, system, res, baseId);
+            return baseId + count;
+        },
+        resolve(info, localId) {
+            info._spritePick = { system, spriteIndex: localId, pickedPoint: info.pickedPoint, distance: info.distance };
+        },
+        dispose() {
+            if (res) {
+                disposeBillboardPickResources(res);
+                res = null;
+            }
+        },
+    };
 }
