@@ -1,17 +1,19 @@
 /** Pick contributor — the pluggable pick contract, analogous to `Renderable` for drawing.
  *
  *  The GPU picker draws meshes itself (the always-present base case, kept intrinsic so a
- *  scene that never picks pays zero pick bytes), then iterates `scene._pickContributors`
- *  with no knowledge of any specific entity type. Each *optional* pickable entity (a
- *  Gaussian-splatting mesh, a billboard system, …) registers one contributor *factory* when it
- *  is added to the scene. Adding a new pickable type is a new module that calls
- *  `registerPickContributor` — no edits to `gpu-picker.ts` or `scene-core.ts`.
+ *  scene that never picks pays zero pick bytes), then iterates `scene._pickSources` with no
+ *  knowledge of any specific entity type. Each *optional* pickable entity (a Gaussian-splatting
+ *  mesh, a billboard system, …) registers one `PickSource` when it is added to the scene — the
+ *  raw entity plus a thunk that lazy-imports the entity's pick pipeline. Adding a new pickable
+ *  type is a new module that calls `registerPickSource` — no edits to `gpu-picker.ts` or
+ *  `scene-core.ts`.
  *
- *  A factory is a `() => Promise<PickContributor>` thunk whose body reaches the (heavy) pick
- *  pipeline only through a dynamic `import()`, so *rendering* an entity pulls only the tiny thunk
- *  + this push; the pipeline, GPU-resource, and resolve code stay in a split chunk the picker
- *  fetches on the first pick. The picker builds each contributor once (per picker) and caches it,
- *  so a contributor's GPU state lives in its closure and disposes generically.
+ *  A `PickSource` is pure data + a dynamic-`import()` thunk, so *rendering* a pickable entity
+ *  pulls no pick-pipeline bytes (the leanest pay-for-use — a render scene ships only the entity
+ *  reference + the import thunk). On the first pick the picker loads each source's pipeline, calls
+ *  its `createPickContributor(entity)` to build the handler, and caches it — so the pipeline,
+ *  GPU-resource, resolve, and view math all stay in a split chunk fetched only when a pick runs,
+ *  and a contributor's GPU state lives in its closure and disposes generically.
  *
  *  Contributors draw into the SAME 1×1 pick pass as meshes (shared pick-id colour target,
  *  `r32float` depth, and reverse-Z depth test), so occlusion is respected across entity
@@ -60,20 +62,25 @@ export interface PickContributor {
     dispose?(): void;
 }
 
-/** A thunk that lazy-imports its pick pipeline and builds the contributor for one entity.
- *  Registered on the scene at entity-add time; invoked (once per picker) on the first pick. */
-export type PickContributorFactory = () => Promise<PickContributor>;
+/** The uniform export every pick-pipeline module provides: it builds the {@link PickContributor}
+ *  for one entity. Lazy-imported and called by the picker on the first pick. */
+export interface PickPipelineModule<E = unknown> {
+    createPickContributor(entity: E): PickContributor;
+}
 
-/** Register a pick-contributor factory on the scene. Called by entity modules when the entity is
- *  added (mirrors pushing a `Renderable`). The factory stays a thin dynamic-import thunk, so
- *  rendering the entity pulls no pick-pipeline bytes. Returns an unregister function for the
- *  entity's disposer. */
-export function registerPickContributor(scene: SceneContext, factory: PickContributorFactory): () => void {
-    scene._pickContributors.push(factory);
-    return () => {
-        const i = scene._pickContributors.indexOf(factory);
-        if (i >= 0) {
-            scene._pickContributors.splice(i, 1);
-        }
-    };
+/** A pickable entity registered on the scene: the entity plus a thunk that lazy-imports its pick
+ *  pipeline. Pure data + a dynamic-`import()` thunk, so pushing one pulls no pick-pipeline bytes into
+ *  the render bundle. The picker (at pick time) loads the pipeline and calls `createPickContributor`. */
+export interface PickSource {
+    /** The entity to pick (opaque to the picker; handed back to its own pipeline's factory). */
+    readonly entity: unknown;
+    /** Lazy-import this entity's pick pipeline module. */
+    load(): Promise<PickPipelineModule>;
+}
+
+/** Register a pickable entity on the scene (mirrors pushing a `Renderable`). Fully typed: `load` must
+ *  resolve to the entity's pick pipeline, whose `createPickContributor` accepts this entity's type.
+ *  The scene stores a heterogeneous list, so the single entity-type erasure is contained here. */
+export function registerPickSource<E>(scene: SceneContext, entity: E, load: () => Promise<PickPipelineModule<E>>): void {
+    scene._pickSources.push({ entity, load: load as () => Promise<PickPipelineModule> });
 }

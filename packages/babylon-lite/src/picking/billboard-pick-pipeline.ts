@@ -342,8 +342,9 @@ export function drawBillboardForPicking(
 // ─── Contributor orchestration ──────────────────────────────────────────────
 // The per-system pick draw runs on behalf of the GPU picker's generic contributor loop. It lives
 // here (the dynamic-imported pick module) rather than in `gpu-picker.ts` so a picker scene with no
-// billboards never fetches it; the picker iterates `scene._pickContributors` and the billboard
-// contributor (registered in `billboard-scene.ts`) lazy-imports this module on the first pick.
+// billboards never fetches it; the picker iterates `scene._pickSources` and this module's
+// `createPickContributor` (reached via the pick source registered in `billboard-scene.ts`) is
+// lazy-imported on the first pick.
 
 /**
  * Draw one billboard system into the shared pick pass, assigning pick ids `[baseId, baseId + system.count)`.
@@ -356,11 +357,11 @@ export function drawBillboardSystemForPicking(ctx: PickPassContext, system: Bill
     drawBillboardForPicking(ctx.pass, ctx.engine, system, res, baseId, getViewMatrix(ctx.camera));
 }
 
-/** Build the pick contributor for one billboard system. The picker calls this factory once (via the
- *  lazy thunk registered in `billboard-scene.ts`) and reuses the result, so the GPU pick resources
- *  live in this closure and free in `dispose`. A hidden/empty system still consumes its id range so
+/** Build the pick contributor for one billboard system. The picker calls this once (via the pick
+ *  source registered in `billboard-scene.ts`) and reuses the result, so the GPU pick resources live
+ *  in this closure and free in `dispose`. A hidden/empty system still consumes its id range so
  *  id↔sprite mapping stays positional. */
-export function createBillboardPickContributor(system: BillboardSpriteSystem): PickContributor {
+export function createPickContributor(system: BillboardSpriteSystem): PickContributor {
     let res: BillboardPickResources | null = null;
     return {
         draw(ctx, baseId) {

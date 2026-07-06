@@ -1785,13 +1785,13 @@ reverse-Z depth test — so a billboard occluded by a mesh or a nearer billboard
 loses the pick.
 
 Billboards plug into the picker through the generic `PickContributor` seam
-(`registerPickContributor` / `scene._pickContributors`) — the seam itself is
-documented in [18-picking.md](18-picking.md). `addFacingBillboardSystem` /
-`addAxisLockedBillboardSystem` register **one contributor factory per billboard
-system** in `billboard-scene.ts`. The factory is a thin dynamic-import thunk, so
+(`registerPickSource` / `scene._pickSources`) — the seam itself is documented in
+[18-picking.md](18-picking.md). `addFacingBillboardSystem` /
+`addAxisLockedBillboardSystem` register **one pick source per billboard system**
+in `billboard-scene.ts`. A source is pure data + a dynamic-import thunk, so
 billboard _rendering_ pulls no pick code; only on the first pick does the picker
 import `billboard-pick-pipeline.ts`, build the contributor via
-`createBillboardPickContributor`, and cache its per-picker GPU resources in the
+`createPickContributor`, and cache its per-picker GPU resources in the
 contributor closure.
 
 **Draw + pick-ID ranges.** On `draw(pickCtx, baseId)` the billboard contributor

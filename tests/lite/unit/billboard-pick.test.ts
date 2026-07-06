@@ -26,7 +26,7 @@ function makeMockAtlas(): SpriteAtlas {
 
 /** A scene stub exposing only the fields the billboard scene-add helpers touch. */
 function makeStubScene(): SceneContext {
-    return { _pickContributors: [], _deferredBuilders: [], _disposables: [] } as unknown as SceneContext;
+    return { _pickSources: [], _deferredBuilders: [], _disposables: [] } as unknown as SceneContext;
 }
 
 describe("packBillboardPickUbo", () => {
@@ -69,27 +69,27 @@ describe("packBillboardPickUbo", () => {
 });
 
 describe("billboard scene pick registration", () => {
-    it("addFacingBillboardSystem registers a pick contributor", () => {
+    it("addFacingBillboardSystem registers a pick source", () => {
         const scene = makeStubScene();
         const system = createFacingBillboardSystem(makeMockAtlas());
 
         addFacingBillboardSystem(scene, system);
 
-        expect(scene._pickContributors).toHaveLength(1);
+        expect(scene._pickSources).toHaveLength(1);
         // The deferred renderable builder is still queued (rendering path unchanged).
         expect(scene._deferredBuilders.length).toBe(1);
     });
 
-    it("addAxisLockedBillboardSystem registers a pick contributor", () => {
+    it("addAxisLockedBillboardSystem registers a pick source", () => {
         const scene = makeStubScene();
         const system = createAxisLockedBillboardSystem(makeMockAtlas(), [0, 1, 0]);
 
         addAxisLockedBillboardSystem(scene, system);
 
-        expect(scene._pickContributors).toHaveLength(1);
+        expect(scene._pickSources).toHaveLength(1);
     });
 
-    it("registers one pick contributor per system, in add order", () => {
+    it("registers one pick source per system, in add order", () => {
         const scene = makeStubScene();
         const a = createFacingBillboardSystem(makeMockAtlas());
         const b = createAxisLockedBillboardSystem(makeMockAtlas(), [0, 1, 0]);
@@ -97,6 +97,6 @@ describe("billboard scene pick registration", () => {
         addFacingBillboardSystem(scene, a);
         addAxisLockedBillboardSystem(scene, b);
 
-        expect(scene._pickContributors).toHaveLength(2);
+        expect(scene._pickSources).toHaveLength(2);
     });
 });

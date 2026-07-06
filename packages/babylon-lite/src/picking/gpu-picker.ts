@@ -5,7 +5,7 @@ import type { Mesh } from "../mesh/mesh.js";
 import type { PickingInfo } from "./picking-info.js";
 import type { EngineContext } from "../engine/engine.js";
 import type * as DeformedGeometry from "./deformed-geometry.js";
-import type { PickContributor, PickContributorFactory, PickPassContext } from "./pick-contributor.js";
+import type { PickContributor, PickSource, PickPassContext } from "./pick-contributor.js";
 import { createEmptyPickingInfo } from "./picking-info.js";
 import { createPickingRay } from "./ray.js";
 import { mat4Invert } from "../math/mat4-invert.js";
@@ -38,10 +38,10 @@ export interface GpuPicker {
     _sceneUbo: GPUBuffer | null;
     /** @internal Reusable scene bind group. */
     _sceneBG: GPUBindGroup | null;
-    /** @internal Contributor built per factory (once per picker) and cached, so each contributor's
+    /** @internal Contributor built per pick source (once per picker) and cached, so each contributor's
      *  GPU pick resources live in its closure and dispose generically — the picker never names an
      *  entity type. */
-    _contributors: Map<PickContributorFactory, PickContributor> | null;
+    _contributors: Map<PickSource, PickContributor> | null;
     /** @internal Tail of the serialized pick queue for this picker — see pickAsync(). */
     _pending: Promise<void> | null;
 }
@@ -355,16 +355,17 @@ async function pickAsyncImpl(picker: GpuPicker, x: number, y: number, options?: 
     // resolve, resources, and view math all live in the contributor's own (lazily imported)
     // module, so a scene with no contributors fetches zero contributor pick bytes.
     const contribRanges: { base: number; count: number; contributor: PickContributor }[] = [];
-    if (scene._pickContributors.length > 0) {
+    if (scene._pickSources.length > 0) {
         const pickCtx: PickPassContext = { picker, pass, engine, scene, camera, sceneBG: picker._sceneBG!, px, py, w, h };
-        for (let ci = 0; ci < scene._pickContributors.length; ci++) {
-            const factory = scene._pickContributors[ci]!;
-            // Build each contributor once (per picker) and cache it — its first draw lazy-imports the
-            // pick pipeline, so a scene that never picks fetches zero contributor pick bytes.
-            let contributor = picker._contributors?.get(factory);
+        for (let ci = 0; ci < scene._pickSources.length; ci++) {
+            const src = scene._pickSources[ci]!;
+            // Build each contributor once (per picker) and cache it — the first pick lazy-imports the
+            // source's pipeline, so a scene that never picks fetches zero contributor pick bytes.
+            let contributor = picker._contributors?.get(src);
             if (!contributor) {
-                contributor = await factory();
-                (picker._contributors ??= new Map()).set(factory, contributor);
+                const pipeline = await src.load();
+                contributor = pipeline.createPickContributor(src.entity);
+                (picker._contributors ??= new Map()).set(src, contributor);
             }
             const base = nextId;
             nextId = contributor.draw(pickCtx, base);

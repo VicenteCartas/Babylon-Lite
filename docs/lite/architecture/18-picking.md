@@ -38,7 +38,7 @@ interface PickingInfo {
 interface GpuPicker {
     _scene: SceneContext;
     _detailedPick: ((info: PickingInfo, ray: Ray) => void | Promise<void>) | null;
-    _contributors: Map<PickContributorFactory, PickContributor> | null; // built once per factory, cached
+    _contributors: Map<PickSource, PickContributor> | null; // built once per pick source, cached
     // + lazily-allocated 1×1 render targets, scene UBO, and scene bind group
 }
 
@@ -98,30 +98,30 @@ and .babylon loader. No copies needed — the arrays already exist in JS memory.
 ### Pick contributors (optional entity types)
 
 The picker draws meshes itself (Phase 1, ids `1..M`), then iterates
-`scene._pickContributors` — a generic list of `PickContributorFactory`
-(`() => Promise<PickContributor>`) thunks (`pick-contributor.ts`) — with no
-knowledge of any specific entity type. Each _optional_ pickable entity registers
-one factory when it is added to the scene: a Gaussian-splatting mesh
-(`attachGaussianSplattingMesh`, one id per mesh) and a billboard sprite system
-(`addFacingBillboardSystem` / `addAxisLockedBillboardSystem`, `system.count`
-ids). On the first pick the picker invokes each factory once — which lazy-imports
-the heavy pick pipeline and builds the contributor — and caches the result in
+`scene._pickSources` — a generic list of `PickSource` records (`{ entity, load }`,
+`pick-contributor.ts`) — with no knowledge of any specific entity type. Each
+_optional_ pickable entity registers one source when it is added to the scene: a
+Gaussian-splatting mesh (`attachGaussianSplattingMesh`, one id per mesh) and a
+billboard sprite system (`addFacingBillboardSystem` /
+`addAxisLockedBillboardSystem`, `system.count` ids). A source is pure data plus a
+dynamic-`import()` thunk — no pick behaviour is bound at registration. On the first
+pick the picker `load()`s each source's pipeline, calls its
+`createPickContributor(entity)` to build the handler, and caches the result in
 `picker._contributors`. Contributors draw into the **same** 1×1 pass against the
 **same** depth target, so they depth-sort against meshes and each other; each owns
 a contiguous id range `[base, next)` that the picker records for resolve. Adding a
-new pickable type is a new module that calls `registerPickContributor` — no edits
-to `gpu-picker.ts` or `scene-core.ts`.
+new pickable type is a new module that calls `registerPickSource` — no edits to
+`gpu-picker.ts` or `scene-core.ts`.
 
-The registered factory is a thin dynamic-import thunk, so _rendering_ a billboard
-or GS entity pulls no pick-pipeline bytes — only the picker (on the first pick)
-imports `gs-picking-pipeline.ts` / `billboard-pick-pipeline.ts`, builds the
-contributor, and caches its per-picker GPU resources in the contributor closure
-(freed generically via each contributor's optional `dispose`). A scene with no
-such entities fetches zero contributor-pick bytes; a scene that never picks
-fetches no picking code at all. On resolve a GS contributor sets `info.pickedMesh`
-(the hit point comes from the shared depth readback) and a billboard sets
-`info._spritePick`; detailed CPU ray picking (Phase 2) runs only for regular mesh
-hits.
+Because a source carries no pick-behaviour code, _rendering_ a billboard or GS
+entity pulls no pick-pipeline bytes (just the entity reference + the import thunk)
+— only the picker (on the first pick) imports `gs-picking-pipeline.ts` /
+`billboard-pick-pipeline.ts`, builds the contributor, and caches its per-picker GPU
+resources in the contributor closure (freed generically via each contributor's
+optional `dispose`). A scene with no such entities fetches zero contributor-pick
+bytes; a scene that never picks fetches no picking code at all. On resolve a GS
+contributor sets `info.pickedMesh` (the hit point comes from the shared depth
+readback) and a billboard sets `info._spritePick`; detailed CPU ray picking (Phase 2) runs only for regular mesh hits.
 
 ### Phase 2: CPU Ray-Triangle Intersection
 
@@ -238,7 +238,7 @@ struct FsOut { @location(0) color: vec4f, @location(1) depth: f32 }
 1. **Create**: `createGpuPicker(scene)` → pure state; render targets allocated on the first pick.
 2. **Enable detail** (optional): `enableDetailedPicking(picker)` → installs the `_detailedPick` hook.
 3. **Pick**: `pickAsync(picker, x, y, options?)` →
-    - draws meshes, then iterates `scene._pickContributors`, into the 1×1 pass → reads back the id + depth texels → resolves the mesh/contributor + world point
+    - draws meshes, then iterates `scene._pickSources`, into the 1×1 pass → reads back the id + depth texels → resolves the mesh/contributor + world point
     - if `_detailedPick` is set and a regular mesh was hit: constructs a ray → runs CPU intersection → sets `faceId`/`bu`/`bv`
 4. **Dispose**: `disposePicker(picker)` → destroys render targets, scene UBO, and per-contributor GPU state.
 

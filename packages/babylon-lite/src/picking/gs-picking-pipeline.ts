@@ -399,10 +399,10 @@ export function computeGsPickMatrix(out: Float32Array, px: number, py: number, w
     out[15] = 1;
 }
 
-/** Build the pick contributor for one GS mesh (one pick id). The picker calls this factory once (via
- *  the lazy thunk registered in the GS pipeline) and reuses the result, so the pick GPU resources
- *  live in this closure and free in `dispose`. */
-export function createGsPickContributor(mesh: GaussianSplattingMesh): PickContributor {
+/** Build the pick contributor for one GS mesh (one pick id). The picker calls this once (via the pick
+ *  source registered by the GS pipeline) and reuses the result, so the pick GPU resources live in
+ *  this closure and free in `dispose`. */
+export function createPickContributor(mesh: GaussianSplattingMesh): PickContributor {
     let res: GsPickMeshResources | null = null;
     return {
         draw(ctx, baseId) {
