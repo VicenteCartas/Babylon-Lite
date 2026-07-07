@@ -350,7 +350,7 @@ export { quatFromRotationMatrix } from "./math/quat-from-rotation-matrix.js";
 export { quatFromLookDirectionRH } from "./math/quat-from-look-direction-rh.js";
 export { mat4Decompose } from "./math/mat4-decompose.js";
 export type { DecomposedTransform } from "./math/mat4-decompose.js";
-export type { Vec3, Vec3Tuple, Vec4, Color3, Color4, Mat4, Quat } from "./math/types.js";
+export type { Vec2, Vec3, Vec3Tuple, Vec4, Color3, Color4, Mat4, Quat } from "./math/types.js";
 export type { Aabb } from "./math/aabb.js";
 export { computeAabb } from "./math/aabb.js";
 export type { GltfMetadata, LiteMetadata } from "./metadata.js";
@@ -597,6 +597,17 @@ export {
     setSpriteRendererTarget,
     disposeSpriteRenderer,
 } from "./sprite/sprite-renderer.js";
+
+// ─── Node Particles (NPE) ────────────────────────────────────────────
+export type { Particle } from "./particle/particle.js";
+export type { ParticleSystem } from "./particle/particle-system.js";
+export { animateParticleSystem, startParticleSystem, stopParticleSystem } from "./particle/particle-system.js";
+export type { NodeParticleSet } from "./particle/node/npe-build.js";
+export type { ParseNodeParticleOptions } from "./particle/node/node-particle.js";
+export { parseNodeParticleSetFromSnippet } from "./particle/node/node-particle.js";
+export type { RegisterNodeParticleOptions } from "./particle/particle-scene.js";
+export { registerNodeParticleSet } from "./particle/particle-scene.js";
+export { createParticleBillboard, syncParticleBillboard } from "./particle/particle-billboard.js";
 
 // ─── Text ────────────────────────────────────────────────────────────
 export type { Font } from "./text/font.js";
