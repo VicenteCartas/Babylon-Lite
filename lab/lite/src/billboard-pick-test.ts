@@ -33,6 +33,8 @@ interface BillboardPickResults {
     idxA: number;
     /** Clear billboard pick: { spriteIndex, systemMatch }, or null on miss. */
     hitA: { spriteIndex: number; systemMatch: boolean } | null;
+    /** Same clear billboard, picked through a REUSED caller-owned picker (overload): should match hitA. */
+    reusedHitA: { spriteIndex: number; systemMatch: boolean } | null;
     /** Occluded billboard pick: should be null (a box is in front). */
     hitB: { spriteIndex: number } | null;
     /** Mesh occluding billboard B (confirms the box won the shared depth pass). */
@@ -41,7 +43,7 @@ interface BillboardPickResults {
     miss: { spriteIndex: number } | null;
 }
 
-const results: BillboardPickResults = { ready: false, error: null, idxA: -1, hitA: null, hitB: null, meshAtB: null, miss: null };
+const results: BillboardPickResults = { ready: false, error: null, idxA: -1, hitA: null, reusedHitA: null, hitB: null, meshAtB: null, miss: null };
 (window as unknown as { __bbPickTest: BillboardPickResults }).__bbPickTest = results;
 
 /** Project a world point through `vp` (column-major) to CSS pixels on the canvas. */
@@ -96,12 +98,17 @@ async function run(): Promise<void> {
 
         const hitA = await pickBillboardSprite(scene, ax, ay);
         const hitB = await pickBillboardSprite(scene, bx, by);
+        // Reuse one caller-owned picker across a mesh pick and a billboard pick (the overload path):
+        // created once, used twice, disposed once — no per-pick allocation, and pickBillboardSprite
+        // must NOT dispose a picker it didn't create.
         const picker = createGpuPicker(scene);
         const meshAtB = await pickAsync(picker, bx, by);
+        const reusedHitA = await pickBillboardSprite(scene, ax, ay, picker);
         disposePicker(picker);
         const miss = await pickBillboardSprite(scene, 4, 4);
 
         results.hitA = hitA ? { spriteIndex: hitA.spriteIndex, systemMatch: hitA.system === billboards } : null;
+        results.reusedHitA = reusedHitA ? { spriteIndex: reusedHitA.spriteIndex, systemMatch: reusedHitA.system === billboards } : null;
         results.hitB = hitB ? { spriteIndex: hitB.spriteIndex } : null;
         results.meshAtB = meshAtB.pickedMesh ? ((meshAtB.pickedMesh as { name?: string }).name ?? "(unnamed)") : null;
         results.miss = miss ? { spriteIndex: miss.spriteIndex } : null;

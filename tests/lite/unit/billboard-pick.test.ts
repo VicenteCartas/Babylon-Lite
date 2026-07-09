@@ -99,4 +99,18 @@ describe("billboard scene pick registration", () => {
 
         expect(scene._pickSources).toHaveLength(2);
     });
+
+    it("disposing removes the system's pick source", () => {
+        const scene = makeStubScene();
+        addFacingBillboardSystem(scene, createFacingBillboardSystem(makeMockAtlas()));
+        expect(scene._pickSources).toHaveLength(1);
+
+        // Running the registered disposers (as scene teardown / entity disposal does) must remove
+        // the pick source so a disposed system is never drawn by the picker.
+        for (const dispose of scene._disposables) {
+            dispose();
+        }
+
+        expect(scene._pickSources).toHaveLength(0);
+    });
 });

@@ -347,8 +347,9 @@ export function buildGaussianSplattingRenderable(scene: SceneContext, mesh: Gaus
 export function attachGaussianSplattingMesh(scene: SceneContext, mesh: GaussianSplattingMesh, fragments?: readonly GsShaderFragment[]): void {
     const ctx = scene as unknown as { _renderables: Renderable[]; _disposables: (() => void)[] };
     ctx._renderables.push(buildGaussianSplattingRenderable(scene, mesh, fragments));
-    registerPickSource(scene, mesh, () => import("../../picking/gs-picking-pipeline.js"));
+    const unregisterPick = registerPickSource(scene, mesh, () => import("../../picking/gs-picking-pipeline.js"));
     ctx._disposables.push(() => {
+        unregisterPick();
         disposeGaussianSplattingMesh(mesh);
     });
 }

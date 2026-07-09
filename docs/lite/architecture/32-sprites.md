@@ -1135,7 +1135,9 @@ The picking APIs below are exported from the package root (`pickSprite2D`,
 export function pickSprite2D(layers: ReadonlyArray<Sprite2DLayer>, xPx: number, yPx: number): SpritePickInfo | null;
 
 // src/sprite/picking/pick-billboard.ts — GPU picker into the shared mesh pick pass.
-export function pickBillboardSprite(scene: SceneContext, xPx: number, yPx: number): Promise<BillboardPickInfo | null>;
+// An optional caller-owned `picker` (from createGpuPicker) is reused across calls for
+// high-frequency picking; when omitted, a transient picker is created and disposed per call.
+export function pickBillboardSprite(scene: SceneContext, xPx: number, yPx: number, picker?: GpuPicker): Promise<BillboardPickInfo | null>;
 ```
 
 `pickSprite2D` is the pure-2D picker: the caller passes whichever
@@ -1777,12 +1779,16 @@ registry — the caller chooses what to pick by passing the right layer array.
 
 ### `pickBillboardSprite` — GPU pick into the shared mesh pass
 
-`pickBillboardSprite(scene, xPx, yPx)` creates a transient `GpuPicker`, runs one
-`pickAsync`, and returns the billboard payload that pass attaches on a hit, or
-`null`. Billboards are drawn into the **same** 1×1 pick render pass as meshes,
-sharing the pick-ID colour target, the `r32float` depth target, and the `greater`
-reverse-Z depth test — so a billboard occluded by a mesh or a nearer billboard
-loses the pick.
+`pickBillboardSprite(scene, xPx, yPx, picker?)` runs one `pickAsync` and returns
+the billboard payload that pass attaches on a hit, or `null`. By default it
+creates a transient `GpuPicker` and disposes it per call, so a one-off pick (a
+click) retains no GPU state; for high-frequency picking (hover, drag) the caller
+passes a reusable `GpuPicker` from `createGpuPicker`, so the 1×1 targets, scene
+UBO, and per-source contributors (which compile the pick pipelines) are reused
+across calls and the caller disposes it once. Billboards are drawn into the
+**same** 1×1 pick render pass as meshes, sharing the pick-ID colour target, the
+`r32float` depth target, and the `greater` reverse-Z depth test — so a billboard
+occluded by a mesh or a nearer billboard loses the pick.
 
 Billboards plug into the picker through the generic `PickContributor` seam
 (`registerPickSource` / `scene._pickSources`) — the seam itself is documented in
