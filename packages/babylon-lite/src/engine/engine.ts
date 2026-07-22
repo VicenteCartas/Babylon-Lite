@@ -1,4 +1,5 @@
 import type { Mesh } from "../mesh/mesh.js";
+import type { StorageBuffer } from "../resource/storage-buffer.js";
 import type { Texture2D, Texture2DOptions } from "../texture/texture-2d.js";
 import { _setHpmAllocator } from "../math/_matrix-allocator.js";
 import type { SurfaceContext, SurfaceOptions } from "./surface.js";
@@ -6,6 +7,7 @@ import { _buildSurface, _refreshScRT, isDomCanvas, resizeSurface, setSurfaceSize
 import type { GpuFrameTimer } from "./gpu-timer.js";
 import type { GpuTaskTimer } from "./gpu-task-timer.js";
 import type { RenderTaskGpuTimings } from "./gpu-task-timing.js";
+import { disposeGpuResourceRetirements } from "./gpu-resource-retirement.js";
 
 // `__BL_VERSION__` is replaced at build time with the resolved package version
 // by the lite Vite build (see `define` in packages/babylon-lite/vite.config.ts).
@@ -115,6 +117,16 @@ export interface EngineContext extends SurfaceContext {
 
     /** @internal */
     _device: GPUDevice;
+    /** @internal Original creation options retained for optional subsystems such as recovery. */
+    _options?: EngineOptions;
+    /** @internal Live high-level storage allocations owned by this engine. */
+    _storageBuffers?: Set<StorageBuffer>;
+    /** @internal Storage-related limits retained lazily for device-loss recovery. */
+    _storageRequiredLimits?: Record<string, GPUSize64>;
+    /** @internal Installed lazily by the storage-buffer module. */
+    _rebuildStorageBuffers?: () => void;
+    /** @internal Installed lazily by the storage-buffer module. */
+    _disposeStorageBuffers?: () => void;
     /** @internal Shared 1×1 white texture used as the default baseColor / ORM for
      *  factor-only PBR materials (created via `createPbrMaterial` without textures).
      *  A white ORM yields `metallic = metallicFactor`, `roughness = roughnessFactor`,
@@ -138,6 +150,8 @@ export interface EngineContext extends SurfaceContext {
     _currentDelta: number;
     /** @internal */
     _cbs: GPUCommandBuffer[];
+    /** @internal GPU resource disposers waiting for the next frame command buffer to be submitted. */
+    _retirements?: Array<() => void> | null;
 
     /** @internal Per-frame floating-origin offset updater. Set when the engine
      *  was created with `useFloatingOrigin: true` (which requires
@@ -302,13 +316,16 @@ export async function createEngine(canvas: RenderCanvas, options?: EngineOptions
     }
 
     const features: GPUFeatureName[] = [];
-    if (adapter.features.has("float32-filterable")) {
-        features.push("float32-filterable");
-    }
-    // `timestamp-query` is requested opportunistically (like the compression features above) so a later
-    // `setGpuTimingEnabled` can measure GPU frame time. Requesting an available feature is free; the timer
-    // itself ships only when `setGpuTimingEnabled` is called. Devices without it just can't enable timing.
-    for (const f of ["texture-compression-astc", "texture-compression-bc", "texture-compression-etc2", "timestamp-query"] as GPUFeatureName[]) {
+    // Optional features are requested opportunistically so their public enable functions can activate
+    // later without recreating the device. Unsupported adapters keep the corresponding feature inactive.
+    for (const f of [
+        "float32-filterable",
+        "texture-compression-astc",
+        "texture-compression-bc",
+        "texture-compression-etc2",
+        "timestamp-query",
+        "primitive-index",
+    ] as GPUFeatureName[]) {
         if (adapter.features.has(f)) {
             features.push(f);
         }
@@ -322,8 +339,8 @@ export async function createEngine(canvas: RenderCanvas, options?: EngineOptions
         canvas.setAttribute("data-engine", versionToLog);
     }
 
-    const useHpm = options?.useHighPrecisionMatrix === true;
-    const useFO = options?.useFloatingOrigin === true;
+    const useHpm = !!options?.useHighPrecisionMatrix;
+    const useFO = !!options?.useFloatingOrigin;
     if (useFO && !useHpm) {
         throw new Error("Babylon Lite: useFloatingOrigin requires useHighPrecisionMatrix on the engine.");
     }
@@ -379,6 +396,7 @@ export async function createEngine(canvas: RenderCanvas, options?: EngineOptions
             surfaces, // public readonly view of `_surfaces` (same underlying array)
             _surfaces: surfaces,
             _device: device,
+            _options: options,
             drawCallCount: 0,
             gpuFrameTimeMs: 0,
             useHighPrecisionMatrix: useHpm,
@@ -478,6 +496,8 @@ export function disposeEngine(engine: EngineContext): void {
         s._context.unconfigure();
     }
     surfaces.length = 0;
+    disposeGpuResourceRetirements(engine);
+    engine._disposeStorageBuffers?.();
     engine._device.destroy();
 }
 
@@ -538,7 +558,13 @@ export function renderFrame(engine: EngineContext, delta: number): void {
     // frame's recorded GPU work (a no-op short-circuit when timing is disabled).
     engine._gpuTimerEnd?.(finalEncoder);
     engine._cbs[0] = finalEncoder.finish();
-    engine._device.queue.submit(engine._cbs);
+    const queue = engine._device.queue;
+    queue.submit(engine._cbs);
+    const retirements = engine._retirements;
+    if (retirements) {
+        engine._retirements = null;
+        void retirements.reduce<Promise<void>>((fence, retire) => fence.then(retire, retire), queue.onSubmittedWorkDone());
+    }
     engine.drawCallCount = drawCalls;
     // Resolve + read back the timestamp pair asynchronously (its own submit, after the frame's) and
     // publish the latest completed sample to `gpuFrameTimeMs`. Non-blocking — never stalls this frame.

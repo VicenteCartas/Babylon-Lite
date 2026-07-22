@@ -16,11 +16,11 @@ import { createMappedBuffer } from "../resource/gpu-buffers.js";
 import { resolveAccessor, buildParentMap, computeNodeWorldMatrix, anyPrimitive, needsOrmComposite, TYPE_SIZES } from "./gltf-parser.js";
 import type { AccessorView } from "./gltf-parser.js";
 import type { GltfVb } from "./gltf-interleave.js";
-import type { GltfMaterialData, GltfMatExtCtx } from "./gltf-material.js";
+import type { GltfImageCache, GltfMaterialData, GltfMatExtCtx } from "./gltf-material.js";
 import { assembleMaterial, makeImageFetcher } from "./gltf-material.js";
 import type { DecodedPrimitive, GltfFeature, GltfLoadCtx } from "./gltf-feature.js";
 import type { TextureWrapFn } from "./gltf-pbr-builder.js";
-import { assemblePbrProps, buildDefaultPbrTextures, identityTexWrap, runMatExts, uploadTex } from "./gltf-pbr-builder.js";
+import { assemblePbrProps, buildDefaultPbrTextures, identityTexWrap, uploadTex } from "./gltf-pbr-builder.js";
 import type * as GltfColorNormalize from "./gltf-color-normalize.js";
 import type * as GltfFeatureRegistry from "./gltf-feature-registry.js";
 import type * as GltfPbrBuilderExt from "./gltf-pbr-builder-ext.js";
@@ -89,28 +89,26 @@ export interface GltfMeshData {
 
 /**
  * Load a glTF/GLB asset, parse it, and upload mesh + material data to GPU.
- * Supports both binary GLB and separate .gltf + .bin + image files.
- * Registers a deferred PBR renderable builder.
- * Automatically parses glTF animations if present.
+ * Registers a deferred PBR renderable builder and automatically parses glTF
+ * animations if present.
  *
- * Returns a AssetContainer. Pass it to addToScene() which adds the hierarchy,
- * registers animation ticks, and applies any scene-level settings.
+ * Returns an {@link AssetContainer}. Pass it to {@link addToScene} which adds the
+ * hierarchy, registers animation ticks, and applies any scene-level settings.
+ *
+ * The `source` may be either:
+ * - **A URL (`string`)** — fetches the asset. Supports both binary GLB and
+ *   separate `.gltf` + `.bin` + image files; relative `.bin`/image paths are
+ *   resolved against the URL.
+ * - **Raw data (`ArrayBuffer` | `Blob`)** — loads from already-loaded local data
+ *   (drag-and-drop, OPFS, a `fetch` body, etc.). GLB-vs-glTF is determined from
+ *   the data's magic bytes, not a file extension. Because raw data has no base
+ *   URL it must be self-contained: a GLB, or a glTF whose buffers/images use
+ *   `data:` URIs. A glTF that references external `.bin`/image files by relative
+ *   path can only be loaded from a URL.
  *
  * @param engine - The engine to upload GPU resources to.
- * @param url - URL of the .glb/.gltf asset to fetch.
+ * @param source - A URL string, or the raw `ArrayBuffer`/`Blob` of a self-contained glTF/GLB asset.
  */
-export function loadGltf(engine: EngineContext, url: string): Promise<AssetContainer>;
-/**
- * Load a glTF/GLB asset directly from already-loaded local data (drag-and-drop, OPFS, a `fetch` body, etc.).
- *
- * GLB-vs-glTF is determined from the data's magic bytes, not a file extension. `ArrayBuffer`/`Blob` inputs
- * have no base URL, so they must be self-contained: a GLB, or a glTF whose buffers/images use `data:` URIs.
- * A glTF that references external `.bin`/image files by relative path can only be loaded from a URL.
- *
- * @param engine - The engine to upload GPU resources to.
- * @param data - The raw `ArrayBuffer` or `Blob` of a self-contained glTF/GLB asset.
- */
-export function loadGltf(engine: EngineContext, data: ArrayBuffer | Blob): Promise<AssetContainer>;
 export async function loadGltf(engine: EngineContext, source: string | ArrayBuffer | Blob): Promise<AssetContainer> {
     const { json, binChunk, baseUrl } = await fetchGltfAsset(source);
 
@@ -124,7 +122,8 @@ export async function loadGltf(engine: EngineContext, source: string | ArrayBuff
     // the asset can possibly trigger a feature — so plain metallic-roughness
     // GLBs (no extensions/animations/skins/morphs/ORM-composite) never fetch the
     // registry. Core loader knows zero feature names.
-    const features = assetUsesGltfFeatures(json) ? await (await importGltfFeatureRegistry()).loadGltfFeatures(json) : [];
+    const featureRegistry = assetUsesGltfFeatures(json) ? await importGltfFeatureRegistry() : undefined;
+    const features = featureRegistry ? await featureRegistry.loadGltfFeatures(json) : [];
 
     // Pre-parse hooks (EXT_meshopt_compression decompression, KHR_mesh_quantization
     // dequantization) may rewrite bufferViews/accessors and hand back a replacement
@@ -167,6 +166,7 @@ export async function loadGltf(engine: EngineContext, source: string | ArrayBuff
         _parentMap: parentMap,
         _worldMatrixCache: worldMatrixCache,
         _matExts: matExts,
+        _runMatExts: featureRegistry?.runGltfMaterialFeatures,
         _wrapTex: wrapTex,
     };
 
@@ -180,16 +180,25 @@ export async function loadGltf(engine: EngineContext, source: string | ArrayBuff
     // Run every feature's per-asset hook (animations, variants, metadata, …) and
     // merge the returned AssetContainer fragments. `entities` is appended (never
     // overwritten) so features like KHR_lights_punctual can contribute lights
-    // without trampling the root TransformNode.
+    // without trampling the root TransformNode. `_sceneSetup` is composed (chained
+    // in feature order) rather than overwritten, so multiple features can each
+    // contribute deferred scene wiring without the last one winning.
     const assetFragments = await Promise.all(features.flatMap((f) => (f.applyAsset ? [f.applyAsset(meshes, root, ctx)] : [])));
     const container: AssetContainer = { entities: [root] };
     for (const frag of assetFragments) {
         if (frag.entities?.length) {
             container.entities.push(...frag.entities);
         }
-        const { entities: _ignored, ...rest } = frag;
+        const { entities: _ignored, _sceneSetup, ...rest } = frag;
         void _ignored;
         Object.assign(container, rest);
+        if (_sceneSetup) {
+            const prev = container._sceneSetup;
+            container._sceneSetup = (scene) => {
+                prev?.(scene);
+                _sceneSetup(scene);
+            };
+        }
     }
     return container;
 }
@@ -230,7 +239,9 @@ function assetUsesGltfFeatures(json: any) {
     return (
         json.extensionsUsed?.length ||
         json.animations?.length ||
-        JSON.stringify(json).includes("extras") ||
+        // "extras" (per-item metadata) or "sparse" (sparse accessor) anywhere in the asset means a
+        // feature module is needed. One stringify covers both — same cheap substring gate as extras.
+        /extras|sparse/.test(JSON.stringify(json)) ||
         (json.skins?.length && anyPrimitive(json, (p) => p.attributes?.JOINTS_0 !== undefined)) ||
         anyPrimitive(json, (p) => !!p.targets?.length) ||
         // A node with a negative-determinant local transform (odd negative scale, or a `matrix`
@@ -263,15 +274,10 @@ function assetUsesGltfFeatures(json: any) {
  *  (KHR_node_visibility, KHR_animation_pointer) to address specific nodes. */
 function buildNodeHierarchy(json: any, meshes: Mesh[], meshDatas: GltfMeshData[]): { root: TransformNode; nodeMap: (TransformNode | undefined)[] } {
     // Map nodeIndex → uploaded Mesh[]
-    const nodeToMeshes = new Map<number, Mesh[]>();
+    const nodeToMeshes: Mesh[][] = [];
     for (let i = 0; i < meshDatas.length; i++) {
         const ni = meshDatas[i]!._nodeIndex;
-        let arr = nodeToMeshes.get(ni);
-        if (!arr) {
-            arr = [];
-            nodeToMeshes.set(ni, arr);
-        }
-        arr.push(meshes[i]!);
+        (nodeToMeshes[ni] ??= []).push(meshes[i]!);
     }
 
     const nodeMap: (TransformNode | undefined)[] = new Array(json.nodes?.length ?? 0);
@@ -295,7 +301,7 @@ function buildNodeHierarchy(json: any, meshes: Mesh[], meshDatas: GltfMeshData[]
                 tn.children.push(buildNode(childIdx));
             }
         }
-        const nodeMeshes = nodeToMeshes.get(nodeIdx) ?? [];
+        const nodeMeshes = nodeToMeshes[nodeIdx] ?? [];
         tn.children.push(...nodeMeshes);
         return tn;
     }
@@ -320,18 +326,13 @@ async function extractAllMeshes(
     decodedPrimitives: Map<unknown, DecodedPrimitive>
 ): Promise<GltfMeshData[]> {
     // Per-load image cache — avoids decoding the same glTF image index multiple times
-    const imageCache = new Map<number, Promise<ImageBitmap>>();
+    const imageCache: GltfImageCache = [];
 
     // Cache material assembly by glTF material index — avoids duplicate image fetches
-    const matCache = new Map<number, Promise<GltfMaterialData>>();
-    const getMat = (matIdx: number): Promise<GltfMaterialData> => {
-        const key = matIdx ?? -1;
-        let p = matCache.get(key);
-        if (!p) {
-            p = assembleMaterial(json, binChunk, matIdx, baseUrl, imageCache);
-            matCache.set(key, p);
-        }
-        return p;
+    const matCache: Promise<GltfMaterialData>[] = [];
+    const getMat = (matIdx: number | undefined): Promise<GltfMaterialData> => {
+        const key = (matIdx ?? -1) + 1;
+        return (matCache[key] ??= assembleMaterial(json, binChunk, key - 1, baseUrl, imageCache));
     };
 
     // First pass: do all sync work, fire all material fetches concurrently
@@ -514,26 +515,24 @@ async function uploadMeshes(meshDatas: GltfMeshData[], features: GltfFeature[], 
     const meshFeatures = features.filter((f) => f.applyMesh);
 
     // Texture cache: shared textures uploaded once, keyed by (bitmap, srgb).
-    const texCache = new Map<number, Texture2D>();
-    let texId = 0;
-    const bitmapIds = new Map<ImageBitmap, number>();
+    const texCache = new Map<ImageBitmap, Texture2D[]>();
 
-    function getCachedTexture(bitmap: ImageBitmap, srgb: boolean): Texture2D {
-        let id = bitmapIds.get(bitmap);
-        if (id === undefined) {
-            bitmapIds.set(bitmap, (id = texId++));
+    const getCachedTexture = (bitmap: ImageBitmap, srgb: boolean): Texture2D => {
+        let textures = texCache.get(bitmap);
+        if (!textures) {
+            texCache.set(bitmap, (textures = []));
         }
-        const key = id * 2 + +srgb;
-        let tex = texCache.get(key);
+        const key = +srgb;
+        let tex = textures[key];
         if (!tex) {
             tex = uploadTex(engine, bitmap, srgb, sampler, _generateMipmaps!);
-            texCache.set(key, tex);
+            textures[key] = tex;
         }
         return tex;
-    }
+    };
 
     // Per-load image fetcher for ext modules (uses same image cache as core).
-    const extImageCache = matExts.length ? new Map<number, Promise<ImageBitmap>>() : null;
+    const extImageCache: GltfImageCache | null = matExts.length ? [] : null;
     const extFetchImg = extImageCache ? makeImageFetcher(json, binChunk, baseUrl, extImageCache) : null;
     const extCtx: GltfMatExtCtx = {
         _engine: engine,
@@ -568,28 +567,31 @@ async function uploadMeshes(meshDatas: GltfMeshData[], features: GltfFeature[], 
     // Build a PbrMaterialProps from parsed glTF material data.
     // Uses shared texture caches so identical bitmaps are uploaded once.
     const builtMaterialCache = new Map<GltfMaterialData, Promise<PbrMaterialProps>>();
-    async function buildPbrFromGltfMat(mat: GltfMaterialData): Promise<PbrMaterialProps> {
+    const buildPbrFromGltfMat = (mat: GltfMaterialData): Promise<PbrMaterialProps> => {
         let cached = builtMaterialCache.get(mat);
-        if (cached) {
-            return cached;
+        if (!cached) {
+            cached = (async () => {
+                const extLayers = matExts.length ? await ctx._runMatExts!(mat, matExts, extCtx) : undefined;
+                if (_needsPbrExt) {
+                    const extMod = await _ensurePbrExt();
+                    const tex = extMod.buildDefaultPbrTexturesExt(engine, mat, sampler, _generateMipmaps!, getCachedTexture, wrapTex, samplerFor);
+                    return extMod.assemblePbrPropsExt(mat, tex, extLayers);
+                }
+                const tex = buildSampledPbrTextures
+                    ? buildSampledPbrTextures(engine, mat, sampler, _generateMipmaps!, samplerFor!, getCachedTexture)
+                    : buildDefaultPbrTextures(engine, mat, sampler, _generateMipmaps!, getCachedTexture);
+                return assemblePbrProps(mat, tex.baseColorTexture, tex.ormTexture, tex.normalTexture, tex.emissiveTexture, extLayers);
+            })();
+            builtMaterialCache.set(mat, cached);
         }
-        cached = (async () => {
-            const extLayers = await runMatExts(mat, matExts, extCtx);
-            if (_needsPbrExt) {
-                const extMod = await _ensurePbrExt();
-                const tex = extMod.buildDefaultPbrTexturesExt(engine, mat, sampler, _generateMipmaps!, getCachedTexture, wrapTex, samplerFor);
-                return extMod.assemblePbrPropsExt(mat, tex, extLayers);
-            }
-            const tex = buildSampledPbrTextures
-                ? buildSampledPbrTextures(engine, mat, sampler, _generateMipmaps!, samplerFor!, getCachedTexture)
-                : buildDefaultPbrTextures(engine, mat, sampler, _generateMipmaps!, getCachedTexture);
-            return assemblePbrProps(mat, tex.baseColorTexture, tex.ormTexture, tex.normalTexture, tex.emissiveTexture, extLayers);
-        })();
-        builtMaterialCache.set(mat, cached);
         return cached;
+    };
+
+    if (new Set(meshDatas.map((m) => m._primitive)).size < meshDatas.length) {
+        return import("./gltf-share.js").then((module) => module.share(meshDatas, buildPbrFromGltfMat, meshFeatures, ctx));
     }
 
-    const meshes = await Promise.all(
+    return Promise.all(
         meshDatas.map(async (m, i): Promise<Mesh> => {
             const material = await buildPbrFromGltfMat(m._material);
             const meshName = json.meshes[json.nodes[m._nodeIndex].mesh].name;
@@ -620,8 +622,6 @@ async function uploadMeshes(meshDatas: GltfMeshData[], features: GltfFeature[], 
                     receiveShadows: false,
                     boundMin,
                     boundMax,
-                    skeleton: null,
-                    morphTargets: null,
                     _gpu: gpu,
                     _flatNormal: m._flatNormal,
                 } as unknown as Mesh;
@@ -637,13 +637,9 @@ async function uploadMeshes(meshDatas: GltfMeshData[], features: GltfFeature[], 
 
             // Run all per-mesh feature hooks (skeleton, morph, …) in parallel.
             // Each hook mutates `mesh` directly (e.g. attaches mesh.skeleton).
-            if (meshFeatures.length > 0) {
-                await Promise.all(meshFeatures.map((f) => f.applyMesh!(m, mesh, ctx)));
-            }
+            await Promise.all(meshFeatures.map((f) => f.applyMesh!(m, mesh, ctx)));
 
             return mesh;
         })
     );
-
-    return meshes;
 }

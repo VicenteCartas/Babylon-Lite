@@ -1,5 +1,5 @@
 import { spawnSync } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -8,6 +8,8 @@ const PACKAGE_DIR = resolve(ROOT, "packages/babylon-lite");
 const BUILD_DIR = resolve(PACKAGE_DIR, "build");
 const DTS_PATH = resolve(BUILD_DIR, "index.d.ts");
 const PACKAGE_JSON_PATH = resolve(BUILD_DIR, "package.json");
+const STANDARD_FEATURE_DTS_PATH = resolve(BUILD_DIR, "material/standard/enable-standard-mesh-features.d.ts");
+const STANDARD_VERTEX_COLOR_DTS_PATH = resolve(BUILD_DIR, "material/standard/enable-standard-vertex-colors.d.ts");
 
 // Invoke binaries directly via their JS entry points and the current node
 // executable, so the test does not depend on PATH (which may not contain
@@ -39,10 +41,20 @@ describe("build/index.d.ts", () => {
         // Type-check the generated declaration file in isolation, without
         // skipLibCheck, so that any unresolved (e.g. internal-only) types
         // leaking into the public API surface are caught.
+        //
+        // `--ignoreConfig` is required under TypeScript 6: passing a file on the
+        // command line while a tsconfig.json exists in cwd is now an error
+        // (TS5112) unless config loading is explicitly skipped.
+        //
+        // WebGPU types come from TypeScript 6's built-in `dom` lib (which now
+        // bundles them). The `@webgpu/types` package is intentionally NOT loaded
+        // here: doing so duplicates those declarations and, without skipLibCheck,
+        // trips TS6200/TS2717 conflicts between the package and the native lib.
         const result = spawnSync(
             NODE,
             [
                 TSC_JS,
+                "--ignoreConfig",
                 "--noEmit",
                 "--strict",
                 "--target",
@@ -53,9 +65,9 @@ describe("build/index.d.ts", () => {
                 "bundler",
                 "--lib",
                 "es2022,dom,dom.iterable",
-                "--types",
-                "@webgpu/types",
                 DTS_PATH,
+                STANDARD_FEATURE_DTS_PATH,
+                STANDARD_VERTEX_COLOR_DTS_PATH,
             ],
             {
                 cwd: PACKAGE_DIR,
@@ -107,15 +119,128 @@ describe("build/index.d.ts", () => {
 });
 
 describe("build/package.json", () => {
-    it("declares no runtime dependencies", () => {
+    it("publishes the canonical, typed Standard vertex-color subpath", () => {
+        expect(existsSync(STANDARD_VERTEX_COLOR_DTS_PATH)).toBe(true);
+        const pkg = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf-8")) as {
+            exports?: Record<string, { import?: string; types?: string }>;
+        };
+        expect(pkg.exports?.["./material/standard/enable-standard-vertex-colors"]).toEqual({
+            types: "./material/standard/enable-standard-vertex-colors.d.ts",
+            import: "./lib/material/standard/enable-standard-vertex-colors.js",
+        });
+        // The runtime module the export map points at must actually be emitted by
+        // the `lib` build so `import '@babylonjs/lite/material/standard/enable-standard-vertex-colors'`
+        // resolves for published consumers.
+        expect(existsSync(resolve(BUILD_DIR, "lib/material/standard/enable-standard-vertex-colors.js"))).toBe(true);
+        const dts = readFileSync(STANDARD_VERTEX_COLOR_DTS_PATH, "utf-8");
+        expect(dts).toContain("enableStandardVertexColors");
+    });
+
+    it("type-checks a consumer importing both the vertex-color and mesh-feature subpaths", () => {
+        // Emulate a published consumer importing both canonical vertex-color and
+        // mesh-feature entry points and using their exported functions. The consumer
+        // resolves each subpath to its emitted `.d.ts` (relative, matching what the
+        // package.json export map points at) under `moduleResolution: bundler`, and
+        // type-checks against the real emitted declarations — proving both subpath
+        // declarations are present, correctly typed, and importable.
+        const consumerPath = resolve(BUILD_DIR, "public-api-subpath-consumer.ts");
+        writeFileSync(
+            consumerPath,
+            [
+                'import { enableStandardVertexColors } from "./material/standard/enable-standard-vertex-colors";',
+                'import { enableStandardSkeleton, enableStandardUvOffset } from "./material/standard/enable-standard-mesh-features";',
+                "export function useSubpaths(): void {",
+                "    enableStandardVertexColors();",
+                "    enableStandardSkeleton();",
+                "    enableStandardUvOffset();",
+                "}",
+                "",
+            ].join("\n"),
+            "utf-8"
+        );
+        try {
+            const result = spawnSync(
+                NODE,
+                [
+                    TSC_JS,
+                    "--ignoreConfig",
+                    "--noEmit",
+                    "--strict",
+                    "--target",
+                    "es2022",
+                    "--module",
+                    "esnext",
+                    "--moduleResolution",
+                    "bundler",
+                    "--lib",
+                    "es2022,dom,dom.iterable",
+                    consumerPath,
+                ],
+                {
+                    cwd: PACKAGE_DIR,
+                    encoding: "utf-8",
+                }
+            );
+            const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+            if (result.status !== 0) {
+                throw new Error(`subpath consumer failed to type-check:\n${output}`);
+            }
+            expect(result.status).toBe(0);
+        } finally {
+            rmSync(consumerPath, { force: true });
+        }
+    }, 120_000);
+
+    it("publishes the typed, tree-shakable Standard mesh-feature subpath", () => {
+        expect(existsSync(STANDARD_FEATURE_DTS_PATH)).toBe(true);
+        const pkg = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf-8")) as {
+            exports?: Record<string, { import?: string; types?: string }>;
+        };
+        expect(pkg.exports?.["./material/standard/enable-standard-mesh-features"]).toEqual({
+            types: "./material/standard/enable-standard-mesh-features.d.ts",
+            import: "./lib/material/standard/enable-standard-mesh-features.js",
+        });
+        const dts = readFileSync(STANDARD_FEATURE_DTS_PATH, "utf-8");
+        expect(dts).toContain("enableStandardSkeleton");
+        expect(dts).toContain("enableStandardUvOffset");
+        // RGBA vertex colors ship through the canonical `enable-standard-vertex-colors`
+        // subpath (master #430), not this mesh-feature subpath.
+        expect(dts).not.toContain("enableStandardVertexColor");
+    });
+
+    it("declares no runtime dependencies and only strictly-optional allowlisted peers", () => {
         expect(existsSync(PACKAGE_JSON_PATH)).toBe(true);
 
         const pkg = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf-8")) as Record<string, unknown>;
 
-        // The published package must bundle every transitive runtime dep as an
-        // opaque implementation detail — no `dependencies` and no
-        // `peerDependencies` should ever appear in dist/package.json.
+        // The published package must bundle every transitive *runtime* dep as an
+        // opaque implementation detail, so `dependencies` is always empty and a
+        // plain `npm i @babylonjs/lite` (or CDN usage) pulls in nothing else.
         expect(pkg.dependencies ?? {}).toEqual({});
-        expect(pkg.peerDependencies ?? {}).toEqual({});
+
+        // A small, curated allowlist of OPTIONAL peer dependencies is permitted.
+        // These are never bundled and — being optional — are never auto-installed
+        // or warned about by npm/pnpm/yarn when the corresponding feature is unused:
+        //   - @babylonjs/havok: injected by the caller into `createHavokWorld()`;
+        //     Lite never imports it. The peer entry only advertises the supported range.
+        //   - @webgpu/types: ambient/global types referenced by the public .d.ts;
+        //     TypeScript consumers need them at compile time.
+        // Every allowlisted peer MUST be marked optional. Keep this allowlist in sync
+        // with `emitPackageJson()` in packages/babylon-lite/vite.config.ts.
+        const ALLOWED_OPTIONAL_PEERS = ["@babylonjs/havok", "@webgpu/types"];
+        const peers = (pkg.peerDependencies ?? {}) as Record<string, string>;
+        const peerMeta = (pkg.peerDependenciesMeta ?? {}) as Record<string, { optional?: boolean }>;
+
+        // The declared peers must be EXACTLY the allowlist: no unexpected peer may
+        // leak in, and — just as importantly — the whole `peerDependencies` block
+        // must not be accidentally dropped from `emitPackageJson()`, which would
+        // silently regress the feature while still passing a subset check.
+        expect(Object.keys(peers).sort()).toEqual([...ALLOWED_OPTIONAL_PEERS].sort());
+
+        // ...and every one of them must be strictly optional so no package manager
+        // errors or auto-installs when the corresponding feature is unused.
+        for (const name of ALLOWED_OPTIONAL_PEERS) {
+            expect(peerMeta[name]?.optional, `peer dependency '${name}' must be marked optional in peerDependenciesMeta`).toBe(true);
+        }
     });
 });

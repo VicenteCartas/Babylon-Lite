@@ -30,6 +30,33 @@ describe("API report breaking-change classifier", () => {
         expect(breakingApiLines(diff)).toEqual(["export declare function setColor(color: string): void;"]);
     });
 
+    it("treats a parameter widening to a union superset as additive", () => {
+        const diff = apiDiff(
+            "export declare function removeFromScene(scene: SceneContext, mesh: Mesh): void;",
+            "export declare function removeFromScene(scene: SceneContext, entity: Mesh | LightBase | Camera): void;"
+        );
+
+        expect(breakingApiLines(diff)).toEqual([]);
+    });
+
+    it("treats a non-union parameter widening into a union as additive", () => {
+        const diff = apiDiff("export declare function add(entity: Mesh): void;", "export declare function add(entity: Mesh | LightBase): void;");
+
+        expect(breakingApiLines(diff)).toEqual([]);
+    });
+
+    it("flags a parameter union that drops the original type as breaking", () => {
+        const diff = apiDiff("export declare function add(entity: Mesh): void;", "export declare function add(entity: LightBase | Camera): void;");
+
+        expect(breakingApiLines(diff)).toEqual(["export declare function add(entity: Mesh): void;"]);
+    });
+
+    it("flags a pure parameter rename (no widening) as breaking", () => {
+        const diff = apiDiff("export declare function add(mesh: Mesh): void;", "export declare function add(entity: Mesh): void;");
+
+        expect(breakingApiLines(diff)).toEqual(["export declare function add(mesh: Mesh): void;"]);
+    });
+
     it("flags return type changes as breaking", () => {
         const diff = apiDiff("export declare function createMesh(name: string): Mesh;", "export declare function createMesh(name: string): Promise<Mesh>;");
 
@@ -131,5 +158,39 @@ describe("API report breaking-change classifier", () => {
         ].join("\n");
 
         expect(breakingApiLines(diff)).toEqual([]);
+    });
+
+    it("treats overloads collapsed into one widened union signature as additive", () => {
+        const diff = [
+            "diff --git a/target.api.md b/current.api.md",
+            "--- a/target.api.md",
+            "+++ b/current.api.md",
+            "@@",
+            "-export function loadGltf(engine: EngineContext, url: string): Promise<AssetContainer>;",
+            "-export function loadGltf(engine: EngineContext, data: ArrayBuffer | Blob): Promise<AssetContainer>;",
+            "+export function loadGltf(engine: EngineContext, source: string | ArrayBuffer | Blob): Promise<AssetContainer>;",
+        ].join("\n");
+
+        expect(breakingApiLines(diff)).toEqual([]);
+    });
+
+    it("treats a widened single parameter type as additive", () => {
+        const diff = apiDiff("export declare function setColor(color: string): void;", "export declare function setColor(color: string | Color3): void;");
+
+        expect(breakingApiLines(diff)).toEqual([]);
+    });
+
+    it("flags a narrowed parameter union as breaking", () => {
+        const removed = "export declare function setColor(color: string | Color3): void;";
+        const diff = apiDiff(removed, "export declare function setColor(color: string): void;");
+
+        expect(breakingApiLines(diff)).toEqual([removed]);
+    });
+
+    it("does not treat a widened optional parameter as matching a required one", () => {
+        const removed = "export declare function setColor(color: string): void;";
+        const diff = apiDiff(removed, "export declare function setColor(color?: string | Color3): void;");
+
+        expect(breakingApiLines(diff)).toEqual([removed]);
     });
 });

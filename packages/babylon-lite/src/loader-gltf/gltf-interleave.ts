@@ -65,6 +65,8 @@ export interface AccessorInterleave {
     /** @internal Raw bufferView bytes (shared across attributes). Retained after GPU upload
      *  so the CPU copy can be de-strided lazily on demand. */
     _slice?: Uint8Array;
+    /** @internal Shared lazy de-strided copy for every owner of this primitive. */
+    _cpu?: Float32Array;
 }
 
 /** Per-attribute interleave sources for a primitive (keys mirror MeshVbLayout). */
@@ -213,6 +215,18 @@ export async function buildInterleavedPartial(
         }
         if (accessorIsStrided(json, idx)) {
             const il = resolveStrided(json, binChunk, idx);
+            // Genuine GPU interleaving bakes the attribute's byte offset into the WebGPU
+            // vertex layout (`attributes[].offset`), which must satisfy offset + size <=
+            // arrayStride — i.e. the attribute fits within a single stride. A "block"
+            // layout, where one bufferView's byteStride is shared by attributes whose
+            // byteOffset lies beyond a single stride (e.g. all POSITIONs packed, then all
+            // TEXCOORDs — as in glTF SimpleTexture), can't be expressed that way and would
+            // produce an invalid pipeline. De-stride such attributes into their own tight
+            // buffer instead (offset 0, own arrayStride), so they bind correctly.
+            const elemBytes = il._componentCount * (COMP_BYTES[il._componentType] ?? 4);
+            if (il._offset + elemBytes > il._stride) {
+                return { _tight: destrideToTight(il), _count: il._count };
+            }
             return { _tight: eager ? destrideToTight(il) : null, _il: il, _count: il._count };
         }
         const av = resolveAccessor(json, binChunk, idx);
@@ -347,8 +361,6 @@ export function buildInterleavedMesh(engine: EngineContext, m: GltfMeshData, ind
         receiveShadows: false,
         boundMin,
         boundMax,
-        skeleton: null,
-        morphTargets: null,
         _gpu: gpu,
         _flatNormal: m._flatNormal,
     } as unknown as Mesh;
@@ -440,17 +452,17 @@ export function installLazyCpu(mesh: any, m: GltfMeshData): void {
     }
 }
 
-/** Build a caching lazy-getter descriptor that de-strides `il` on first read. */
+/** Build a lazy shared-cache getter with a per-Mesh copy-on-write override. */
 function lazyCpuDesc(il: AccessorInterleave): PropertyDescriptor {
-    let cached: Float32Array | undefined;
+    let local: Float32Array | undefined;
     return {
         configurable: true,
         enumerable: true,
         get(): Float32Array {
-            return (cached ??= destrideToTight(il));
+            return local ?? (il._cpu ??= destrideToTight(il));
         },
         set(v: Float32Array): void {
-            cached = v;
+            local = v;
         },
     };
 }

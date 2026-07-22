@@ -16,6 +16,10 @@
         "./material/pbr/pbr-thin-instance-ext": {
             "import": "./src/material/pbr/pbr-thin-instance-ext.ts"
         },
+        "./material/standard/enable-standard-vertex-colors": {
+            "import": "./src/material/standard/enable-standard-vertex-colors.ts",
+            "types": "./src/material/standard/enable-standard-vertex-colors.ts"
+        },
         "./loader-env/load-dds-env": {
             "import": "./src/loader-env/load-dds-env.ts"
         },
@@ -30,6 +34,10 @@
         "./engine/device-lost-recovery-testing": {
             "import": "./src/engine/device-lost-recovery-testing.ts",
             "types": "./src/engine/device-lost-recovery-testing.ts"
+        },
+        "./material/standard/enable-standard-mesh-features": {
+            "import": "./src/material/standard/enable-standard-mesh-features.ts",
+            "types": "./src/material/standard/enable-standard-mesh-features.ts"
         }
     },
     "files": [
@@ -48,7 +56,7 @@
     "devDependencies": {
         "@ampproject/remapping": "^2.3.0",
         "@webgpu/types": "^0.1.52",
-        "typescript": "^5.7.0",
+        "typescript": "^6.0.3",
         "vite": "^6.4.3",
         "vite-plugin-dts": "^4.5.4"
     },
