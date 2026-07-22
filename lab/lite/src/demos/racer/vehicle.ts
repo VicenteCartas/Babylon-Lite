@@ -243,8 +243,8 @@ export class VehicleController {
         if (!ball) {
             return;
         }
-        const fx = Math.sin(this._heading);
-        const fz = Math.cos(this._heading);
+        const fx = Math.sin(this._heading) * FORWARD_SIGN;
+        const fz = Math.cos(this._heading) * FORWARD_SIGN;
         const L = 1.0; // fore/aft probe distance (≈ half wheelbase)
         const W = 0.7; // left/right probe distance (≈ half track)
         const front = ball.heightAt(this._posX + fx * L, this._posZ + fz * L);
