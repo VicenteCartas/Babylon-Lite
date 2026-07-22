@@ -7,8 +7,8 @@
  * so straights and corners always connect correctly without per-corner tuning.
  */
 
-import type { EngineContext, Mesh, SceneContext, TransformNode } from "babylon-lite";
-import { addToScene, createGround, createStandardMaterial, getContainerMeshes, loadGltf } from "babylon-lite";
+import type { AssetContainer, EngineContext, Mesh, SceneContext, TransformNode } from "babylon-lite";
+import { addToScene, cloneTransformNode, createGround, createStandardMaterial, getContainerMeshes, loadGltf } from "babylon-lite";
 
 import { demoAssetUrl } from "../demo-asset-url.js";
 
@@ -300,6 +300,27 @@ const DECORATIONS: readonly DecoPlacement[] = [
     { gx: 0, gz: 2, kind: "forest", rot: 3 },
 ];
 
+interface PlacementAsset {
+    readonly container: AssetContainer;
+    readonly root: TransformNode;
+    placed: boolean;
+}
+
+async function loadPlacementAsset(engine: EngineContext, url: string): Promise<PlacementAsset> {
+    const container = await loadGltf(engine, url);
+    return { container, root: container.entities[0] as TransformNode, placed: false };
+}
+
+function placeAsset(scene: SceneContext, asset: PlacementAsset, meshes: Mesh[], x: number, z: number, quarterTurns = 0): void {
+    const container = asset.placed ? { entities: [cloneTransformNode(asset.root)] } : asset.container;
+    asset.placed = true;
+    const root = container.entities[0] as TransformNode;
+    root.position.set(x, 0, z);
+    root.rotation.y = (quarterTurns * Math.PI) / 2;
+    addToScene(scene, container);
+    meshes.push(...getContainerMeshes(container));
+}
+
 export async function buildTrack(engine: EngineContext, scene: SceneContext): Promise<Track> {
     // ── Ground plane (Kenney grass green) ─────────────────────────────────────
     const ground = createGround(engine, { width: 400, height: 400, subdivisions: 1 });
@@ -311,35 +332,39 @@ export async function buildTrack(engine: EngineContext, scene: SceneContext): Pr
     addToScene(scene, ground);
 
     // ── Tiles ─────────────────────────────────────────────────────────────────
-    // A fresh loadGltf per placement keeps independent transforms; tiles are tiny.
     const straightUrl = demoAssetUrl("./racer/models/track-straight.glb", import.meta.url);
     const cornerUrl = demoAssetUrl("./racer/models/track-corner.glb", import.meta.url);
+    const finishUrl = demoAssetUrl("./racer/models/track-finish.glb", import.meta.url);
+    const bumpUrl = demoAssetUrl("./racer/models/track-bump.glb", import.meta.url);
+    const forestUrl = demoAssetUrl("./racer/models/decoration-forest.glb", import.meta.url);
+    const tentsUrl = demoAssetUrl("./racer/models/decoration-tents.glb", import.meta.url);
+
+    // Parse each distinct static GLB once, then share its loaded mesh resources
+    // through deep hierarchy clones for repeated placements.
+    const [straightAsset, cornerAsset, finishAsset, bumpAsset, forestAsset, tentsAsset] = await Promise.all([
+        loadPlacementAsset(engine, straightUrl),
+        loadPlacementAsset(engine, cornerUrl),
+        loadPlacementAsset(engine, finishUrl),
+        loadPlacementAsset(engine, bumpUrl),
+        loadPlacementAsset(engine, forestUrl),
+        loadPlacementAsset(engine, tentsUrl),
+    ]);
 
     const meshes: Mesh[] = [];
     const { cx, cz } = loopCenter(TRACK_LOOP);
     const gridToWorld = (gx: number, gz: number): { x: number; z: number } => ({ x: (gx - cx) * TILE, z: (gz - cz) * TILE });
 
-    const finishUrl = demoAssetUrl("./racer/models/track-finish.glb", import.meta.url);
     for (const t of tilesFromLoop(TRACK_LOOP)) {
         const isFinish = t.kind === "straight" && t.gx === FINISH_CELL.gx && t.gz === FINISH_CELL.gz;
-        const container = await loadGltf(engine, isFinish ? finishUrl : t.kind === "straight" ? straightUrl : cornerUrl);
-        const root = container.entities[0] as TransformNode;
         const { x, z } = gridToWorld(t.gx, t.gz);
-        root.position.set(x, 0, z);
-        root.rotation.y = (t.rot * Math.PI) / 2;
-        addToScene(scene, container);
-        meshes.push(...getContainerMeshes(container));
+        placeAsset(scene, isFinish ? finishAsset : t.kind === "straight" ? straightAsset : cornerAsset, meshes, x, z, t.rot);
     }
 
     // ── Speed bumps: small dome props along the main straight ──────────────────
-    const bumpUrl = demoAssetUrl("./racer/models/track-bump.glb", import.meta.url);
     const bumpZ = gridToWorld(3, 1).z; // top-straight centerline
     const bumps = [-4, -1, 2].map((dx) => ({ x: dx, z: bumpZ }));
     for (const b of bumps) {
-        const container = await loadGltf(engine, bumpUrl);
-        (container.entities[0] as TransformNode).position.set(b.x, 0, b.z);
-        addToScene(scene, container);
-        meshes.push(...getContainerMeshes(container));
+        placeAsset(scene, bumpAsset, meshes, b.x, b.z);
     }
 
     // Physics colliders: a buried sphere whose cap ≈ each dome (height BUMP_HEIGHT, footprint BUMP_RADIUS),
@@ -348,16 +373,9 @@ export async function buildTrack(engine: EngineContext, scene: SceneContext): Pr
     const bumpColliders: BumpCollider[] = bumps.map((b) => ({ x: b.x, y: BUMP_HEIGHT - bumpSphereRadius, z: b.z, radius: bumpSphereRadius }));
 
     // ── Decorations: forest / tent props on grass cells (infield + outfield) ───
-    const forestUrl = demoAssetUrl("./racer/models/decoration-forest.glb", import.meta.url);
-    const tentsUrl = demoAssetUrl("./racer/models/decoration-tents.glb", import.meta.url);
     for (const d of DECORATIONS) {
-        const container = await loadGltf(engine, d.kind === "forest" ? forestUrl : tentsUrl);
-        const root = container.entities[0] as TransformNode;
         const { x, z } = gridToWorld(d.gx, d.gz);
-        root.position.set(x, 0, z);
-        root.rotation.y = (d.rot * Math.PI) / 2;
-        addToScene(scene, container);
-        meshes.push(...getContainerMeshes(container));
+        placeAsset(scene, d.kind === "forest" ? forestAsset : tentsAsset, meshes, x, z, d.rot);
     }
 
     // Spawn a few cells along the top straight, driving east toward the first corner.

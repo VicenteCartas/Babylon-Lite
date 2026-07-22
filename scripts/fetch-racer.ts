@@ -20,7 +20,7 @@
  * from the pinned raw.githubusercontent.com blob.
  */
 
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,12 +67,15 @@ const WANTED_FILES: string[] = [
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = join(ROOT, "lab", "public", "racer");
+const CACHE_DIR = join(ROOT, ".racer-cache");
+const SOURCE_STAMP = join(CACHE_DIR, "source-sha");
 
 export async function fetchRacer(): Promise<void> {
     mkdirSync(OUT_DIR, { recursive: true });
 
+    const sourceCurrent = existsSync(SOURCE_STAMP) && readFileSync(SOURCE_STAMP, "utf8").trim() === KIT_SHA;
     const allPresent = WANTED_FILES.every((p) => existsSync(join(OUT_DIR, p)));
-    if (allPresent) {
+    if (sourceCurrent && allPresent) {
         console.log("Kenney Starter Kit Racing assets already present in lab/public/racer/ — nothing to do.");
         return;
     }
@@ -80,7 +83,7 @@ export async function fetchRacer(): Promise<void> {
     let fetched = 0;
     for (const path of WANTED_FILES) {
         const dest = join(OUT_DIR, path);
-        if (existsSync(dest)) {
+        if (sourceCurrent && existsSync(dest)) {
             continue;
         }
         const url = `${RAW_BASE}/${path}`;
@@ -95,6 +98,8 @@ export async function fetchRacer(): Promise<void> {
         console.log(`Fetched ${path} → ${dest} (${(bytes.length / 1024).toFixed(0)} KB)`);
     }
 
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(SOURCE_STAMP, `${KIT_SHA}\n`);
     console.log(`Done (${fetched} file(s) fetched). Racer assets are gitignored; re-run this script to restore them.`);
 }
 
