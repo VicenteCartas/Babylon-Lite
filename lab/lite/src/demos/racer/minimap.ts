@@ -56,15 +56,15 @@ export class Minimap {
         this._ox = MAP_PAD + (inner - worldW * this._scale) / 2 - minX * this._scale;
         this._oz = MAP_PAD + (inner - worldH * this._scale) / 2 - minZ * this._scale;
 
-        const dpr = Math.max(1, Math.floor(devicePixelRatio));
+        const dpr = Math.max(1, devicePixelRatio);
         const canvas = document.createElement("canvas");
         canvas.id = "racer-minimap";
-        canvas.width = MAP_SIZE * dpr;
-        canvas.height = MAP_SIZE * dpr;
+        canvas.width = Math.round(MAP_SIZE * dpr);
+        canvas.height = Math.round(MAP_SIZE * dpr);
         canvas.style.cssText = `position:fixed;top:12px;right:12px;width:${MAP_SIZE}px;height:${MAP_SIZE}px;z-index:10;pointer-events:none;`;
         document.body.appendChild(canvas);
         const ctx = canvas.getContext("2d")!;
-        ctx.scale(dpr, dpr); // draw in logical px; the backing store is DPR-scaled for crispness
+        ctx.scale(canvas.width / MAP_SIZE, canvas.height / MAP_SIZE); // draw in logical px at the exact rounded backing-store ratio
         this._ctx = ctx;
     }
 

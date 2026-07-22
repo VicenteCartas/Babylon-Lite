@@ -135,7 +135,10 @@ function tileForOpenings(a: Card, b: Card): { kind: "straight" | "corner"; rot: 
     if (has("W", "N")) {
         return { kind: "corner", rot: 2 };
     }
-    return { kind: "corner", rot: 3 }; // { W, S }
+    if (has("W", "S")) {
+        return { kind: "corner", rot: 3 };
+    }
+    throw new Error(`invalid track openings: ${a}, ${b}`);
 }
 
 /**
