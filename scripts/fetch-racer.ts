@@ -92,7 +92,7 @@ export async function fetchRacer(): Promise<void> {
         mkdirSync(dirname(dest), { recursive: true });
         writeFileSync(dest, bytes);
         fetched++;
-        console.log(`Extracted ${path} → ${dest} (${(bytes.length / 1024).toFixed(0)} KB)`);
+        console.log(`Fetched ${path} → ${dest} (${(bytes.length / 1024).toFixed(0)} KB)`);
     }
 
     console.log(`Done (${fetched} file(s) fetched). Racer assets are gitignored; re-run this script to restore them.`);

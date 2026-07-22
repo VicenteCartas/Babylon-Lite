@@ -272,6 +272,9 @@ const LINE_THICK = 2.5; // lap-zone depth along the direction of travel
 /** Which world axis the road runs along at a loop cell (from its outgoing direction). */
 function loopTravelAxis(cell: Cell): "x" | "z" {
     const i = TRACK_LOOP.findIndex((c) => c.gx === cell.gx && c.gz === cell.gz);
+    if (i < 0) {
+        throw new Error(`lap-zone cell is not on the track loop: (${cell.gx},${cell.gz})`);
+    }
     const card = cardFromTo(cell, TRACK_LOOP[(i + 1) % TRACK_LOOP.length]!);
     return card === "E" || card === "W" ? "x" : "z";
 }
