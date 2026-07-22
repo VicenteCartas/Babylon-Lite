@@ -151,10 +151,7 @@ async function main(): Promise<void> {
         const n = "12345".indexOf(e.key);
         if (n >= 0 && n < VEHICLES.length) {
             selectVehicle(n);
-        }
-    });
-    window.addEventListener("keydown", (e) => {
-        if (e.key === "c" || e.key === "C") {
+        } else if (e.key === "c" || e.key === "C") {
             camera.cycle();
         }
     });
@@ -170,14 +167,16 @@ async function main(): Promise<void> {
         const dt = Math.min(deltaMs / 1000, 0.05);
         const axes = countdownActive ? { steer: 0, throttle: 0 } : input.read();
         controller.tick(dt, axes);
-        camera.tick(dt, controller.position, controller.speed, controller.forward);
-        speedLines.update(dt, controller.speed);
-        audio.update(dt, controller.speed, axes.throttle, controller.driftIntensity);
-        raceTimer.update(controller.position.x, controller.position.z, performance.now());
-
-        // Drift smoke + skid marks from the rear wheels: two for the cars, one centred for the motorcycle.
         const p = controller.position;
         const f = controller.forward;
+        const speed = controller.speed;
+        const driftIntensity = controller.driftIntensity;
+        camera.tick(dt, p, speed, f);
+        speedLines.update(dt, speed);
+        audio.update(dt, speed, axes.throttle, driftIntensity);
+        raceTimer.update(p.x, p.z, performance.now());
+
+        // Drift smoke + skid marks from the rear wheels: two for the cars, one centred for the motorcycle.
         const bx = p.x - f.x * SMOKE_REAR;
         const bz = p.z - f.z * SMOKE_REAR;
         const wheels: EmitPoint[] = controller.isMotorcycle
@@ -186,8 +185,8 @@ async function main(): Promise<void> {
                   { x: bx - f.z * SMOKE_HALF, y: SMOKE_Y, z: bz + f.x * SMOKE_HALF },
                   { x: bx + f.z * SMOKE_HALF, y: SMOKE_Y, z: bz - f.x * SMOKE_HALF },
               ];
-        smoke.update(dt, controller.driftIntensity, wheels);
-        skidMarks.update(dt, controller.driftIntensity, wheels, f.x, f.z);
+        smoke.update(dt, driftIntensity, wheels);
+        skidMarks.update(dt, driftIntensity, wheels, f.x, f.z);
         minimap.update(p.x, p.z, f.x, f.z);
     });
 
