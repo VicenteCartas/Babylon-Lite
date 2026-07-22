@@ -251,11 +251,12 @@ export class VehicleController {
         const W = 0.7; // left/right probe distance (≈ half track)
         const front = ball.heightAt(this._posX + fx * L, this._posZ + fz * L);
         const back = ball.heightAt(this._posX - fx * L, this._posZ - fz * L);
-        const left = ball.heightAt(this._posX + fz * W, this._posZ - fx * W);
-        const right = ball.heightAt(this._posX - fz * W, this._posZ + fx * W);
+        // NB: the perpendicular offset (-fz, fx) is the car's physical right; (+fz, -fx) is its left.
+        const heightRight = ball.heightAt(this._posX + fz * W, this._posZ - fx * W);
+        const heightLeft = ball.heightAt(this._posX - fz * W, this._posZ + fx * W);
         this._groundY = lerp(this._groundY, ball.position().y - ball.restY, dt * 12);
         this._groundPitch = lerp(this._groundPitch, Math.atan2(front - back, 2 * L), dt * 12);
-        this._groundRoll = lerp(this._groundRoll, Math.atan2(left - right, 2 * W), dt * 12);
+        this._groundRoll = lerp(this._groundRoll, Math.atan2(heightRight - heightLeft, 2 * W), dt * 12);
     }
 
     private _effectBody(dt: number, inputX: number): void {
