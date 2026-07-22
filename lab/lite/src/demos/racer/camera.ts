@@ -8,8 +8,10 @@
 import type { ArcRotateCamera, SceneContext } from "babylon-lite";
 import { addToScene, createArcRotateCamera } from "babylon-lite";
 
+type CameraModeName = "Chase" | "Hood" | "Cinematic";
+
 interface CamMode {
-    readonly name: string;
+    readonly name: CameraModeName;
     /** Elevation from +Y — larger is lower / more horizontal, so more sky is in frame. */
     readonly beta: number;
     readonly radiusMin: number; // distance at rest
@@ -48,7 +50,7 @@ function easeAngle(from: number, to: number, t: number): number {
 
 export class CameraRig {
     private readonly _camera: ArcRotateCamera;
-    private _mode = 0;
+    private _mode: number;
     private _tx: number;
     private _ty: number;
     private _tz: number;
@@ -56,8 +58,12 @@ export class CameraRig {
     private _beta: number;
     private readonly _label: HTMLElement;
 
-    constructor(scene: SceneContext, start: { x: number; y: number; z: number }, forward: { x: number; z: number }) {
-        const m = MODES[0]!;
+    constructor(scene: SceneContext, start: { x: number; y: number; z: number }, forward: { x: number; z: number }, initialMode: CameraModeName = "Chase") {
+        this._mode = MODES.findIndex((mode) => mode.name === initialMode);
+        if (this._mode < 0) {
+            this._mode = 0;
+        }
+        const m = MODES[this._mode]!;
         this._tx = start.x;
         this._ty = start.y + m.targetY;
         this._tz = start.z;
@@ -70,7 +76,7 @@ export class CameraRig {
         scene.camera = camera;
         addToScene(scene, camera);
         this._camera = camera;
-        this._label = this._buildLabel();
+        this._label = this._buildLabel(m.name);
     }
 
     /** Switch to the next camera mode (Chase → Hood → Cinematic → …). */
@@ -112,9 +118,10 @@ export class CameraRig {
         cam.fov += (desiredFov - cam.fov) * s;
     }
 
-    private _buildLabel(): HTMLElement {
+    private _buildLabel(initialMode: CameraModeName): HTMLElement {
         const el = document.createElement("div");
-        el.textContent = `CAM · ${MODES[0]!.name}`;
+        el.className = "racer-camera-label";
+        el.textContent = `CAM · ${initialMode}`;
         el.style.cssText =
             "position:fixed;right:12px;bottom:16px;z-index:10;padding:5px 12px;border-radius:999px;background:rgba(0,0,0,0.45);color:#fff;backdrop-filter:blur(3px);font:600 12px system-ui,sans-serif;letter-spacing:0.03em;";
         document.body.appendChild(el);

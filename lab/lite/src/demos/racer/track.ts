@@ -19,6 +19,7 @@ const CORNER_ARC_SEGMENTS = 6; // short walls tracing each corner's curved outer
 const CORNER_ARC_OVERLAP = 0.6; // extra segment length so consecutive arc walls overlap (leave no gap)
 const BUMP_HEIGHT = 0.45; // track-bump.glb rises to ~0.45
 const BUMP_RADIUS = 1.3; // track-bump.glb footprint half-extent
+const GROUND_Y = -0.02; // just below the tiles: enough depth separation without a visible floating ledge
 
 /** An axis-aligned barrier segment (world XZ), used to build the physics colliders. */
 export interface Wall {
@@ -300,7 +301,7 @@ export async function buildTrack(engine: EngineContext, scene: SceneContext): Pr
     grass.diffuseColor = [0.36, 0.55, 0.28];
     grass.specularColor = [0, 0, 0];
     ground.material = grass;
-    ground.position.set(0, -0.5, 0);
+    ground.position.set(0, GROUND_Y, 0);
     addToScene(scene, ground);
 
     // ── Tiles ─────────────────────────────────────────────────────────────────

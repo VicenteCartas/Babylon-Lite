@@ -48,6 +48,7 @@ const SMOKE_Y = 0.25; // just above the road
 /** Build the top-of-screen vehicle selector bar; returns a function to highlight the active one. */
 function buildVehicleSelector(names: readonly string[], onSelect: (index: number) => void): (active: number) => void {
     const bar = document.createElement("div");
+    bar.className = "racer-vehicle-selector";
     bar.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;font:600 13px system-ui,sans-serif;";
     const buttons = names.map((name, i) => {
         const button = document.createElement("button");
@@ -120,7 +121,8 @@ async function main(): Promise<void> {
 
     // Controllers.
     const controller = new VehicleController(garage.current, track.spawn.x, track.spawn.z, track.spawn.heading);
-    const camera = new CameraRig(scene, controller.position, controller.forward);
+    const touchDevice = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+    const camera = new CameraRig(scene, controller.position, controller.forward, touchDevice ? "Cinematic" : "Chase");
     const input = new RacerInput(canvas);
 
     // Physics containment: static barrier colliders + a dynamic ball the car rides on.

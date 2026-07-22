@@ -91,9 +91,9 @@
     {
         "slug": "racer",
         "name": "Racer",
-        "description": "Arcade racing on Lite: drive a Kenney car around a tiled loop with responsive controls — the body leans into turns, the wheels roll and steer, and a fixed-angle chase camera eases behind you and zooms out with speed. Clean-room TypeScript port of Kenney's Godot \"Starter Kit Racing\" gameplay; ships its CC0 car, track and prop models.",
+        "description": "A clean-room TypeScript port of Kenney's open-source \"Starter Kit Racing\" Godot demo, rebuilt on Babylon Lite with Havok physics, selectable vehicles, lap timing, drift effects, and camera modes. Uses Kenney's included CC0 models, textures, sounds, and track art.",
         "tags": ["game", "showcase"],
         "fetch": "racer",
-        "mobile": false
+        "mobile": true
     }
 ]
