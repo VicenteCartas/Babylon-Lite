@@ -34,6 +34,7 @@ import {
     measurePage,
     LITE_BUNDLE_TARGET,
     NAME_POLYFILL,
+    copyVendorRuntimes,
 } from "./bundle-scenes-core";
 import { wgslMinifyPlugin } from "./wgsl-minify-plugin";
 import { fetchDemoAssets } from "./demo-fetchers";
@@ -49,6 +50,7 @@ const LITTLEST_TOKYO_SRC = resolve(labDir, "public/littlest-tokyo");
 const TETRIS_SRC = resolve(labDir, "public/tetris");
 const PLATFORMER_SRC = resolve(labDir, "public/platformer");
 const SANDBLOX_SRC = resolve(labDir, "public/sandblox");
+const RACER_SRC = resolve(labDir, "public/racer");
 const DRACO_FILES = ["draco_decoder.js", "draco_decoder.wasm"];
 
 interface DemoConfigEntry {
@@ -222,6 +224,15 @@ function copyDemoRuntimeAssets(demos: DemoConfigEntry[]): void {
     if (demos.some((demo) => demo.slug === "sandblox")) {
         // Default world map JSON, fetched at runtime via demoAssetUrl.
         copyRequiredDir(SANDBLOX_SRC, resolve(demosDir, "sandblox"), "Sandblox");
+    }
+
+    if (demos.some((demo) => demo.slug === "racer")) {
+        // CC0 Kenney car / track / prop GLBs + smoke sprite + audio, fetched by
+        // fetch-racer.ts and resolved at runtime via demoAssetUrl("./racer/...").
+        copyRequiredDir(RACER_SRC, resolve(demosDir, "racer"), "Racer");
+        // Havok physics runs as an external vendor runtime (see the import map in
+        // demo-racer.html); copy its ESM to lab/public/vendor/ (served at /vendor/havok.js).
+        copyVendorRuntimes();
     }
 
     if (demos.some((demo) => demo.slug === "bath-day")) {
