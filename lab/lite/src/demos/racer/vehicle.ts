@@ -33,6 +33,8 @@ export interface Vehicle {
     /** Yaw/position this to move the whole car. */
     readonly root: TransformNode;
     readonly body: TransformNode | null;
+    /** Authored local body height, retained across animation and vehicle swaps. */
+    readonly bodyRestY: number;
     readonly wheels: {
         readonly frontLeft: TransformNode | null;
         readonly frontRight: TransformNode | null;
@@ -64,9 +66,11 @@ export async function loadVehicle(engine: EngineContext, scene: SceneContext, ur
     const container = await loadGltf(engine, url);
     addToScene(scene, container);
     const root = container.entities[0] as TransformNode;
+    const body = findNode(root, "body");
     return {
         root,
-        body: findNode(root, "body"),
+        body,
+        bodyRestY: body?.position.y ?? 0,
         wheels: {
             // Trucks have four named wheels; the motorcycle has just `wheel-front` / `wheel-back`.
             frontLeft: findNode(root, "wheel-front-left") ?? findNode(root, "wheel-front"),
@@ -132,8 +136,6 @@ export class VehicleController {
     private _steerAngle = 0; // front-wheel steer
     private _wheelRoll = 0;
 
-    private _bodyRestY: number;
-
     /**
      * Dynamic-sphere physics proxy. When set, the ball owns the car's planar
      * position and barrier collisions: the controller drives its velocity toward
@@ -151,14 +153,12 @@ export class VehicleController {
         this._posX = startX;
         this._posZ = startZ;
         this._heading = startHeading;
-        this._bodyRestY = vehicle.body ? vehicle.body.position.y : 0;
         this._applyRoot();
     }
 
     /** Swap the visible car model (vehicle selection); keeps the current pose. */
     setVehicle(vehicle: Vehicle): void {
         this._v = vehicle;
-        this._bodyRestY = vehicle.body ? vehicle.body.position.y : 0;
         this._applyRoot();
     }
 
@@ -265,7 +265,7 @@ export class VehicleController {
         const body = this._v.body;
         if (body) {
             setEulerXYZ(body, this._bodyPitch, 0, this._lean);
-            body.position.y = lerp(body.position.y, this._bodyRestY + 0.05, dt * 5);
+            body.position.y = lerp(body.position.y, this._v.bodyRestY + 0.05, dt * 5);
         }
     }
 
@@ -276,15 +276,19 @@ export class VehicleController {
 
         const { frontLeft, frontRight, backLeft, backRight } = this._v.wheels;
         // Front wheels steer (yaw) then roll about their steered axle.
-        for (const w of [frontLeft, frontRight]) {
-            if (w) {
-                w.rotationQuaternion.set(...qmul(qAxis(1, this._steerAngle), qAxis(0, this._wheelRoll)));
-            }
+        const frontRotation = qmul(qAxis(1, this._steerAngle), qAxis(0, this._wheelRoll));
+        if (frontLeft) {
+            frontLeft.rotationQuaternion.set(...frontRotation);
         }
-        for (const w of [backLeft, backRight]) {
-            if (w) {
-                w.rotationQuaternion.set(...qAxis(0, this._wheelRoll));
-            }
+        if (frontRight && frontRight !== frontLeft) {
+            frontRight.rotationQuaternion.set(...frontRotation);
+        }
+        const rearRotation = qAxis(0, this._wheelRoll);
+        if (backLeft) {
+            backLeft.rotationQuaternion.set(...rearRotation);
+        }
+        if (backRight && backRight !== backLeft) {
+            backRight.rotationQuaternion.set(...rearRotation);
         }
     }
 }
