@@ -914,9 +914,11 @@ function copyVendorRuntimeFiles(): void {
     }
 }
 
-/** Copy externalized vendor runtimes (e.g. Havok) into lab/public/vendor so bundles
- *  that import them resolve at runtime. Exported for the demo build, which reuses the
- *  same externalization + import-map convention as scenes. */
+/**
+ * Copy externalized vendor runtimes (e.g. Havok) into lab/public/vendor so bundles
+ * that import them resolve at runtime. Exported for the demo build, which reuses the
+ * same externalization + import-map convention as scenes.
+ */
 export function copyVendorRuntimes(): void {
     copyVendorRuntimeFiles();
 }
@@ -1241,11 +1243,7 @@ function readyTimeoutForScene(scene: string): number {
  * measurement rather than recording a truncated size, so we retry a few times to
  * absorb transient network flakiness before failing the build loudly.
  */
-async function measureLiteSceneWithRetry(
-    browser: any,
-    port: number,
-    scene: string
-): Promise<{ rawKB: number; gzipKB: number; ignoredRawKB: number; chunks: string[] }> {
+async function measureLiteSceneWithRetry(browser: any, port: number, scene: string): Promise<{ rawKB: number; gzipKB: number; ignoredRawKB: number; chunks: string[] }> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= LITE_MEASURE_ATTEMPTS; attempt++) {
         try {

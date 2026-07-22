@@ -13,6 +13,7 @@
 
 import HavokPhysics from "@babylonjs/havok";
 import {
+    AcesToneMapping,
     addToScene,
     createCsmDirectionalShadowGenerator,
     createEngine,
@@ -76,7 +77,7 @@ async function main(): Promise<void> {
     const scene = createSceneContext(engine);
     scene.clearColor = { r: 0.62, g: 0.8, b: 0.92, a: 1.0 };
     scene.imageProcessing.toneMappingEnabled = true;
-    scene.imageProcessing.toneMappingType = "aces";
+    scene.imageProcessing.toneMapping = AcesToneMapping;
     scene.imageProcessing.exposure = 1.2;
     // Subtle horizon haze (exp2), tinted to the sky so distant grass fades out (must precede registerScene).
     setFog(scene, { mode: 2, density: 0.006, start: 0, end: 0, color: [0.62, 0.8, 0.92] });
