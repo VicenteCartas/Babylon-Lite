@@ -914,15 +914,6 @@ function copyVendorRuntimeFiles(): void {
     }
 }
 
-/**
- * Copy externalized vendor runtimes (e.g. Havok) into lab/public/vendor so bundles
- * that import them resolve at runtime. Exported for the demo build, which reuses the
- * same externalization + import-map convention as scenes.
- */
-export function copyVendorRuntimes(): void {
-    copyVendorRuntimeFiles();
-}
-
 export async function buildLiteSceneBundleInfo(scene: string, sourceRoot: string, infoDir: string): Promise<void> {
     const sourceLabDir = resolve(sourceRoot, "lab");
     const sourceSrcDir = resolve(sourceRoot, "packages/babylon-lite/src");

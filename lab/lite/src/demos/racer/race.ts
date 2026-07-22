@@ -15,7 +15,7 @@ function inZone(x: number, z: number, zone: TriggerZone): boolean {
 /** Format milliseconds as `M:SS.cc`, or an em-dash placeholder when there's no time yet. */
 function formatTime(ms: number): string {
     if (!isFinite(ms)) {
-        return "—:——";
+        return "—:——.——";
     }
     const cs = Math.floor(ms / 10);
     const centis = cs % 100;

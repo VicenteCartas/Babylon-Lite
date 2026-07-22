@@ -35,7 +35,6 @@ import {
     measurePage,
     LITE_BUNDLE_TARGET,
     NAME_POLYFILL,
-    copyVendorRuntimes,
 } from "./bundle-scenes-core";
 import { wgslMinifyPlugin } from "./wgsl-minify-plugin";
 import { fetchDemoAssets } from "./demo-fetchers";
@@ -247,9 +246,6 @@ function copyDemoRuntimeAssets(demos: DemoConfigEntry[]): void {
         // CC0 Kenney car / track / prop GLBs + smoke sprite + audio, fetched by
         // fetch-racer.ts and resolved at runtime via demoAssetUrl("./racer/...").
         copyRequiredDir(RACER_SRC, resolve(demosDir, "racer"), "Racer");
-        // Havok physics runs as an external vendor runtime (see the import map in
-        // demo-racer.html); copy its ESM to lab/public/vendor/ (served at /vendor/havok.js).
-        copyVendorRuntimes();
     }
 
     if (demos.some((demo) => demo.slug === "bath-day")) {
