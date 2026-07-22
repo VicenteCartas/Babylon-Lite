@@ -55,10 +55,9 @@ export class SkidMarks {
         mat.alpha = MARK_ALPHA;
         mesh.material = mat;
 
-        // Pre-size the instance buffer to CAP and park every slot out of sight
-        // (zero scale, far below the ground). A thin-instanced mesh with count 0
-        // would draw its base geometry once at the origin, so we keep count == CAP
-        // and rely on parked matrices being degenerate (they emit no fragments).
+        // Keep the full fixed-capacity ring active so any recycled slot can be
+        // overwritten without changing the draw count or invalidating cached render
+        // bundles. Unused slots stay parked as degenerate matrices and emit no fragments.
         const hidden = mat4Compose(0, -1000, 0, 0, 0, 0, 1, 0, 0, 0);
         const matrices = new Float32Array(CAP * 16);
         for (let i = 0; i < CAP; i++) {

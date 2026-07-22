@@ -38,6 +38,9 @@ function lerp(a: number, b: number, t: number): number {
 async function decode(ctx: AudioContext, url: string): Promise<AudioBuffer | null> {
     try {
         const res = await fetch(url);
+        if (!res.ok) {
+            return null;
+        }
         return await ctx.decodeAudioData(await res.arrayBuffer());
     } catch {
         return null;
