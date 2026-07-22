@@ -56,8 +56,6 @@ export class RacerInput {
             }
         };
 
-        canvas.addEventListener("keydown", this._onKeyDown);
-        canvas.addEventListener("keyup", this._onKeyUp);
         canvas.addEventListener("blur", this._onBlur);
         window.addEventListener("keydown", this._onKeyDown);
         window.addEventListener("keyup", this._onKeyUp);
@@ -79,8 +77,6 @@ export class RacerInput {
     }
 
     dispose(): void {
-        this._canvas.removeEventListener("keydown", this._onKeyDown);
-        this._canvas.removeEventListener("keyup", this._onKeyUp);
         this._canvas.removeEventListener("blur", this._onBlur);
         window.removeEventListener("keydown", this._onKeyDown);
         window.removeEventListener("keyup", this._onKeyUp);

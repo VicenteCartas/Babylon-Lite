@@ -234,9 +234,7 @@ export class VehicleController {
 
     private _applyRoot(): void {
         this._v.root.position.set(this._posX, CAR_Y + this._groundY, this._posZ);
-        this._v.root.rotation.x = this._groundPitch;
-        this._v.root.rotation.y = this._heading + MODEL_YAW_OFFSET;
-        this._v.root.rotation.z = this._groundRoll;
+        this._v.root.rotation.set(this._groundPitch, this._heading + MODEL_YAW_OFFSET, this._groundRoll);
     }
 
     /** Read the physics ground under the car — the ball's ride-height plus a raycast slope — and ease toward it. */

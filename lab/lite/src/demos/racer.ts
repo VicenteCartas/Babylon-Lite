@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     setFog(scene, { mode: 2, density: 0.006, start: 0, end: 0, color: [0.62, 0.8, 0.92] });
 
     // Physics world (Havok) — drives the car's dynamic ball and contains it within the barriers.
-    const hknp = await HavokPhysics({ locateFile: () => "/HavokPhysics.wasm" });
+    const hknp = await HavokPhysics({ locateFile: () => demoAssetUrl("./HavokPhysics.wasm", import.meta.url) });
     const world = createHavokWorld(scene, hknp, { x: 0, y: -9.81, z: 0 });
 
     // Lighting + shadows.
