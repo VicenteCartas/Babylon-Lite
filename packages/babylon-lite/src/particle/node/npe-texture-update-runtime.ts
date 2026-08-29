@@ -2,13 +2,13 @@ import type { EngineContext } from "../../engine/engine.js";
 import type { SceneContext } from "../../scene/scene.js";
 import { embeddedParticleTextureSourceBlock } from "./blocks/embedded-texture-source-block.js";
 import { buildNodeParticleSet, type BuildNodeParticleOptions, type NodeParticleSet, type NpeBlockEvaluator } from "./npe-build.js";
-import type { ParticleGraph } from "./npe-types.js";
+import type { NodeParticleProgram } from "./npe-types.js";
 
 /** @internal Build an NPE set with opt-in CPU texture update evaluators. */
 export function buildNodeParticleSetWithTextureUpdateRuntime(
     engine: EngineContext,
     scene: SceneContext,
-    graph: ParticleGraph,
+    program: NodeParticleProgram,
     options: BuildNodeParticleOptions,
     featureClassName: string,
     featureTextureInputName: string,
@@ -18,7 +18,7 @@ export function buildNodeParticleSetWithTextureUpdateRuntime(
 export function buildNodeParticleSetWithTextureUpdateRuntime(
     engine: EngineContext,
     scene: SceneContext,
-    graph: ParticleGraph,
+    program: NodeParticleProgram,
     options: BuildNodeParticleOptions,
     featureClassName: string,
     featureTextureInputName: string,
@@ -31,7 +31,7 @@ export function buildNodeParticleSetWithTextureUpdateRuntime(
 export async function buildNodeParticleSetWithTextureUpdateRuntime(
     engine: EngineContext,
     scene: SceneContext,
-    graph: ParticleGraph,
+    program: NodeParticleProgram,
     options: BuildNodeParticleOptions,
     featureClassName: string,
     featureTextureInputName: string,
@@ -41,7 +41,7 @@ export async function buildNodeParticleSetWithTextureUpdateRuntime(
     secondaryFeatureTextureInputName?: string,
     secondaryFeatureEvaluator?: NpeBlockEvaluator
 ): Promise<NodeParticleSet> {
-    return buildNodeParticleSet(engine, scene, graph, {
+    return buildNodeParticleSet(engine, scene, program, {
         ...options,
         _getEvaluator: (block) => {
             if (block.className === featureClassName) {

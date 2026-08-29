@@ -24,8 +24,9 @@ import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite
 import { buildNodeParticleSetWithNoiseTextures } from "../../../packages/babylon-lite/src/particle/node/npe-noise";
 import { buildNodeParticleSetWithTextureUpdates } from "../../../packages/babylon-lite/src/particle/node/npe-texture-updates";
 import { parseNodeParticleSetFromSnippet, type ParseNodeParticleOptions } from "../../../packages/babylon-lite/src/particle/node/node-particle";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
-import type { ParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-types";
+import type { NodeParticleProgram } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
 import type { Texture2D } from "../../../packages/babylon-lite/src/texture/texture-2d";
@@ -71,10 +72,14 @@ interface RawGraph {
     blocks: RawBlock[];
 }
 
-type NodeParticleBuilder = (engine: EngineContext, scene: SceneContext, graph: ParticleGraph, options?: BuildNodeParticleOptions) => Promise<NodeParticleSet>;
+type NodeParticleBuilder = (engine: EngineContext, scene: SceneContext, program: NodeParticleProgram, options?: BuildNodeParticleOptions) => Promise<NodeParticleSet>;
+
+async function compileNodeParticleSource(source: unknown): Promise<NodeParticleProgram> {
+    return compileNodeParticleGraph(parseNodeParticleSource(source));
+}
 
 async function buildNodeParticleGraphWithEmitterProvider(source: unknown, provider: NodeParticleEmitterProvider, options: BuildNodeParticleOptions = {}): Promise<ParticleSystem> {
-    const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(source), withNodeParticleEmitterProvider(provider, options));
+    const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(source), withNodeParticleEmitterProvider(provider, options));
     return set.systems[0]!;
 }
 
@@ -399,7 +404,7 @@ describe("NPE moving emitter transforms", () => {
         const set = await builder(
             {} as EngineContext,
             {} as SceneContext,
-            parseNodeParticleSource(worldPointGraph()),
+            await compileNodeParticleSource(worldPointGraph()),
             withNodeParticleEmitterProvider(() => {
                 providerCalls++;
                 return emitterMatrix(2, 3, 4);
@@ -422,7 +427,7 @@ describe("NPE moving emitter transforms", () => {
         ["combined texture-update", buildNodeParticleSetWithTextureUpdates],
         ["blend-mode", buildNodeParticleSetWithBlendModes],
     ] as Array<[string, NodeParticleBuilder]>)("retains no provider state on a static set from the %s builder", async (_name, builder) => {
-        const set = await builder({} as EngineContext, {} as SceneContext, parseNodeParticleSource(worldPointGraph()));
+        const set = await builder({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(worldPointGraph()));
         const system = set.systems[0]!;
 
         expect(system).not.toHaveProperty("_emitter");
@@ -431,7 +436,7 @@ describe("NPE moving emitter transforms", () => {
     });
 
     it("builds through the convenience builder", async () => {
-        const set = await buildNodeParticleSetWithEmitterProvider({} as EngineContext, {} as SceneContext, parseNodeParticleSource(worldPointGraph()), () =>
+        const set = await buildNodeParticleSetWithEmitterProvider({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(worldPointGraph()), () =>
             emitterMatrix(2, 3, 4)
         );
         const system = set.systems[0]!;
@@ -464,7 +469,7 @@ describe("NPE moving emitter transforms", () => {
         const set = await buildNodeParticleSetWithBlendModes(
             {} as EngineContext,
             {} as SceneContext,
-            parseNodeParticleSource(worldPointGraph()),
+            await compileNodeParticleSource(worldPointGraph()),
             withNodeParticleEmitterProvider(() => emitterMatrix(2, 3, 4))
         );
         const system = set.systems[0]!;
@@ -519,7 +524,7 @@ describe("NPE moving emitter transforms", () => {
         const set = await buildNodeParticleSet(
             {} as EngineContext,
             {} as SceneContext,
-            parseNodeParticleSource(multiSystemGraph()),
+            await compileNodeParticleSource(multiSystemGraph()),
             withNodeParticleEmitterProvider(() => emitterMatrix(++providerCalls, 0, 0))
         );
         const first = set.systems[0]!;
@@ -548,7 +553,7 @@ describe("NPE moving emitter transforms", () => {
             buildStates.push(state);
         };
 
-        const liveSet = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(multiSystemGraph(worldCylinderGraph())), options);
+        const liveSet = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(multiSystemGraph(worldCylinderGraph())), options);
         const staticSystems = await Promise.all([
             buildNodeParticleGraph(worldCylinderGraph(), { emitterWorldMatrix: firstMatrix }),
             buildNodeParticleGraph(worldCylinderGraph(), { emitterWorldMatrix: secondMatrix }),
@@ -595,8 +600,8 @@ describe("NPE moving emitter transforms", () => {
         const staticMatrix = emitterMatrix(-3, -2, -1);
         const staticMatrixSnapshot = Array.from(staticMatrix);
         const options = withNodeParticleEmitterProvider(() => emitterMatrix(emitterX, 0, 0), { emitterWorldMatrix: staticMatrix });
-        const firstSet = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(worldPointGraph()), options);
-        const secondSet = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(worldPointGraph()), options);
+        const firstSet = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(worldPointGraph()), options);
+        const secondSet = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(worldPointGraph()), options);
         const first = firstSet.systems[0]!;
         const second = secondSet.systems[0]!;
 
@@ -630,7 +635,7 @@ describe("NPE moving emitter transforms", () => {
             };
 
             _setHpmAllocator(allocateF64Mat4);
-            await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(worldPointGraph()), options);
+            await buildNodeParticleSet({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(worldPointGraph()), options);
 
             expect(providerCalls).toBe(1);
             expect(buildState!.emitterWorldMatrix).toBeInstanceOf(Float64Array);
@@ -650,10 +655,10 @@ describe("NPE moving emitter transforms", () => {
         const liveSet = await builder(
             {} as EngineContext,
             {} as SceneContext,
-            parseNodeParticleSource(multiCylinderGraph()),
+            await compileNodeParticleSource(multiCylinderGraph()),
             withNodeParticleEmitterProvider(() => transformed)
         );
-        const staticSet = await builder({} as EngineContext, {} as SceneContext, parseNodeParticleSource(multiCylinderGraph()), { emitterWorldMatrix: transformed });
+        const staticSet = await builder({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(multiCylinderGraph()), { emitterWorldMatrix: transformed });
         const live = liveSet.systems[0]!;
         const staticallyTransformed = staticSet.systems[0]!;
         const draws = [0.1, 0.2, 0.3, 0.4];
@@ -682,7 +687,7 @@ describe("NPE moving emitter transforms", () => {
         const set = await buildNodeParticleSet(
             {} as EngineContext,
             {} as SceneContext,
-            parseNodeParticleSource(worldPointGraph()),
+            await compileNodeParticleSource(worldPointGraph()),
             withNodeParticleEmitterProvider(() => providedMatrix, { emitterWorldMatrix: staticMatrix })
         );
         const system = set.systems[0]!;
@@ -703,7 +708,7 @@ describe("NPE moving emitter transforms", () => {
     it("validates the initial provider sample before building", async () => {
         const providerError = new Error("provider failed");
         await expect(
-            buildNodeParticleSetWithEmitterProvider({} as EngineContext, {} as SceneContext, parseNodeParticleSource(worldPointGraph()), () => {
+            buildNodeParticleSetWithEmitterProvider({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(worldPointGraph()), () => {
                 throw providerError;
             })
         ).rejects.toBe(providerError);
@@ -711,7 +716,7 @@ describe("NPE moving emitter transforms", () => {
             buildNodeParticleSetWithEmitterProvider(
                 {} as EngineContext,
                 {} as SceneContext,
-                parseNodeParticleSource(worldPointGraph()),
+                await compileNodeParticleSource(worldPointGraph()),
                 () => new Float32Array(15) as unknown as Mat4
             )
         ).rejects.toThrow("NodeParticle: emitter provider must return a finite 16-element matrix");
@@ -720,7 +725,7 @@ describe("NPE moving emitter transforms", () => {
     it("propagates per-frame provider errors before simulation and recovers on the next valid sample", async () => {
         let valid = true;
         let matrix = emitterMatrix(2, 3, 4, Math.PI / 4, 2, 0.5, 1.5);
-        const set = await buildNodeParticleSetWithEmitterProvider({} as EngineContext, {} as SceneContext, parseNodeParticleSource(worldCylinderGraph()), () =>
+        const set = await buildNodeParticleSetWithEmitterProvider({} as EngineContext, {} as SceneContext, await compileNodeParticleSource(worldCylinderGraph()), () =>
             valid ? matrix : emitterMatrix(Number.NaN, 0, 0)
         );
         const system = set.systems[0]!;

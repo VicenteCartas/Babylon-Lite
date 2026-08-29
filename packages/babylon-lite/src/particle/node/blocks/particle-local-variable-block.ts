@@ -108,20 +108,9 @@ export const particleLocalVariableBlock: NpeBlockEvaluator = {
                 return readSnapshot(shape, values[0]![index]!, values[1]![index]!, values[2]![index]!, values[3]![index]!, scratch);
             };
         } else {
-            const system = ctx.state.system!;
-            let epoch = ctx.state._localVariableLoopEpoch;
+            const epoch = ctx.state._localVariableLoopEpoch;
             if (!epoch) {
-                epoch = { value: 0 };
-                ctx.state._localVariableLoopEpoch = epoch;
-                const previous = system._prepareFrame;
-                system._prepareFrame = previous
-                    ? () => {
-                          previous();
-                          epoch!.value++;
-                      }
-                    : () => {
-                          epoch!.value++;
-                      };
+                throw new Error(`NodeParticle: ParticleLocalVariableBlock ${block.id} requires its compiled Loop frame effect`);
             }
             let lastEpoch = -1;
             let valid = false;
@@ -134,11 +123,11 @@ export const particleLocalVariableBlock: NpeBlockEvaluator = {
                 value1 = next1;
                 value2 = next2;
                 value3 = next3;
-                lastEpoch = epoch!.value;
+                lastEpoch = epoch.value;
                 valid = true;
             };
             getter = (index) => {
-                if (!valid || lastEpoch !== epoch!.value) {
+                if (!valid || lastEpoch !== epoch.value) {
                     shape = captureValue(input(index), block.id, shape, index, commit);
                 }
                 return readSnapshot(shape, value0, value1, value2, value3, scratch);

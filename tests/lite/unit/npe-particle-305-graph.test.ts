@@ -3,7 +3,7 @@ import { SCENE262_NPE_JSON } from "../../../lab/lite/src/shared/scene262-npe";
 import { createScene305NpeGraph } from "../../../lab/lite/src/shared/scene305-teleport-npe";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { normalizeNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-graph-plumbing";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { animateParticleSystem, startParticleSystem, type ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
@@ -75,7 +75,7 @@ function runDeterministic(system: ParticleSystem): Array<{ id: number } & Record
     return particles.sort((left, right) => left.id - right.id);
 }
 
-describe("Scene 305 Phase 3C graph", () => {
+describe("Scene 305 compiled graph", () => {
     it("threads Elbow and Debug into a Particle LocalVariable without changing deterministic state", async () => {
         const source = withoutTexture(createScene305NpeGraph());
         const parsed = parseNodeParticleSource(source);
@@ -85,31 +85,35 @@ describe("Scene 305 Phase 3C graph", () => {
         expect(local.serialized.scope).toBe(0);
         expect(debug.serialized.stackSize).toBe(37);
 
-        const normalized = await normalizeNodeParticleGraph(parsed);
-        const create = normalized.blocks.get(4)!;
+        const program = await compileNodeParticleGraph(parsed);
+        const create = program.blocks.get(4)!;
         expect(create.inputs.find((input) => input.name === "size")).toMatchObject({ targetBlockId: local.id, targetConnectionName: "output" });
-        expect(normalized.blocks.get(local.id)!.inputs.find((input) => input.name === "input")).toMatchObject({ targetBlockId: 11, targetConnectionName: "output" });
+        expect(program.blocks.get(local.id)!.inputs.find((input) => input.name === "input")).toMatchObject({ targetBlockId: 11, targetConnectionName: "output" });
         const reachable = new Set<number>();
         const visit = (blockId: number): void => {
             if (reachable.has(blockId)) {
                 return;
             }
             reachable.add(blockId);
-            for (const input of normalized.blocks.get(blockId)?.inputs ?? []) {
+            for (const input of program.blocks.get(blockId)?.inputs ?? []) {
                 if (input.targetBlockId != null && input.targetConnectionName != null) {
                     visit(input.targetBlockId);
                 }
             }
         };
-        for (const systemId of normalized.systemBlockIds) {
-            visit(systemId);
+        for (const template of program.systemTemplates) {
+            visit(template.systemBlockId);
         }
         expect(reachable.has(elbow.id)).toBe(false);
         expect(reachable.has(debug.id)).toBe(false);
 
-        const baseline = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(withoutTexture(SCENE262_NPE_JSON)));
-        const phase3c = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, normalized);
-        expect(runDeterministic(phase3c.systems[0]!)).toEqual(runDeterministic(baseline.systems[0]!));
-        expect([...phase3c.systems[0]!.buffer._columns.keys()].filter((name) => name.startsWith(`local.${local.id}.`))).toHaveLength(6);
+        const baseline = await buildNodeParticleSet(
+            {} as EngineContext,
+            {} as SceneContext,
+            await compileNodeParticleGraph(parseNodeParticleSource(withoutTexture(SCENE262_NPE_JSON)))
+        );
+        const compiled = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        expect(runDeterministic(compiled.systems[0]!)).toEqual(runDeterministic(baseline.systems[0]!));
+        expect([...compiled.systems[0]!.buffer._columns.keys()].filter((name) => name.startsWith(`local.${local.id}.`))).toHaveLength(6);
     });
 });

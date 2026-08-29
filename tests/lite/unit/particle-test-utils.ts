@@ -1,6 +1,7 @@
 import {
     animateParticleSystem,
     buildNodeParticleSet,
+    compileNodeParticleGraph,
     parseNodeParticleSource,
     startParticleSystem,
     type BuildNodeParticleOptions,
@@ -28,8 +29,8 @@ export async function buildNodeParticleGraph(
     scene = {} as SceneContext,
     engine = {} as EngineContext
 ): Promise<ParticleSystem> {
-    const graph = parseNodeParticleSource(source);
-    const set = await buildNodeParticleSet(engine, scene, graph, options);
+    const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+    const set = await buildNodeParticleSet(engine, scene, program, options);
     return set.systems[0]!;
 }
 

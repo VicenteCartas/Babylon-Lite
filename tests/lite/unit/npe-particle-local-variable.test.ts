@@ -4,10 +4,11 @@ import { mat4Identity } from "../../../packages/babylon-lite/src/math/mat4-ident
 import { mat4Translation } from "../../../packages/babylon-lite/src/math/mat4-translation";
 import type { Color4, Vec2, Vec3 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet, type NpeBuildContext, type NpeBuildState } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { withNodeParticleEmitterProvider } from "../../../packages/babylon-lite/src/particle/node/npe-emitter-provider";
-import { normalizeNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-graph-plumbing";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { loadValueBlockEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-registry-extra-values";
+import { installNodeParticleSystemEffects } from "../../../packages/babylon-lite/src/particle/node/npe-system-effects";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import type { NpeGetter, NpeValue } from "../../../packages/babylon-lite/src/particle/node/npe-value";
 import { killParticle, spawnParticle } from "../../../packages/babylon-lite/src/particle/particle-buffer";
@@ -46,6 +47,16 @@ async function buildLocalGetter(state: NpeBuildState, blockId: number, scope: un
         },
         addBuildPromise: () => undefined,
     };
+    if (scope !== 0 && !state._localVariableLoopEpoch) {
+        installNodeParticleSystemEffects(
+            {
+                systemBlockId: 0,
+                resources: { columns: [] },
+                effects: { prepareFrame: ["localVariableLoopEpoch"] },
+            },
+            state
+        );
+    }
     (await loadValueBlockEvaluator(block.className)).build(block, context);
     return output!;
 }
@@ -169,7 +180,7 @@ describe("ParticleLocalVariableBlock", () => {
     });
 
     it("prepares a provider before advancing the shared Loop epoch", async () => {
-        const graph = await normalizeNodeParticleGraph(
+        const graph = await compileNodeParticleGraph(
             parseNodeParticleSource({
                 blocks: [
                     { customType: "BABYLON.ParticleInputBlock", id: 1, systemSource: 3, inputs: [] },
@@ -382,7 +393,7 @@ describe("ParticleLocalVariableBlock", () => {
 
     it("uses one Loop snapshot for dynamic emit rate, existing updates, and births", async () => {
         let providerCalls = 0;
-        const graph = await normalizeNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
+        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
         const set = await buildNodeParticleSet(
             {} as EngineContext,
             {} as SceneContext,
@@ -403,7 +414,7 @@ describe("ParticleLocalVariableBlock", () => {
 
     it("keeps Loop snapshots independent across systems and builds", async () => {
         let providerCalls = 0;
-        const graph = await normalizeNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph(2)));
+        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph(2)));
         const options = withNodeParticleEmitterProvider(() => mat4Translation(++providerCalls, 0, 0));
         const firstBuild = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
         const secondBuild = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
@@ -433,7 +444,7 @@ describe("ParticleLocalVariableBlock", () => {
             setupEmitter(state);
             buildState = state;
         };
-        const graph = await normalizeNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
+        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
         const system = set.systems[0]!;
         startParticleSystem(system);

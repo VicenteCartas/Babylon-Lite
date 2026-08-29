@@ -4,6 +4,7 @@ import { addFacingBillboardSystemWithParticleBlend } from "../../../packages/bab
 import { createParticleBlend } from "../../../packages/babylon-lite/src/particle/particle-blend";
 import { createParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import { buildNodeParticleSetWithBlendModes, enableNodeParticleBlendModes } from "../../../packages/babylon-lite/src/particle/node/npe-blend-modes";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { systemBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/system-block";
 import type { NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
@@ -72,10 +73,12 @@ describe("NPE particle blend modes", () => {
     });
 
     it("resolves a mutable blend mode when the enriched set is registered", async () => {
-        const graph = parseNodeParticleSource({
-            blocks: [{ customType: "BABYLON.SystemBlock", id: 1, name: "system", capacity: 1, blendMode: 3, inputs: [], outputs: [] }],
-        });
-        const set = await buildNodeParticleSetWithBlendModes({} as EngineContext, {} as SceneContext, graph);
+        const program = await compileNodeParticleGraph(
+            parseNodeParticleSource({
+                blocks: [{ customType: "BABYLON.SystemBlock", id: 1, name: "system", capacity: 1, blendMode: 3, inputs: [], outputs: [] }],
+            })
+        );
+        const set = await buildNodeParticleSetWithBlendModes({} as EngineContext, {} as SceneContext, program);
         const system = set.systems[0]!;
         system.blendMode = 4;
         system.texture = {

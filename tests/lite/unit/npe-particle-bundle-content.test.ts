@@ -30,7 +30,7 @@ const HAS_MANIFEST = hasManifests(CANONICAL_PARTICLE_SCENES);
 const HAS_MOVING_EMITTER_MANIFEST = hasManifests(PROVIDER_ISOLATION_SCENES);
 const HAS_SPRITE_2D_MANIFEST = hasManifests(SPRITE_2D_BLEND_SCENES);
 const UNUSED_FEATURE_CHUNK =
-    /particle-(blend|billboard-renderable|billboard-scene)|registry-(variants|extra-basic|extra-emitters|extra-remaining|extra-values|local-shapes|phase4-values)|update-(attractor|flow-map|noise|direction|angle)-block|npe-(blend-modes|emitter-provider|flow-map-runtime|graph-plumbing(?:-runtime)?|live-emitter|noise-runtime|phase4-values|texture-update-runtime|texture-content)|cpu-texture-source|random-once-typed|random-composed-typed|setup-sprite-sheet-random|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|number-math|step|value-type|vector-length)|particle-input-local|local-position|box-shape-local|sphere-shape-local|point-shape|cone-shape|cylinder-shape|mesh-shape/;
+    /particle-(blend|billboard-renderable|billboard-scene)|registry-(variants|extra-basic|extra-emitters|extra-remaining|extra-values|local-shapes|value-math)|update-(attractor|flow-map|noise|direction|angle)-block|npe-(blend-modes|emitter-provider|flow-map-runtime|graph-plumbing-runtime|live-emitter|noise-runtime|value-compilation|texture-update-runtime|texture-content)|cpu-texture-source|random-once-typed|random-composed-typed|setup-sprite-sheet-random|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|number-math|step|value-type|vector-length)|particle-input-local|local-position|box-shape-local|sphere-shape-local|point-shape|cone-shape|cylinder-shape|mesh-shape/;
 const OPTIONAL_BLEND_MODULE = /particle\/(particle-(blend|billboard-renderable|billboard-scene)|node\/npe-blend-modes)/;
 const EMBEDDED_TEXTURE_SOURCE = "embedded-texture-source";
 const EMBEDDED_TEXTURE_SOURCE_MODULE = /\/blocks\/embedded-texture-source-block\.[jt]s$/;
@@ -65,16 +65,15 @@ function expectEmbeddedTextureModuleIsolation(sceneId: number, moduleIds: string
 }
 
 describe("Particle bundle feature isolation", () => {
-    it("keeps Phase 4A activation in the opt-in graph normalizer", () => {
-        const normalizer = readFileSync(resolve(NPE_SOURCE_DIR, "npe-graph-plumbing.ts"), "utf8");
-        const enabler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-phase4-values.ts"), "utf8");
-        const registry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-phase4-values.ts"), "utf8");
-        expect(normalizer).toContain('import("./npe-phase4-values.js")');
-        expect(enabler).toContain('from "./blocks/particle-value-type.js"');
-        expect(enabler).toContain('import("./npe-registry-phase4-values.js")');
-        expect(readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-extra-values.ts"), "utf8")).not.toContain("phase4");
+    it("keeps value-math compilation behind the opt-in compiler boundary", () => {
+        const compiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-compiler.ts"), "utf8");
+        const valueCompilation = readFileSync(resolve(NPE_SOURCE_DIR, "npe-value-compilation.ts"), "utf8");
+        const registry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-value-math.ts"), "utf8");
+        expect(compiler).toContain('import("./npe-value-compilation.js")');
+        expect(valueCompilation).toContain('from "./blocks/particle-value-type.js"');
+        expect(valueCompilation).toContain('import("./npe-registry-value-math.js")');
         for (const owner of ["npe-parser.ts", "npe-build.ts", "npe-registry.ts"]) {
-            expect(readFileSync(resolve(NPE_SOURCE_DIR, owner), "utf8")).not.toContain("npe-phase4-values");
+            expect(readFileSync(resolve(NPE_SOURCE_DIR, owner), "utf8")).not.toContain("npe-value-compilation");
         }
         expect(registry).toContain('import("./blocks/particle-math-int-block.js")');
         for (const moduleName of ["particle-number-math-block", "particle-clamp-block", "particle-step-block"]) {
@@ -83,6 +82,26 @@ describe("Particle bundle feature isolation", () => {
                 expect(readFileSync(resolve(NPE_SOURCE_DIR, owner), "utf8")).not.toContain(`blocks/${moduleName}`);
             }
         }
+    });
+
+    it("keeps sprite-sheet storage separate from unrelated resource compilation", () => {
+        const compiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-compiler.ts"), "utf8");
+        const resources = readFileSync(resolve(NPE_SOURCE_DIR, "npe-resource-compilation.ts"), "utf8");
+        const spriteResources = readFileSync(resolve(NPE_SOURCE_DIR, "npe-sprite-resource-compilation.ts"), "utf8");
+
+        expect(compiler).toContain('import("./npe-sprite-resource-compilation.js")');
+        expect(resources).not.toContain("SetupSpriteSheetBlock");
+        expect(resources).not.toContain("sprite.cellIndex");
+        expect(spriteResources).toContain("SetupSpriteSheetBlock");
+        expect(spriteResources).toContain("sprite.cellIndex");
+    });
+
+    it.skipIf(!hasManifests([276]))("fetches only the sprite resource compiler for the sprite-only fixture", () => {
+        const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene276.json"), "utf8")) as SceneManifest;
+        const chunks = manifest.runtimeChunks ?? [];
+
+        expect(chunks.some((chunk) => chunk.includes("npe-sprite-resource-compilation"))).toBe(true);
+        expect(chunks.filter((chunk) => /scene276-npe-resource-compilation-/.test(chunk))).toEqual([]);
     });
 
     it("keeps the frozen scene305 fixture free of camera controls", () => {
@@ -154,7 +173,7 @@ describe("Particle bundle feature isolation", () => {
             }
             const moduleOffenders = runtimeModuleIds.filter(
                 (id) =>
-                    /particle\/(particle-billboard-renderable|node\/(npe-(emitter-provider|flow-map-runtime|live-emitter|noise-runtime|phase4-values|texture-update-runtime|local-position|texture-content)|npe-registry-(extra-remaining|extra-values|local-shapes|phase4-values)|blocks\/(cpu-texture-source-block|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|number-math|step|value-type|vector-length)|update-(attractor|flow-map|noise)-block|(box|point|sphere|cone|cylinder|mesh)-shape-local)))|math\/mat4-invert/.test(
+                    /particle\/(particle-billboard-renderable|node\/(npe-(emitter-provider|flow-map-runtime|live-emitter|noise-runtime|value-compilation|texture-update-runtime|local-position|texture-content)|npe-registry-(extra-remaining|extra-values|local-shapes|value-math)|blocks\/(cpu-texture-source-block|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|number-math|step|value-type|vector-length)|update-(attractor|flow-map|noise)-block|(box|point|sphere|cone|cylinder|mesh)-shape-local)))|math\/mat4-invert/.test(
                         id
                     ) &&
                     !(sceneId === 277 && (id.includes("npe-registry-extra-remaining") || id.includes("update-attractor-block"))) &&
@@ -249,19 +268,19 @@ describe("Particle bundle feature isolation", () => {
     });
 
     for (const sceneId of GRAPH_PLUMBING_SCENES) {
-        it.skipIf(!hasManifests([sceneId]))(`fetches graph plumbing and local storage only for the Phase 3 graph in scene${sceneId}`, () => {
+        it.skipIf(!hasManifests([sceneId]))(`fetches graph plumbing and local storage only for the compiled graph in scene${sceneId}`, () => {
             const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, `scene${sceneId}.json`), "utf8")) as SceneManifest;
             const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
             expect(runtimeChunks.size, `scene${sceneId} has no runtime chunks recorded`).toBeGreaterThan(0);
-            const normalizerChunks = [...runtimeChunks].filter((chunk) => chunk.includes("npe-graph-plumbing-runtime"));
+            const topologyChunks = [...runtimeChunks].filter((chunk) => chunk.includes("npe-graph-plumbing-runtime"));
             if (sceneId === 305) {
-                expect(normalizerChunks.length, "scene305 must fetch the heavy graph-plumbing runtime chunk").toBeGreaterThan(0);
+                expect(topologyChunks.length, "scene305 must fetch the graph-plumbing runtime chunk").toBeGreaterThan(0);
                 expect(
                     [...runtimeChunks].filter((chunk) => chunk.includes("arc-rotate-controls")),
                     "scene305 must not fetch an arc-rotate-controls runtime chunk"
                 ).toEqual([]);
             } else {
-                expect(normalizerChunks, `scene${sceneId} must not fetch the heavy graph-plumbing runtime`).toEqual([]);
+                expect(topologyChunks, `scene${sceneId} must not fetch the graph-plumbing runtime`).toEqual([]);
             }
 
             const bundleInfoPath = resolve(BUNDLE_INFO_DIR, `scene${sceneId}.json`);
@@ -273,7 +292,7 @@ describe("Particle bundle feature isolation", () => {
                 .filter((chunk) => chunk.file && runtimeChunks.has(chunk.file))
                 .flatMap((chunk) => chunk.modules ?? [])
                 .map((module) => (module.id ?? "").replace(/\\/g, "/"));
-            const helperModules = runtimeModuleIds.filter((id) => /\/particle\/node\/npe-graph-plumbing\.[jt]s$/.test(id));
+            const compilerModules = runtimeModuleIds.filter((id) => /\/particle\/node\/npe-compiler\.[jt]s$/.test(id));
             const runtimeModules = runtimeModuleIds.filter((id) => /\/particle\/node\/npe-graph-plumbing-runtime\.[jt]s$/.test(id));
             const localModules = runtimeModuleIds.filter((id) => /\/particle\/node\/blocks\/particle-local-variable-block\.[jt]s$/.test(id));
             if (sceneId === 305) {
@@ -281,8 +300,8 @@ describe("Particle bundle feature isolation", () => {
                     runtimeModuleIds.filter((id) => /\/scene305-teleport-npe\.ts$/.test(id)),
                     "scene305 must keep its checked-in graph in the ignored *-npe.ts payload convention"
                 ).toHaveLength(1);
-                expect(helperModules.length, "scene305 must fetch the thin graph-plumbing helper module").toBeGreaterThan(0);
-                expect(runtimeModules.length, "scene305 must fetch the heavy graph-plumbing runtime module").toBeGreaterThan(0);
+                expect(compilerModules.length, "scene305 must fetch the node-particle compiler module").toBeGreaterThan(0);
+                expect(runtimeModules.length, "scene305 must fetch the graph-plumbing runtime module").toBeGreaterThan(0);
                 expect(localModules.length, "scene305 must fetch the Particle LocalVariable evaluator").toBeGreaterThan(0);
                 expect(
                     runtimeModuleIds.filter((id) => /\/camera\/arc-rotate-controls\.[jt]s$/.test(id)),
@@ -293,11 +312,10 @@ describe("Particle bundle feature isolation", () => {
                         id
                     )
                 );
-                expect(offenders, "scene305 must contain only default-builder Phase 3 plumbing").toEqual([]);
+                expect(offenders, "scene305 must contain only default-builder graph plumbing").toEqual([]);
             } else {
-                expect(helperModules, `scene${sceneId} must not fetch the thin graph-plumbing helper module`).toEqual([]);
                 expect(runtimeModules, `scene${sceneId} must not fetch the heavy graph-plumbing runtime module`).toEqual([]);
-                expect(localModules, `scene${sceneId} must not fetch the Phase 3C local evaluator`).toEqual([]);
+                expect(localModules, `scene${sceneId} must not fetch the local evaluator`).toEqual([]);
             }
         });
     }

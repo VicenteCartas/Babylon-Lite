@@ -1,9 +1,9 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
-import type { ParsedParticleBlock } from "./npe-types.js";
+import type { CompiledParticleBlock } from "./npe-types.js";
 
-/** Phase 4 value math routing, loaded only after the established value registry misses. */
-export async function loadPhase4ValueBlockEvaluator(block: ParsedParticleBlock): Promise<NpeBlockEvaluator | undefined> {
-    switch (block.className) {
+/** Resolve optional value-math evaluators from compiled block metadata. */
+export async function loadNodeParticleValueMathEvaluator(block: CompiledParticleBlock): Promise<NpeBlockEvaluator | undefined> {
+    switch (block._evaluatorClassName ?? block.className) {
         case "ParticleNumberMathBlock":
             return (await import("./blocks/particle-number-math-block.js")).particleNumberMathBlock;
         case "ParticleIntMathBlock":

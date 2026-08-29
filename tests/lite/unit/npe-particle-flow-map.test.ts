@@ -1,14 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createArcRotateCamera } from "../../../packages/babylon-lite/src/camera/arc-rotate";
 import { _resetMatrixAllocatorForTests, _setHpmAllocator } from "../../../packages/babylon-lite/src/math/_matrix-allocator";
+import { mat4Identity } from "../../../packages/babylon-lite/src/math/mat4-identity";
 import type { Mat4 } from "../../../packages/babylon-lite/src/math/types";
 import type { Texture2D } from "../../../packages/babylon-lite/src/texture/texture-2d";
 import { createParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import { registerNodeParticleSet } from "../../../packages/babylon-lite/src/particle/particle-scene";
 import { cpuTextureSourceBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/cpu-texture-source-block";
 import { updateFlowMapBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/update-flow-map-block";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map";
-import type { NodeParticleSet, NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import type { NodeParticleSet, NpeBuildContext, NpeBuildState } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import { installNodeParticleFlowMapBindings } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map-frame-binding";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { loadNpeTextureContent } from "../../../packages/babylon-lite/src/particle/node/npe-texture-content";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
@@ -40,8 +43,17 @@ async function attachFlowMap(
     source: NpeTextureValue = { url: "flow.png", invertY: false, _content: Promise.resolve(map) }
 ): Promise<void> {
     const promises: Promise<void>[] = [];
+    const state = { system, buffer: system.buffer, scene } as NpeBuildState;
+    installNodeParticleFlowMapBindings(
+        {
+            systemBlockId: 0,
+            resources: { columns: [] },
+            bindings: { frame: [{ blockId: 1, kind: "flowMapViewProjection" }] },
+        },
+        state
+    );
     const ctx = {
-        state: { system, buffer: system.buffer, scene },
+        state,
         input(_block: ParsedParticleBlock, name: string): NpeGetter {
             return name === "flowMap" ? ((() => source) as unknown as NpeGetter) : strengthGetter;
         },
@@ -104,6 +116,45 @@ describe("NPE UpdateFlowMapBlock", () => {
 
         expect(allocations).toHaveLength(1);
         expect(allocations[0]).toBeInstanceOf(Float64Array);
+    });
+
+    it("installs independent frame bindings when one program is built for two scenes", async () => {
+        const firstScene = createFlowScene(null);
+        const secondScene = createFlowScene(null);
+        const firstEmitter = mat4Identity();
+        const secondEmitter = mat4Identity();
+        const allocations: Float64Array[] = [];
+        _setHpmAllocator(() => {
+            const matrix = new Float64Array(16);
+            allocations.push(matrix);
+            return matrix as unknown as Mat4;
+        });
+        const program = await compileNodeParticleGraph(
+            parseNodeParticleSource({
+                blocks: [
+                    { customType: "BABYLON.CreateParticleBlock", id: 1, inputs: [] },
+                    {
+                        customType: "BABYLON.UpdateFlowMapBlock",
+                        id: 2,
+                        inputs: [{ name: "particle", targetBlockId: 1, targetConnectionName: "particle" }],
+                    },
+                    {
+                        customType: "BABYLON.SystemBlock",
+                        id: 3,
+                        inputs: [{ name: "particle", targetBlockId: 2, targetConnectionName: "particle" }],
+                    },
+                ],
+            })
+        );
+
+        await buildNodeParticleSetWithFlowMaps({} as never, firstScene, program, { emitterWorldMatrix: firstEmitter });
+        await buildNodeParticleSetWithFlowMaps({} as never, secondScene, program, { emitterWorldMatrix: secondEmitter });
+
+        expect(allocations).toHaveLength(2);
+        expect(allocations[0]).not.toBe(allocations[1]);
+        expect(firstScene._beforeRender).toHaveLength(1);
+        expect(secondScene._beforeRender).toHaveLength(1);
+        expect(firstScene._beforeRender[0]).not.toBe(secondScene._beforeRender[0]);
     });
 
     it("rejects samples outside the screen and ignores transparent pixels", async () => {
@@ -245,7 +296,9 @@ describe("NPE UpdateFlowMapBlock", () => {
             ],
         });
         const originalFlowInput = graph.blocks.get(3)!.inputs.find((input) => input.name === "flowMap")!;
-        const set = await buildNodeParticleSetWithFlowMaps({ _device: {} } as never, scene, graph);
+        const program = await compileNodeParticleGraph(graph);
+        expect(program.systemTemplates[0]!.bindings).toEqual({ frame: [{ blockId: 3, kind: "flowMapViewProjection" }] });
+        const set = await buildNodeParticleSetWithFlowMaps({ _device: {} } as never, scene, program);
         const system = set.systems[0]!;
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(originalFlowInput.targetBlockId).toBe(2);
@@ -301,7 +354,8 @@ describe("NPE UpdateFlowMapBlock", () => {
                 { customType: "BABYLON.ParticleInputBlock", id: 4, type: 2, value: 2, inputs: [] },
             ],
         });
-        const set = await buildNodeParticleSetWithFlowMaps({ _device: {} } as never, scene, graph);
+        const program = await compileNodeParticleGraph(graph);
+        const set = await buildNodeParticleSetWithFlowMaps({ _device: {} } as never, scene, program);
         const system = set.systems[0]!;
         system.buffer.angle[0] = 7;
         system._scaledStep = 1;

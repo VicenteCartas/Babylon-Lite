@@ -1,4 +1,4 @@
-import type { ParticleGraph, ParsedParticleBlock, ParsedParticleInput } from "./npe-types.js";
+import type { ParsedNodeParticleGraph, ParsedParticleBlock, ParsedParticleInput } from "./npe-types.js";
 
 interface RawInput {
     name?: string;
@@ -25,13 +25,13 @@ function stripBabylonPrefix(customType: string | undefined): string {
 }
 
 /**
- * Parse a node-particle graph source object (the inner `nodeParticle` payload) into a {@link ParticleGraph}.
+ * Parse a node-particle graph source object (the inner `nodeParticle` payload) into a {@link ParsedNodeParticleGraph}.
  *
  * The serialized shape mirrors Babylon.js `NodeParticleSystemSet.serialize`: a flat `blocks` array where
  * each block carries `customType`, `id`, `name`, and an `inputs` array whose entries reference their source
  * via `targetBlockId` + `targetConnectionName`. `SystemBlock` instances are the graph roots.
  */
-export function parseNodeParticleSource(source: unknown): ParticleGraph {
+export function parseNodeParticleSource(source: unknown): ParsedNodeParticleGraph {
     const raw = source as { blocks?: RawBlock[] };
     if (!raw || !Array.isArray(raw.blocks)) {
         throw new Error("NodeParticle: invalid source — expected a `blocks` array");
@@ -43,6 +43,9 @@ export function parseNodeParticleSource(source: unknown): ParticleGraph {
     for (const rb of raw.blocks) {
         if (typeof rb.id !== "number") {
             throw new Error(`NodeParticle: block missing numeric id (name=${String(rb.name)})`);
+        }
+        if (blocks.has(rb.id)) {
+            throw new Error(`NodeParticle: duplicate block id ${rb.id}`);
         }
 
         const className = stripBabylonPrefix(rb.customType);
@@ -58,7 +61,8 @@ export function parseNodeParticleSource(source: unknown): ParticleGraph {
             });
         }
 
-        blocks.set(rb.id, { id: rb.id, className, name: rb.name ?? "", inputs, serialized: rb as Record<string, unknown> });
+        const serializedInputs = (rb.inputs ?? []).map((input) => ({ ...input }));
+        blocks.set(rb.id, { id: rb.id, className, name: rb.name ?? "", inputs, serialized: { ...rb, inputs: serializedInputs } });
 
         if (className === "SystemBlock") {
             systemBlockIds.push(rb.id);

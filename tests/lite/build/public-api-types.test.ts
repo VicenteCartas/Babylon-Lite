@@ -136,13 +136,31 @@ describe("build/index.d.ts", () => {
         expect(dts).not.toMatch(/\b_(?:capture|setup)Emitter\b|\b_emitterProvider\b|\bParticleEmitterState\b/);
     });
 
-    it("exposes the graph normalizer without its internal runtime or marker", () => {
+    it("exposes the graph compiler and lifecycle types without compiler internals", () => {
         const dts = readFileSync(DTS_PATH, "utf-8");
 
-        expect(dts).toContain("normalizeNodeParticleGraph");
-        expect(dts).toMatch(/normalizeNodeParticleGraph\(graph: ParticleGraph\): Promise<ParticleGraph>/);
-        expect(dts).not.toContain("normalizeNodeParticleGraphRuntime");
+        expect(dts).toMatch(/parseNodeParticleSource\(source: unknown\): ParsedNodeParticleGraph/);
+        expect(dts).toMatch(/compileNodeParticleGraph\(parsed: ParsedNodeParticleGraph\): Promise<NodeParticleProgram>/);
+        expect(dts).toMatch(/buildNodeParticleSet\(engine: EngineContext, scene: SceneContext, program: NodeParticleProgram/);
+        expect(dts).toContain("interface ParsedNodeParticleGraph");
+        expect(dts).toContain("interface NodeParticleProgram");
+        expect(dts).toContain('type NodeParticlePrepareFrameEffect = "localVariableLoopEpoch"');
+        expect(dts).toContain("interface NodeParticleSystemEffectManifest");
+        expect(dts).toMatch(/readonly effects\?: NodeParticleSystemEffectManifest/);
+        expect(dts).toContain('readonly kind: "flowMapViewProjection"');
+        expect(dts).toContain("interface NodeParticleBindingManifest");
+        expect(dts).toMatch(/readonly bindings\?: NodeParticleBindingManifest/);
+        expect(dts).not.toContain("normalizeNodeParticleGraph");
+        expect(dts).not.toContain("compileNodeParticleTopology");
+        expect(dts).not.toContain("compileNodeParticleValueTypes");
+        expect(dts).not.toContain("loadNodeParticleValueMathEvaluator");
+        expect(dts).not.toContain("installNodeParticleSystemEffects");
+        expect(dts).not.toContain("_installSystemEffects");
+        expect(dts).not.toContain("installNodeParticleFlowMapBindings");
+        expect(dts).not.toContain("_setupFrameBindings");
+        expect(dts).not.toContain("_frameBindings");
         expect(dts).not.toContain("_isGraphPlumbingNormalized");
+        expect(dts).not.toContain("_compiled");
         expect(dts).not.toContain("_localVariableLoopEpoch");
     });
 

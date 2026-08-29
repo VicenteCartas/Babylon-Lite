@@ -7,11 +7,11 @@ import {
     addFacingBillboardSystem,
     animateParticleSystem,
     buildNodeParticleSet,
+    compileNodeParticleGraph,
     createArcRotateCamera,
     createEngine,
     createParticleBillboard,
     createSceneContext,
-    normalizeNodeParticleGraph,
     parseNodeParticleSource,
     registerScene,
     startEngine,
@@ -36,8 +36,8 @@ async function main(): Promise<void> {
     scene.camera = camera;
     // This frozen parity fixture mirrors the non-interactive Babylon.js oracle, so controls are intentionally omitted.
 
-    const graph = await normalizeNodeParticleGraph(parseNodeParticleSource(createScene305NpeGraph()));
-    const set = await buildNodeParticleSet(engine, scene, graph, {
+    const program = await compileNodeParticleGraph(parseNodeParticleSource(createScene305NpeGraph()));
+    const set = await buildNodeParticleSet(engine, scene, program, {
         emitter: { x: 0, y: 0, z: 0 },
         textureBaseUrl: "https://playground.babylonjs.com/",
     });

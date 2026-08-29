@@ -2,6 +2,7 @@ import {
     animateParticleSystem,
     attachControl,
     buildNodeParticleSet,
+    compileNodeParticleGraph,
     createArcRotateCamera,
     createEngine,
     createSceneContext,
@@ -84,10 +85,11 @@ async function main(): Promise<void> {
 
     let set: Awaited<ReturnType<typeof buildNodeParticleSet>>;
     try {
+        const program = await compileNodeParticleGraph(parseNodeParticleSource(createScene302NpeGraph()));
         set = await buildNodeParticleSet(
             engine,
             scene,
-            parseNodeParticleSource(createScene302NpeGraph()),
+            program,
             withNodeParticleEmitterProvider(provider, { emitter: { x: 0, y: 0, z: 0 } })
         );
         const system = set.systems[0];

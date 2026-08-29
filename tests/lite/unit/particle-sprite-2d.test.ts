@@ -73,7 +73,7 @@ function makeSystem(capacity = 4) {
 }
 
 function makeSet(...systems: ReturnType<typeof createParticleSystem>[]): NodeParticleSet {
-    return { systems, _graph: {} as never };
+    return { systems, _program: {} as never };
 }
 
 function addParticle(

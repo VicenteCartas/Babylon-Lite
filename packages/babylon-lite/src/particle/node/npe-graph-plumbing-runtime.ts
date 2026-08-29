@@ -1,4 +1,4 @@
-import type { ParticleGraph, ParsedParticleBlock, ParsedParticleInput } from "./npe-types.js";
+import type { ParsedNodeParticleGraph, ParsedParticleBlock, ParsedParticleInput } from "./npe-types.js";
 
 type SourcePair = readonly [blockId: number, connectionName: string];
 
@@ -34,8 +34,8 @@ function connectionRole(block: ParsedParticleBlock, input: ParsedParticleInput):
     return "";
 }
 
-/** @internal Normalize reachable graph-plumbing routes without mutating the parsed graph. */
-export function normalizeNodeParticleGraphRuntime(graph: ParticleGraph): ParticleGraph {
+/** @internal Compile reachable graph-plumbing routes without mutating parsed source data. */
+export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): ParsedNodeParticleGraph {
     const resolvedSources = new Map<string, SourcePair>();
 
     const resolveSource = (blockId: number, connectionName: string, role: ConnectionRole, stack: readonly number[]): SourcePair => {
@@ -165,7 +165,7 @@ export function normalizeNodeParticleGraphRuntime(graph: ParticleGraph): Particl
         visitBlock(systemId, SYSTEM_DOMAIN);
     }
     if (!blocks) {
-        return { blocks: graph.blocks, systemBlockIds: graph.systemBlockIds, _isGraphPlumbingNormalized: true };
+        return graph;
     }
-    return { blocks, systemBlockIds: graph.systemBlockIds, _isGraphPlumbingNormalized: true };
+    return { blocks, systemBlockIds: graph.systemBlockIds };
 }

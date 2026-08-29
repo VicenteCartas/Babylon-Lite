@@ -5,6 +5,7 @@ import {
     animateParticleSystem,
     attachControl,
     buildNodeParticleSetWithNoiseTextures,
+    compileNodeParticleGraph,
     createArcRotateCamera,
     createEngine,
     createParticleBillboard,
@@ -36,14 +37,16 @@ async function main(): Promise<void> {
     scene.camera = camera;
     attachControl(camera, canvas, scene);
 
-    const graph = parseNodeParticleSource(
-        createScene281NpeJson({
-            noise,
-            noiseStrength: live ? [6, 2, 6] : undefined,
-            deterministicEmitter: live,
-        })
+    const program = await compileNodeParticleGraph(
+        parseNodeParticleSource(
+            createScene281NpeJson({
+                noise,
+                noiseStrength: live ? [6, 2, 6] : undefined,
+                deterministicEmitter: live,
+            })
+        )
     );
-    const set = await buildNodeParticleSetWithNoiseTextures(engine, scene, graph, {
+    const set = await buildNodeParticleSetWithNoiseTextures(engine, scene, program, {
         emitter: { x: 0, y: 0, z: 0 },
         textureBaseUrl: "https://playground.babylonjs.com/",
     });

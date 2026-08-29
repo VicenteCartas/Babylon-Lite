@@ -24,7 +24,7 @@ export async function loadNpeBlockEvaluator(className: string): Promise<NpeBlock
         case "ParticleInputBlock":
             return (await import("./blocks/particle-input-block.js")).particleInputBlock;
         case "ParticleMathBlock":
-            return (await import("./blocks/particle-math-compact-block.js")).particleMathCompactBlock;
+            return (await import("./blocks/particle-math-block.js")).particleMathBlock;
         case "ParticleLerpBlock":
             return (await import("./blocks/particle-lerp-block.js")).particleLerpBlock;
         case "ParticleConverterBlock":

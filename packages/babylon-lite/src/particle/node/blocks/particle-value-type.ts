@@ -1,4 +1,4 @@
-import type { ParsedParticleBlock } from "../npe-types.js";
+import type { CompiledParticleBlock, ParsedParticleBlock } from "../npe-types.js";
 
 function hasIntInput(blocks: ReadonlyMap<number, ParsedParticleBlock>, block: ParsedParticleBlock, inputName: string, visiting: Set<number>): boolean {
     const input = block.inputs.find((candidate) => candidate.name === inputName);
@@ -55,21 +55,22 @@ export function hasIntBlockInput(blocks: ReadonlyMap<number, ParsedParticleBlock
     return blocks !== undefined && hasIntInput(blocks, block, inputName, new Set());
 }
 
-/** Annotate connected inputs with their recursively propagated Int type. */
-export function resolveParticleValueTypes(blocks: ReadonlyMap<number, ParsedParticleBlock>): void {
+/** Compile propagated Int types and evaluator variants without mutating parsed blocks. */
+export function resolveParticleValueTypes(blocks: ReadonlyMap<number, ParsedParticleBlock>): ReadonlyMap<number, CompiledParticleBlock> {
+    const compiled = new Map<number, CompiledParticleBlock>();
     for (const block of blocks.values()) {
-        for (const input of block.inputs) {
-            if (hasIntInput(blocks, block, input.name, new Set())) {
-                (input as { valueType?: string }).valueType = "int";
-            }
-        }
-    }
-    for (const block of blocks.values()) {
+        const inputs = block.inputs.map((input) => (hasIntInput(blocks, block, input.name, new Set()) ? { ...input, valueType: "int" } : input));
+        let evaluatorClassName: string | undefined;
         if (block.className === "ParticleMathBlock" && hasIntInput(blocks, block, "left", new Set())) {
             const left = block.inputs.find((input) => input.name === "left");
             const right = block.inputs.find((input) => input.name === "right");
             const alias = left?.targetBlockId === right?.targetBlockId && left?.targetConnectionName === right?.targetConnectionName;
-            (block as { className: string }).className = alias ? "ParticleIntMathAliasBlock" : "ParticleIntMathBlock";
+            evaluatorClassName = alias ? "ParticleIntMathAliasBlock" : "ParticleIntMathBlock";
         }
+        compiled.set(
+            block.id,
+            evaluatorClassName || inputs.some((input, index) => input !== block.inputs[index]) ? { ...block, inputs, _evaluatorClassName: evaluatorClassName } : block
+        );
     }
+    return compiled;
 }
