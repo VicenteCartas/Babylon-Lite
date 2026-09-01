@@ -5,6 +5,7 @@ import type { EngineContext } from "../../../packages/babylon-lite/src/engine/en
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
+import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import { animateParticleSystem, startParticleSystem, type ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
 
@@ -79,33 +80,15 @@ describe("Scene 305 compiled graph", () => {
     it("threads Elbow and Debug into a Particle LocalVariable without changing deterministic state", async () => {
         const source = withoutTexture(createScene305NpeGraph());
         const parsed = parseNodeParticleSource(source);
-        const local = [...parsed.blocks.values()].find((block) => block.className === "ParticleLocalVariableBlock")!;
-        const elbow = [...parsed.blocks.values()].find((block) => block.className === "ParticleElbowBlock")!;
-        const debug = [...parsed.blocks.values()].find((block) => block.className === "ParticleDebugBlock")!;
-        expect(local.serialized.scope).toBe(0);
-        expect(debug.serialized.stackSize).toBe(37);
+        const local = parsed.blocks.find((block) => block.customType === "BABYLON.ParticleLocalVariableBlock")!;
+        expect(local.scope).toBe(0);
 
         const program = await compileNodeParticleGraph(parsed);
-        const create = program.blocks.get(4)!;
-        expect(create.inputs.find((input) => input.name === "size")).toMatchObject({ targetBlockId: local.id, targetConnectionName: "output" });
-        expect(program.blocks.get(local.id)!.inputs.find((input) => input.name === "input")).toMatchObject({ targetBlockId: 11, targetConnectionName: "output" });
-        const reachable = new Set<number>();
-        const visit = (blockId: number): void => {
-            if (reachable.has(blockId)) {
-                return;
-            }
-            reachable.add(blockId);
-            for (const input of program.blocks.get(blockId)?.inputs ?? []) {
-                if (input.targetBlockId != null && input.targetConnectionName != null) {
-                    visit(input.targetBlockId);
-                }
-            }
-        };
-        for (const template of program.systemTemplates) {
-            visit(template.systemBlockId);
-        }
-        expect(reachable.has(elbow.id)).toBe(false);
-        expect(reachable.has(debug.id)).toBe(false);
+        const blockTypes = program._systems.flatMap((operations) =>
+            operations.filter((operation): operation is ParsedParticleBlock => "customType" in operation).map((block) => block.customType)
+        );
+        expect(blockTypes).not.toContain("BABYLON.ParticleElbowBlock");
+        expect(blockTypes).not.toContain("BABYLON.ParticleDebugBlock");
 
         const baseline = await buildNodeParticleSet(
             {} as EngineContext,

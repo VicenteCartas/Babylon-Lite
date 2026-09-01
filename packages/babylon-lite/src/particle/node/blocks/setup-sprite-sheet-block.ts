@@ -12,7 +12,7 @@ export const setupSpriteSheetBlock: NpeBlockEvaluator = {
     build(block, ctx) {
         const system = ctx.state.system!;
         const buffer = ctx.state.buffer!;
-        const s = block.serialized;
+        const s = block;
         const config: SpriteSheetConfig = {
             startCellID: typeof s.start === "number" ? s.start : 0,
             endCellID: typeof s.end === "number" ? s.end : 0,
@@ -23,6 +23,8 @@ export const setupSpriteSheetBlock: NpeBlockEvaluator = {
         system._spriteSheet = {
             cellWidth: typeof s.width === "number" ? s.width : 0,
             cellHeight: typeof s.height === "number" ? s.height : 0,
+            startCellID: config.startCellID,
+            endCellID: config.endCellID,
             cellIndex: sheet.cellIndex,
             update: sheet.update,
         };

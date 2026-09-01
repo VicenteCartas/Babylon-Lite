@@ -37,3 +37,5 @@ export const boxShapeLocalBlock: NpeBlockEvaluator = {
         };
     },
 };
+
+export { boxShapeLocalBlock as evaluator };

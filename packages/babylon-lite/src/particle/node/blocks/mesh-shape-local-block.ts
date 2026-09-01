@@ -13,7 +13,7 @@ interface CachedVertexData {
 /** Emitter-local `MeshShapeBlock`. */
 export const meshShapeLocalBlock: NpeBlockEvaluator = {
     build(block, ctx) {
-        const cached = block.serialized.cachedVertexData as CachedVertexData | undefined;
+        const cached = block.cachedVertexData as CachedVertexData | undefined;
         const positions = cached?.positions;
         const indices = cached?.indices;
         if (!positions || !indices) {
@@ -24,8 +24,8 @@ export const meshShapeLocalBlock: NpeBlockEvaluator = {
         const emitterWorldMatrix = ctx.state.emitterWorldMatrix;
         const normals = cached.normals;
         const colors = cached.colors;
-        const useNormals = block.serialized.useMeshNormalsForDirection !== false && !!normals;
-        const useColors = block.serialized.useMeshColorForColor === true && !!colors;
+        const useNormals = block.useMeshNormalsForDirection !== false && !!normals;
+        const useColors = block.useMeshColorForColor === true && !!colors;
         if (useNormals) {
             system._suppressInitialDirectionCapture = true;
         }
@@ -88,3 +88,5 @@ export const meshShapeLocalBlock: NpeBlockEvaluator = {
         };
     },
 };
+
+export { meshShapeLocalBlock as evaluator };

@@ -67,7 +67,7 @@ export const particleRandomBlock: NpeBlockEvaluator = {
     build(block, ctx) {
         const minGetter = ctx.input(block, "min", () => 0);
         const maxGetter = ctx.input(block, "max", () => 1);
-        const lockMode = typeof block.serialized.lockMode === "number" ? block.serialized.lockMode : LOCK_PER_PARTICLE;
+        const lockMode = typeof block.lockMode === "number" ? block.lockMode : LOCK_PER_PARTICLE;
 
         const buffer = ctx.state.buffer!;
         let stored: NpeValue = 0;
@@ -93,3 +93,5 @@ export const particleRandomBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleRandomBlock as evaluator };

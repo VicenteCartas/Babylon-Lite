@@ -62,3 +62,5 @@ export const particleLerpBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleLerpBlock as evaluator };

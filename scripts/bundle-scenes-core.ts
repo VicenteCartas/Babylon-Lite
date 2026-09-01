@@ -243,6 +243,8 @@ interface BundleManifestEntry {
      *  hides sub-50-byte drift — including a ceiling overflow on a zero-headroom scene. Tools
      *  comparing sizes (the build's ceiling check, the delta report) use this. */
     rawBytes?: number;
+    /** Exact sum of independently gzipped runtime chunks. `gzipKB` is the rounded display value. */
+    gzipBytes?: number;
     /**
      * The scene's `maxRawKB` ceiling **as it stood on the commit this baseline was measured
      * from**, stamped in at publish time by `scripts/publish-bundle-baseline.ts`.
@@ -1071,10 +1073,7 @@ function elapsed(startMs: number): string {
  *  preload form too late for a renderChunk/generateBundle hook to see it. */
 export function stripNoopPreloadWrappers(code: string): string {
     return code
-        .replace(
-            /[\w$]+\(async\(\)=>\{const\{([\w$]+):([\w$]+)\}=await (import\([^()]*\));return\{\1:\2\}\},\[\]\)/g,
-            "$3"
-        )
+        .replace(/[\w$]+\(async\(\)=>\{const\{([\w$]+):([\w$]+)\}=await (import\([^()]*\));return\{\1:\2\}\},\[\]\)/g, "$3")
         .replace(/[\w$]+\(\s*\(\s*\)\s*=>\s*(import\([^()]*\)(?:\.then\(\s*[\w$]+\s*=>\s*[\w$]+\.[\w$]+\s*\))?)\s*,\s*\[\s*\]\s*\)/g, "$1");
 }
 
@@ -1684,7 +1683,7 @@ async function measureLiteSceneWithRetry(
     browser: any,
     port: number,
     scene: string
-): Promise<{ rawKB: number; rawBytes: number; gzipKB: number; ignoredRawKB: number; chunks: string[] }> {
+): Promise<{ rawKB: number; rawBytes: number; gzipKB: number; gzipBytes: number; ignoredRawKB: number; chunks: string[] }> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= LITE_MEASURE_ATTEMPTS; attempt++) {
         try {
@@ -1727,8 +1726,8 @@ async function measureLiveSizes(liteScenes: readonly string[], bjsScenes: readon
         // Measure Lite scenes (write after each), retrying transient failures.
         for (const scene of liteScenes) {
             const tPage = performance.now();
-            const { rawKB, rawBytes, gzipKB, ignoredRawKB, chunks } = await measureLiteSceneWithRetry(browser, port, scene);
-            manifest[scene] = { ...manifest[scene], rawKB, rawBytes, gzipKB, ignoredRawKB, runtimeChunks: chunks };
+            const { rawKB, rawBytes, gzipKB, gzipBytes, ignoredRawKB, chunks } = await measureLiteSceneWithRetry(browser, port, scene);
+            manifest[scene] = { ...manifest[scene], rawKB, rawBytes, gzipKB, gzipBytes, ignoredRawKB, runtimeChunks: chunks };
             flushScene(scene);
             const ignored = ignoredRawKB > 0 ? `, ignored ${ignoredRawKB} KB raw ${IGNORED_BUNDLE_MODULE_PATTERN}` : "";
             const note = deviceDependent(scene) ? ` — ${DEVICE_DEPENDENT_NOTE}` : "";
@@ -1909,7 +1908,7 @@ export async function measurePage(
     bundlePath: string,
     requireReady = false,
     readyTimeoutMs = READY_TIMEOUT_MS_DEFAULT
-): Promise<{ rawKB: number; rawBytes: number; gzipKB: number; ignoredRawKB: number; chunks: string[] }> {
+): Promise<{ rawKB: number; rawBytes: number; gzipKB: number; gzipBytes: number; ignoredRawKB: number; chunks: string[] }> {
     const page = await browser.newPage();
     const jsPayloads: RuntimeJsPayload[] = [];
     const chunkFiles: string[] = [];
@@ -1988,6 +1987,7 @@ export async function measurePage(
         rawKB: bytesToRoundedKB(rawBytes),
         rawBytes,
         gzipKB: bytesToRoundedKB(summary.gzipBytes),
+        gzipBytes: summary.gzipBytes,
         ignoredRawKB,
         chunks: Array.from(new Set(chunkFiles)).sort(),
     };

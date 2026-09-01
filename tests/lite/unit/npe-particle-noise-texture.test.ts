@@ -5,9 +5,8 @@ import { createParticleBillboard } from "../../../packages/babylon-lite/src/part
 import { killParticle, spawnParticle } from "../../../packages/babylon-lite/src/particle/particle-buffer";
 import { updateNoiseBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/update-noise-block";
 import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
-import { buildNodeParticleSetWithNoiseTextures } from "../../../packages/babylon-lite/src/particle/node/npe-noise";
 import { buildNodeParticleSetWithTextureUpdates } from "../../../packages/babylon-lite/src/particle/node/npe-texture-updates";
-import type { NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import { buildNodeParticleSet, type NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import type { NpeGetter, NpeTextureContent, NpeTextureValue } from "../../../packages/babylon-lite/src/particle/node/npe-value";
@@ -28,7 +27,7 @@ async function attachNoise(map: NpeTextureContent, strength: Vec3, capacity = 1)
             promises.push(promise);
         },
     } as unknown as NpeBuildContext;
-    const block = { id: 1, className: "UpdateNoiseBlock", name: "noise", inputs: [], serialized: {} } as ParsedParticleBlock;
+    const block = { id: 1, customType: "BABYLON.UpdateNoiseBlock", name: "noise", inputs: [] } as ParsedParticleBlock;
     updateNoiseBlock.build(block, ctx);
     await Promise.all(promises);
     return system;
@@ -46,7 +45,7 @@ async function attachNoiseWithGetters(sourceGetter: NpeGetter, strengthGetter?: 
             promises.push(promise);
         },
     } as unknown as NpeBuildContext;
-    const block = { id: 1, className: "UpdateNoiseBlock", name: "noise", inputs: [], serialized: {} } as ParsedParticleBlock;
+    const block = { id: 1, customType: "BABYLON.UpdateNoiseBlock", name: "noise", inputs: [] } as ParsedParticleBlock;
     updateNoiseBlock.build(block, ctx);
     await Promise.all(promises);
     return system;
@@ -101,7 +100,7 @@ async function buildNoiseTextureFanOut(renderUrl: string) {
         ],
     });
     const program = await compileNodeParticleGraph(graph);
-    const set = await buildNodeParticleSetWithNoiseTextures(engine, {} as never, program);
+    const set = await buildNodeParticleSet(engine, {} as never, program);
     return { system: set.systems[0]!, fetchMock, textureDataUrl };
 }
 

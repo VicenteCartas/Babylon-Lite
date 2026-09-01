@@ -81,7 +81,7 @@ export const particleLocalVariableBlock: NpeBlockEvaluator = {
         const scratch: LocalScratch = { x: 0, y: 0 };
         let shape = 0;
         let getter: NpeGetter;
-        if (block.serialized.scope === 0) {
+        if (block.scope === 0) {
             const buffer = ctx.state.buffer!;
             const prefix = `local.${block.id}.`;
             const cachedId = column(buffer, `${prefix}id`, Uint32Array);
@@ -108,9 +108,20 @@ export const particleLocalVariableBlock: NpeBlockEvaluator = {
                 return readSnapshot(shape, values[0]![index]!, values[1]![index]!, values[2]![index]!, values[3]![index]!, scratch);
             };
         } else {
-            const epoch = ctx.state._localVariableLoopEpoch;
+            const system = ctx.state.system!;
+            let epoch = ctx.state._localVariableLoopEpoch;
             if (!epoch) {
-                throw new Error(`NodeParticle: ParticleLocalVariableBlock ${block.id} requires its compiled Loop frame effect`);
+                epoch = { value: 0 };
+                ctx.state._localVariableLoopEpoch = epoch;
+                const previous = system._prepareFrame;
+                system._prepareFrame = previous
+                    ? () => {
+                          previous();
+                          epoch!.value++;
+                      }
+                    : () => {
+                          epoch!.value++;
+                      };
             }
             let lastEpoch = -1;
             let valid = false;
@@ -123,11 +134,11 @@ export const particleLocalVariableBlock: NpeBlockEvaluator = {
                 value1 = next1;
                 value2 = next2;
                 value3 = next3;
-                lastEpoch = epoch.value;
+                lastEpoch = epoch!.value;
                 valid = true;
             };
             getter = (index) => {
-                if (!valid || lastEpoch !== epoch.value) {
+                if (!valid || lastEpoch !== epoch!.value) {
                     shape = captureValue(input(index), block.id, shape, index, commit);
                 }
                 return readSnapshot(shape, value0, value1, value2, value3, scratch);
@@ -136,3 +147,5 @@ export const particleLocalVariableBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleLocalVariableBlock as evaluator };

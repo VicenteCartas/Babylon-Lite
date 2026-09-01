@@ -9,7 +9,7 @@ const OP_TRUNCATE = 3;
 /** `ParticleFloatToIntBlock` — convert a scalar via round, ceil, floor, or truncate. */
 export const particleFloatToIntBlock: NpeBlockEvaluator = {
     build(block, ctx) {
-        const operation = typeof block.serialized.operation === "number" ? block.serialized.operation : OP_ROUND;
+        const operation = typeof block.operation === "number" ? block.operation : OP_ROUND;
         const input = ctx.input(block, "input", () => 0);
         const getter: ScalarGetter = (i) => {
             const value = input(i) as number;
@@ -27,3 +27,5 @@ export const particleFloatToIntBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleFloatToIntBlock as evaluator };

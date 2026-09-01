@@ -33,8 +33,8 @@ function parseConstant(type: number, value: unknown): NpeValue {
 /** `ParticleInputBlock` — a constant, a contextual source, or a system source. */
 export const particleInputBlock: NpeBlockEvaluator = {
     build(block, ctx) {
-        const contextual = typeof block.serialized.contextualValue === "number" ? block.serialized.contextualValue : 0;
-        const systemSource = typeof block.serialized.systemSource === "number" ? block.serialized.systemSource : 0;
+        const contextual = typeof block.contextualValue === "number" ? block.contextualValue : 0;
+        const systemSource = typeof block.systemSource === "number" ? block.systemSource : 0;
 
         let getter: NpeGetter;
         if (contextual !== 0) {
@@ -56,11 +56,13 @@ export const particleInputBlock: NpeBlockEvaluator = {
                     throw new Error(`NodeParticle: unsupported system source ${systemSource}`);
             }
         } else {
-            const type = typeof block.serialized.type === "number" ? block.serialized.type : TYPE_FLOAT;
-            const constant = parseConstant(type, block.serialized.value);
+            const type = typeof block.type === "number" ? block.type : TYPE_FLOAT;
+            const constant = parseConstant(type, block.value);
             getter = () => constant;
         }
 
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleInputBlock as evaluator };

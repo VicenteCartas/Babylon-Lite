@@ -2,9 +2,10 @@ import { transformCoordinatesToRef } from "../../../math/mat4-transform.js";
 import type { Mat4, Vec3 } from "../../../math/types.js";
 import type { ParticleBuffer } from "../../particle-buffer.js";
 import type { NpeBlockEvaluator } from "../npe-build.js";
-import type { FlowMapViewProjectionBinding } from "../npe-flow-map-frame-binding.js";
+import { createNodeParticleFlowMapBinding } from "../npe-flow-map-frame-binding.js";
 import { loadNpeTextureContent } from "../npe-texture-content.js";
 import type { NpeTextureContent, NpeTextureValue } from "../npe-value.js";
+import { cpuTextureSourceBlock } from "./cpu-texture-source-block.js";
 
 /** Apply one screen-space flow-map sample to a particle direction. */
 function applyFlowMapToParticle(map: NpeTextureContent, matrix: Mat4, scaledStrength: number, buffer: ParticleBuffer, i: number, screen: Vec3): void {
@@ -24,16 +25,14 @@ function applyFlowMapToParticle(map: NpeTextureContent, matrix: Mat4, scaledStre
 
 /** `UpdateFlowMapBlock` — update particle direction from a projected RGBA flow field. */
 export const updateFlowMapBlock: NpeBlockEvaluator = {
+    _inputEvaluators: { flowMap: cpuTextureSourceBlock },
     build(block, ctx) {
         const system = ctx.state.system!;
         const buffer = ctx.state.buffer!;
         const sourceValue = ctx.input(block, "flowMap")(0) as unknown as NpeTextureValue;
         const strengthGetter = ctx.input(block, "strength", () => 1);
         const screen: Vec3 = { x: 0, y: 0, z: 0 };
-        const binding = ctx.state._frameBindings?.get(block.id) as FlowMapViewProjectionBinding | undefined;
-        if (!binding) {
-            throw new Error(`NodeParticle: UpdateFlowMapBlock ${block.id} requires its compiled frame binding`);
-        }
+        const binding = createNodeParticleFlowMapBinding(ctx.state);
         let flowMap: NpeTextureContent | null = null;
 
         if (sourceValue?.url) {

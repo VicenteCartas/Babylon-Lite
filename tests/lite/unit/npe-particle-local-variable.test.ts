@@ -8,7 +8,6 @@ import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/par
 import { withNodeParticleEmitterProvider } from "../../../packages/babylon-lite/src/particle/node/npe-emitter-provider";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { loadValueBlockEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-registry-extra-values";
-import { installNodeParticleSystemEffects } from "../../../packages/babylon-lite/src/particle/node/npe-system-effects";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import type { NpeGetter, NpeValue } from "../../../packages/babylon-lite/src/particle/node/npe-value";
 import { killParticle, spawnParticle } from "../../../packages/babylon-lite/src/particle/particle-buffer";
@@ -31,10 +30,10 @@ function createBuildState(capacity: number): NpeBuildState {
 async function buildLocalGetter(state: NpeBuildState, blockId: number, scope: unknown, draw: NpeGetter): Promise<NpeGetter> {
     const block: ParsedParticleBlock = {
         id: blockId,
-        className: "ParticleLocalVariableBlock",
+        customType: "BABYLON.ParticleLocalVariableBlock",
         name: "local",
         inputs: [{ name: "input", targetBlockId: 1, targetConnectionName: "output" }],
-        serialized: scope === undefined ? {} : { scope },
+        ...(scope === undefined ? {} : { scope }),
     };
     let output: NpeGetter | undefined;
     const context: NpeBuildContext = {
@@ -47,17 +46,7 @@ async function buildLocalGetter(state: NpeBuildState, blockId: number, scope: un
         },
         addBuildPromise: () => undefined,
     };
-    if (scope !== 0 && !state._localVariableLoopEpoch) {
-        installNodeParticleSystemEffects(
-            {
-                systemBlockId: 0,
-                resources: { columns: [] },
-                effects: { prepareFrame: ["localVariableLoopEpoch"] },
-            },
-            state
-        );
-    }
-    (await loadValueBlockEvaluator(block.className)).build(block, context);
+    (await loadValueBlockEvaluator("ParticleLocalVariableBlock")).build(block, context);
     return output!;
 }
 
@@ -113,10 +102,10 @@ describe("ParticleLocalVariableBlock", () => {
         const system = createParticleSystem(2);
         const block: ParsedParticleBlock = {
             id: 12,
-            className: "ParticleLocalVariableBlock",
+            customType: "BABYLON.ParticleLocalVariableBlock",
             name: "local",
             inputs: [{ name: "input", targetBlockId: 1, targetConnectionName: "output" }],
-            serialized: { scope: 0 },
+            scope: 0,
         };
         let evaluations = 0;
         let output: NpeGetter | undefined;
@@ -138,7 +127,7 @@ describe("ParticleLocalVariableBlock", () => {
             },
             addBuildPromise: () => undefined,
         };
-        const evaluator = await loadValueBlockEvaluator(block.className);
+        const evaluator = await loadValueBlockEvaluator("ParticleLocalVariableBlock");
         evaluator.build(block, context);
 
         system.buffer.id[0] = 0;

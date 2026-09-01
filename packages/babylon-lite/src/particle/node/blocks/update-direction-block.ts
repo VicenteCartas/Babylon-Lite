@@ -17,3 +17,5 @@ export const updateDirectionBlock: NpeBlockEvaluator = {
         });
     },
 };
+
+export { updateDirectionBlock as evaluator };

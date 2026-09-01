@@ -1,7 +1,7 @@
 import type { CompiledParticleBlock, ParsedParticleBlock } from "../npe-types.js";
 
 function hasIntInput(blocks: ReadonlyMap<number, ParsedParticleBlock>, block: ParsedParticleBlock, inputName: string, visiting: Set<number>): boolean {
-    const input = block.inputs.find((candidate) => candidate.name === inputName);
+    const input = block.inputs.find((candidate) => candidate.name.trim() === inputName);
     return (
         input?.valueType === "int" ||
         (input?.targetBlockId != null && input.targetConnectionName != null && hasIntOutput(blocks, input.targetBlockId, input.targetConnectionName, visiting))
@@ -16,15 +16,16 @@ function hasIntOutput(blocks: ReadonlyMap<number, ParsedParticleBlock>, blockId:
     if (!block || outputName !== "output") {
         return false;
     }
-    if (block.className === "ParticleInputBlock") {
-        return block.serialized.type === 0x0001;
+    const className = block.customType.slice(8);
+    if (className === "ParticleInputBlock") {
+        return block.type === 0x0001;
     }
-    if (block.className === "ParticleFloatToIntBlock") {
+    if (className === "ParticleFloatToIntBlock") {
         return true;
     }
     visiting.add(blockId);
     let result = false;
-    switch (block.className) {
+    switch (className) {
         case "ParticleMathBlock":
             result = hasIntInput(blocks, block, "left", visiting) && hasIntInput(blocks, block, "right", visiting);
             break;
@@ -43,7 +44,14 @@ function hasIntOutput(blocks: ReadonlyMap<number, ParsedParticleBlock>, blockId:
             break;
         case "ParticleClampBlock":
         case "ParticleStepBlock":
+        case "ParticleSmoothStepBlock":
             result = hasIntInput(blocks, block, "value", visiting);
+            break;
+        case "ParticleTrigonometryBlock":
+            result = hasIntInput(blocks, block, "input", visiting);
+            break;
+        case "ParticleNLerpBlock":
+            result = hasIntInput(blocks, block, "left", visiting);
             break;
     }
     visiting.delete(blockId);
@@ -61,9 +69,9 @@ export function resolveParticleValueTypes(blocks: ReadonlyMap<number, ParsedPart
     for (const block of blocks.values()) {
         const inputs = block.inputs.map((input) => (hasIntInput(blocks, block, input.name, new Set()) ? { ...input, valueType: "int" } : input));
         let evaluatorClassName: string | undefined;
-        if (block.className === "ParticleMathBlock" && hasIntInput(blocks, block, "left", new Set())) {
-            const left = block.inputs.find((input) => input.name === "left");
-            const right = block.inputs.find((input) => input.name === "right");
+        if (block.customType === "BABYLON.ParticleMathBlock" && hasIntInput(blocks, block, "left", new Set())) {
+            const left = block.inputs.find((input) => input.name.trim() === "left");
+            const right = block.inputs.find((input) => input.name.trim() === "right");
             const alias = left?.targetBlockId === right?.targetBlockId && left?.targetConnectionName === right?.targetConnectionName;
             evaluatorClassName = alias ? "ParticleIntMathAliasBlock" : "ParticleIntMathBlock";
         }

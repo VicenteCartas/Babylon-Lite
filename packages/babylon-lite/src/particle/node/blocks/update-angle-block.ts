@@ -13,3 +13,5 @@ export const updateAngleBlock: NpeBlockEvaluator = {
         });
     },
 };
+
+export { updateAngleBlock as evaluator };

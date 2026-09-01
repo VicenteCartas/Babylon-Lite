@@ -13,13 +13,13 @@ export const particleNumberMathBlock: NpeBlockEvaluator = {
         if (!ctx.isConnected(block, "right")) {
             throw new Error(`NodeParticle: ParticleNumberMathBlock ${block.id} input "right" is not connected`);
         }
-        const operation = typeof block.serialized.operation === "number" ? block.serialized.operation : OP_MODULO;
+        const operation = typeof block.operation === "number" ? block.operation : OP_MODULO;
         if (operation !== OP_MODULO && operation !== OP_POW) {
             throw new Error(`NodeParticle: ParticleNumberMathBlock ${block.id} has unsupported operation ${operation}`);
         }
         const left = ctx.input(block, "left");
         const right = ctx.input(block, "right");
-        const intResult = block.inputs.find((input) => input.name === "left")?.valueType === "int";
+        const intResult = block.inputs.find((input) => input.name.trim() === "left")?.valueType === "int";
         const getter: ScalarGetter = (i) => {
             const leftValue = left(i);
             const rightValue = right(i);

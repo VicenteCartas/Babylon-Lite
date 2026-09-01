@@ -30,3 +30,5 @@ export const pointShapeLocalBlock: NpeBlockEvaluator = {
         };
     },
 };
+
+export { pointShapeLocalBlock as evaluator };

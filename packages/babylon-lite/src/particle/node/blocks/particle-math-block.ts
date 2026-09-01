@@ -34,7 +34,7 @@ function applyScalar(op: number, a: number, b: number): number {
  */
 export const particleMathBlock: NpeBlockEvaluator = {
     build(block, ctx) {
-        const op = typeof block.serialized.operation === "number" ? block.serialized.operation : OP_ADD;
+        const op = typeof block.operation === "number" ? block.operation : OP_ADD;
         const left = ctx.input(block, "left");
         const right = ctx.input(block, "right");
         const v3: Vec3 = { x: 0, y: 0, z: 0 };
@@ -102,3 +102,5 @@ export const particleMathBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleMathBlock as evaluator };

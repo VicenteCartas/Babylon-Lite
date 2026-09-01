@@ -26,3 +26,5 @@ export const particleVectorLengthBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleVectorLengthBlock as evaluator };

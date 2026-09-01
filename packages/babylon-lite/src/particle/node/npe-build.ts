@@ -11,15 +11,28 @@ import type { SceneContext } from "../../scene/scene.js";
 import type { Vec3, Mat4, Vec2, Color4 } from "../../math/types.js";
 import { mat4Translation } from "../../math/mat4-translation.js";
 import { mat4GetTranslationToRef } from "../../math/mat4-transform.js";
-import type { NodeParticleProgram, NodeParticleResourceManifest, NodeParticleSystemTemplate, ParsedParticleBlock, ParsedParticleInput } from "./npe-types.js";
+import type {
+    CompilableNodeParticleGraph,
+    CompiledParticleBlock,
+    NodeParticleProgram,
+    NodeParticleSystemPlan,
+    ParsedNodeParticleGraph,
+    ParsedParticleBlock,
+    ParsedParticleInput,
+} from "./npe-types.js";
 import type { ParticleBuffer } from "../particle-buffer.js";
-import { column } from "../particle-buffer.js";
 import { createParticleSystem, type ParticleEmitterInverse, type ParticleSystem } from "../particle-system.js";
 import type { NpeGetter, NpeValue } from "./npe-value.js";
 import { loadNpeBlockEvaluator } from "./npe-registry.js";
 
+const loadVariants = () => import("./npe-registry-variants.js");
+
 function isInputConnected(input: ParsedParticleInput | undefined): input is ParsedParticleInput & { targetBlockId: number; targetConnectionName: string } {
     return input?.targetBlockId != null && input.targetConnectionName != null;
+}
+
+function findInput(block: ParsedParticleBlock, name: string): ParsedParticleInput | undefined {
+    return block.inputs.find((input) => input.name.trim() === name);
 }
 
 /** Parse a literal value serialized directly on an unconnected input. */
@@ -58,10 +71,8 @@ export interface NpeBuildState {
     emitter: Vec3;
     emitterWorldMatrix: Mat4;
     emitterInverseWorldMatrices?: ParticleEmitterInverse[];
-    /** @internal Installed by a compiled Loop frame effect and shared by that system's LocalVariable evaluators. */
+    /** @internal Installed by the first Loop LocalVariable evaluator and shared by that system's later evaluators. */
     _localVariableLoopEpoch?: { value: number };
-    /** @internal Per-instance external frame values prepared by opt-in builder features. */
-    _frameBindings?: Map<number, unknown>;
     isLocal: boolean;
     scene: SceneContext;
     textureBaseUrl?: string;
@@ -79,14 +90,122 @@ export interface NpeBuildContext {
 
 /** An NPE block evaluator: wires a parsed block into the runtime during the build walk. */
 export interface NpeBlockEvaluator {
+    /** @internal Evaluators selected for named input dependencies during compilation. */
+    readonly _inputEvaluators?: Readonly<Record<string, NpeBlockEvaluator>>;
     build(block: ParsedParticleBlock, ctx: NpeBuildContext): void;
+}
+
+async function resolveEvaluator(
+    block: CompiledParticleBlock,
+    isLocal: boolean,
+    loadCompiledEvaluator: ((block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined>) | undefined
+): Promise<NpeBlockEvaluator> {
+    const className = block.customType.slice(8);
+    const contextualSource = typeof block.contextualValue === "number" ? block.contextualValue : 0;
+    const onceValueType = findInput(block, "min")?.valueType ?? findInput(block, "max")?.valueType ?? "number";
+    const scalarOnce = className === "ParticleRandomBlock" && block.lockMode === 3 && onceValueType[0] !== "B";
+    const left = findInput(block, "left");
+    const right = findInput(block, "right");
+    const localShape = isLocal && className.endsWith("ShapeBlock");
+    const variant =
+        (className === "ParticleInputBlock" && contextualSource !== 0 && !((contextualSource <= 6 && contextualSource !== 2) || contextualSource === 0x17)) ||
+        (className === "ParticleRandomBlock" && block.lockMode === 3 && !scalarOnce) ||
+        (className === "ParticleMathBlock" && !block._evaluatorClassName && left?.targetBlockId != null && left.targetBlockId === right?.targetBlockId) ||
+        (className === "SystemBlock" && isInputConnected(findInput(block, "emitRate"))) ||
+        (className === "SetupSpriteSheetBlock" && block.randomStartCell === true);
+    return scalarOnce
+        ? (await import("./blocks/particle-random-once-block.js")).particleRandomOnceBlock
+        : localShape
+          ? await (await import("./npe-registry-local-shapes.js")).load(className)
+          : variant
+            ? await (await loadVariants()).load(block)
+            : ((await loadCompiledEvaluator?.(block)) ?? (await loadNpeBlockEvaluator(className)));
+}
+
+async function compileOperations(
+    blocks: ReadonlyMap<number, CompiledParticleBlock>,
+    systemBlockId: number,
+    operations: Array<CompiledParticleBlock | NpeBlockEvaluator>,
+    loadCompiledEvaluator?: (block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined>
+): Promise<void> {
+    const compiled = new Set<number | CompiledParticleBlock>();
+    const isLocal = blocks.get(systemBlockId)?.isLocal === true;
+    const visit = async (blockId: number, evaluatorOverride?: NpeBlockEvaluator): Promise<void> => {
+        const block = blocks.get(blockId);
+        if (!block) {
+            return;
+        }
+        const compileKey = evaluatorOverride ? block : blockId;
+        if (compiled.has(compileKey)) {
+            return;
+        }
+        compiled.add(compileKey);
+        const evaluator = evaluatorOverride ?? (await resolveEvaluator(block, isLocal, loadCompiledEvaluator));
+        const particleInput = findInput(block, "particle");
+        if (isInputConnected(particleInput)) {
+            await visit(particleInput.targetBlockId, evaluator._inputEvaluators?.particle);
+        }
+        for (const input of block.inputs) {
+            if (input !== particleInput && isInputConnected(input)) {
+                await visit(input.targetBlockId, evaluator._inputEvaluators?.[input.name.trim()]);
+            }
+        }
+        operations.push(block, evaluator);
+    };
+    await visit(systemBlockId);
+}
+
+/** Compile immutable parsed NPE data into a reusable executable program. */
+export async function compileNodeParticleGraph(parsed: ParsedNodeParticleGraph): Promise<NodeParticleProgram> {
+    const blocks = new Map<number, CompiledParticleBlock>();
+    const systemBlockIds: number[] = [];
+    let featureBits = 0;
+    for (const block of parsed.blocks) {
+        blocks.set(block.id, block);
+        const className = block.customType.slice(8);
+        const intInput = className === "ParticleInputBlock" && block.type === 0x0001;
+        for (const input of block.inputs) {
+            featureBits |= (input.valueType === "int" ? 1 : 0) | (input.targetConnectionName === "system" ? 8 : 0);
+        }
+        featureBits |= intInput
+            ? block.contextualValue
+                ? 0x10
+                : 1
+            : className[0] === "U"
+              ? className[6] === "F"
+                  ? 2
+                  : className[6] === "N"
+                    ? 4
+                    : 0
+              : /^Particle(TeleportOut|LocalVariable|Elbow|Debug|FloatToInt|NumberMath|Clamp|Step)Block$/.test(className)
+                ? 1
+                : 0;
+        if (className === "SystemBlock") {
+            systemBlockIds.push(block.id);
+        }
+    }
+    if (featureBits & 0x10) {
+        featureBits = (featureBits & 0x0f) | (await (await loadVariants()).c(blocks));
+    }
+    const graph: CompilableNodeParticleGraph = { blocks, systemBlockIds, _features: featureBits };
+    if (featureBits) {
+        const features = await (await import("./npe-feature-compilation.js")).compile(graph, compileOperations);
+        return { _systems: features.systems };
+    }
+
+    const systems = [];
+    for (const systemBlockId of systemBlockIds) {
+        const operations: Array<CompiledParticleBlock | NpeBlockEvaluator> = [];
+        await compileOperations(blocks, systemBlockId, operations);
+        systems.push(operations);
+    }
+
+    return { _systems: systems };
 }
 
 /** A built data-oriented particle set. */
 export interface NodeParticleSet {
     readonly systems: ParticleSystem[];
-    /** @internal */
-    _program: NodeParticleProgram;
 }
 
 /** Options for building a node-particle set. */
@@ -99,37 +218,6 @@ export interface BuildNodeParticleOptions {
     textureBaseUrl?: string;
     /** @internal */
     _setupEmitter?: (state: NpeBuildState) => void;
-    /** @internal */
-    _setupFrameBindings?: (template: NodeParticleSystemTemplate, state: NpeBuildState) => void;
-    /** @internal */
-    _getEvaluator?: (block: ParsedParticleBlock) => NpeBlockEvaluator | undefined;
-    /** @internal */
-    _getInputEvaluator?: (block: ParsedParticleBlock, input: ParsedParticleInput) => NpeBlockEvaluator | undefined;
-}
-
-function reserveProgramResources(buffer: ParticleBuffer, resources: NodeParticleResourceManifest): void {
-    for (const requirement of resources.columns) {
-        switch (requirement.storage) {
-            case "float64":
-                column(buffer, requirement.name, Float64Array);
-                break;
-            case "float32":
-                column(buffer, requirement.name, Float32Array);
-                break;
-            case "uint32":
-                column(buffer, requirement.name, Uint32Array);
-                break;
-            case "uint16":
-                column(buffer, requirement.name, Uint16Array);
-                break;
-            case "uint8":
-                column(buffer, requirement.name, Uint8Array);
-                break;
-            case "int32":
-                column(buffer, requirement.name, Int32Array);
-                break;
-        }
-    }
 }
 
 /**
@@ -141,22 +229,14 @@ export async function buildNodeParticleSet(
     program: NodeParticleProgram,
     options: BuildNodeParticleOptions = {}
 ): Promise<NodeParticleSet> {
-    if (!program._compiled) {
-        throw new Error("NodeParticle: buildNodeParticleSet requires a compiled program");
-    }
     const systems: ParticleSystem[] = [];
     const buildPromises: Promise<void>[] = [];
 
-    for (const template of program.systemTemplates) {
-        const systemId = template.systemBlockId;
-        const systemBlock = program.blocks.get(systemId);
-        if (!systemBlock) {
-            continue;
-        }
+    for (const operations of program._systems) {
+        const systemBlock = operations[operations.length - 2] as ParsedParticleBlock;
 
-        const capacity = typeof systemBlock.serialized.capacity === "number" ? systemBlock.serialized.capacity : 1000;
+        const capacity = typeof systemBlock.capacity === "number" ? systemBlock.capacity : 1000;
         const system = createParticleSystem(capacity);
-        reserveProgramResources(system.buffer, template.resources);
 
         let emitterWorldMatrix: Mat4;
         const emitter: Vec3 = { x: 0, y: 0, z: 0 };
@@ -176,28 +256,24 @@ export async function buildNodeParticleSet(
             capacity,
             emitter,
             emitterWorldMatrix,
-            isLocal: systemBlock.serialized.isLocal === true,
+            isLocal: systemBlock.isLocal === true,
             scene,
             textureBaseUrl: options.textureBaseUrl,
         };
         options._setupEmitter?.(state);
-        program._installSystemEffects?.(template, state);
-        options._setupFrameBindings?.(template, state);
 
         const outputs = new Map<string, NpeGetter>();
-        const built = new Set<number | ParsedParticleBlock>();
-
         const ctx: NpeBuildContext = {
             state,
             engine,
             input(block, name, fallback) {
-                const input = block.inputs.find((i) => i.name === name);
+                const input = findInput(block, name);
                 if (isInputConnected(input)) {
                     const getter = outputs.get(`${input.targetBlockId}:${input.targetConnectionName}`);
                     if (getter) {
                         return getter;
                     }
-                    throw new Error(`NodeParticle: unresolved connection ${block.className}.${name}`);
+                    throw new Error(`NodeParticle: unresolved connection ${block.customType.slice(8)}.${name}`);
                 }
                 if (input) {
                     const literal = parseInputLiteral(input);
@@ -208,7 +284,7 @@ export async function buildNodeParticleSet(
                 return fallback ?? (() => null as unknown as NpeValue);
             },
             isConnected(block, name) {
-                const input = block.inputs.find((i) => i.name === name);
+                const input = findInput(block, name);
                 return isInputConnected(input);
             },
             setOutput(blockId, name, getter) {
@@ -219,55 +295,22 @@ export async function buildNodeParticleSet(
             },
         };
 
-        const buildBlock = async (blockId: number, evaluatorOverride?: NpeBlockEvaluator): Promise<void> => {
-            const block = program.blocks.get(blockId);
-            if (!block) {
-                return;
-            }
-            const buildKey = evaluatorOverride ? block : blockId;
-            if (built.has(buildKey)) {
-                return;
-            }
-            built.add(buildKey);
-            // Recurse the `particle` chain first so the system + buffer exist before any value chain
-            // (contextual sources, per-particle random) builds, regardless of serialized input order.
-            for (const input of block.inputs) {
-                if (input.name === "particle" && isInputConnected(input)) {
-                    await buildBlock(input.targetBlockId);
-                }
-            }
-            for (const input of block.inputs) {
-                if (input.name !== "particle" && isInputConnected(input)) {
-                    await buildBlock(input.targetBlockId, options._getInputEvaluator?.(block, input));
-                }
-            }
-            const contextualSource = typeof block.serialized.contextualValue === "number" ? block.serialized.contextualValue : 0;
-            const onceValueType = block.inputs.find((input) => input.name === "min")?.valueType ?? block.inputs.find((input) => input.name === "max")?.valueType ?? "number";
-            // Valid typed tags are BABYLON.*; indexing lets Rollup fold statically known scene tags.
-            const scalarOnce = block.className === "ParticleRandomBlock" && block.serialized.lockMode === 3 && onceValueType[0] !== "B";
-            const localShape = state.isLocal && block.className.endsWith("ShapeBlock");
-            const variant =
-                (block.className === "ParticleInputBlock" && contextualSource !== 0 && !((contextualSource <= 6 && contextualSource !== 2) || contextualSource === 0x17)) ||
-                (block.className === "ParticleRandomBlock" && block.serialized.lockMode === 3 && !scalarOnce) ||
-                (block.className === "SystemBlock" && isInputConnected(block.inputs.find((input) => input.name === "emitRate"))) ||
-                (block.className === "SetupSpriteSheetBlock" && block.serialized.randomStartCell === true);
-            const evaluator =
-                evaluatorOverride ??
-                options._getEvaluator?.(block) ??
-                (scalarOnce
-                    ? (await import("./blocks/particle-random-once-block.js")).particleRandomOnceBlock
-                    : localShape
-                      ? await (await import("./npe-registry-local-shapes.js")).loadLocalShapeEvaluator(block.className)
-                      : variant
-                        ? await (await import("./npe-registry-variants.js")).loadVariantBlockEvaluator(block)
-                        : await (program._loadEvaluator?.(block) ?? loadNpeBlockEvaluator(block.className)));
-            evaluator.build(block, ctx);
-        };
-
-        await buildBlock(systemId);
+        for (let index = 0; index < operations.length; index += 2) {
+            (operations[index + 1] as NpeBlockEvaluator).build(operations[index] as ParsedParticleBlock, ctx);
+        }
         systems.push(system);
     }
 
     await Promise.all(buildPromises);
-    return { systems, _program: program };
+    return { systems };
+}
+
+/** @internal Instantiate one reusable executable system plan. */
+export async function instantiateNodeParticleSystem(
+    engine: EngineContext,
+    scene: SceneContext,
+    plan: NodeParticleSystemPlan,
+    options: BuildNodeParticleOptions = {}
+): Promise<ParticleSystem> {
+    return (await buildNodeParticleSet(engine, scene, { _systems: [plan] }, options)).systems[0]!;
 }

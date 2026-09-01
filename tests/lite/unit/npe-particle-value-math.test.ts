@@ -24,7 +24,7 @@ async function buildGetter(className: string, serialized: Record<string, unknown
         targetConnectionName: "output",
         valueType: options.inputTypes?.[name],
     }));
-    const block: ParsedParticleBlock = { id: 7, className, name: className, inputs, serialized };
+    const block: ParsedParticleBlock = { id: 7, customType: `BABYLON.${className}`, name: className, inputs, ...serialized };
     let output: NpeGetter | undefined;
     const context = {
         input(_block: ParsedParticleBlock, name: string, fallback?: NpeGetter): NpeGetter {
@@ -85,7 +85,7 @@ async function evaluateCompiledGraphWith(source: object, builder: ParticleBuilde
 
 async function evaluateCompiledGraphContract(source: object, builder: ParticleBuilder): Promise<{ value: number; valueType: string | undefined }> {
     const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
-    const system = program.blocks.get(program.systemTemplates[0]!.systemBlockId)!;
+    const system = program._systems[0]![program._systems[0]!.length - 2] as ParsedParticleBlock;
     const valueType = system.inputs.find((input) => input.name === "emitRate")?.valueType;
     const set = await builder({} as EngineContext, {} as SceneContext, program);
     return { value: set.systems[0]!._emitRateGetter!(), valueType };
@@ -161,18 +161,13 @@ describe("NPE value math", () => {
             }
         });
 
-        it.each(particleBuilders)("requires compilation through the %s builder", async (_name, builder) => {
-            const graph = parseNodeParticleSource(scalarGraph("ParticleNumberMathBlock", { operation: 1 }, { left: { type: 1, value: 2 }, right: { type: 1, value: 3 } }));
-            await expect(builder({} as EngineContext, {} as SceneContext, graph as never)).rejects.toThrow("NodeParticle: buildNodeParticleSet requires a compiled program");
-        });
-
         it("preserves serialized Math identity while selecting an Int evaluator", async () => {
             const parsed = parseNodeParticleSource(scalarGraph("ParticleMathBlock", { operation: 3 }, { left: { type: 1, value: 5 }, right: { type: 1, value: 2 } }));
             const program = await compileNodeParticleGraph(parsed);
+            const math = program._systems[0]!.find((operation) => "customType" in operation && operation.customType === "BABYLON.ParticleMathBlock") as ParsedParticleBlock;
 
-            expect(parsed.blocks.get(10)!.className).toBe("ParticleMathBlock");
-            expect(program.blocks.get(10)!.className).toBe("ParticleMathBlock");
-            expect(program.blocks.get(10)!._evaluatorClassName).toBe("ParticleIntMathBlock");
+            expect(parsed.blocks.find((block) => block.id === 10)!.customType).toBe("BABYLON.ParticleMathBlock");
+            expect(math._evaluatorClassName).toBe("ParticleIntMathBlock");
         });
     });
 

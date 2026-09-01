@@ -10,8 +10,7 @@ import { cpuTextureSourceBlock } from "../../../packages/babylon-lite/src/partic
 import { updateFlowMapBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/update-flow-map-block";
 import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map";
-import type { NodeParticleSet, NpeBuildContext, NpeBuildState } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { installNodeParticleFlowMapBindings } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map-frame-binding";
+import { buildNodeParticleSet, type NodeParticleSet, type NpeBuildContext, type NpeBuildState } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { loadNpeTextureContent } from "../../../packages/babylon-lite/src/particle/node/npe-texture-content";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
@@ -44,14 +43,6 @@ async function attachFlowMap(
 ): Promise<void> {
     const promises: Promise<void>[] = [];
     const state = { system, buffer: system.buffer, scene } as NpeBuildState;
-    installNodeParticleFlowMapBindings(
-        {
-            systemBlockId: 0,
-            resources: { columns: [] },
-            bindings: { frame: [{ blockId: 1, kind: "flowMapViewProjection" }] },
-        },
-        state
-    );
     const ctx = {
         state,
         input(_block: ParsedParticleBlock, name: string): NpeGetter {
@@ -61,7 +52,7 @@ async function attachFlowMap(
             promises.push(promise);
         },
     } as unknown as NpeBuildContext;
-    const block = { id: 1, className: "UpdateFlowMapBlock", name: "flow", inputs: [], serialized: {} } as ParsedParticleBlock;
+    const block = { id: 1, customType: "BABYLON.UpdateFlowMapBlock", name: "flow", inputs: [] } as ParsedParticleBlock;
     updateFlowMapBlock.build(block, ctx);
     await Promise.all(promises);
 }
@@ -264,7 +255,7 @@ describe("NPE UpdateFlowMapBlock", () => {
         );
         const camera = createArcRotateCamera(Math.PI / 2, Math.PI / 2, 10, { x: 0, y: 0, z: 0 });
         const scene = createFlowScene(camera, Number.NaN, Number.POSITIVE_INFINITY);
-        const graph = parseNodeParticleSource({
+        const source = {
             blocks: [
                 {
                     customType: "BABYLON.SystemBlock",
@@ -294,15 +285,16 @@ describe("NPE UpdateFlowMapBlock", () => {
                     inputs: [],
                 },
             ],
-        });
-        const originalFlowInput = graph.blocks.get(3)!.inputs.find((input) => input.name === "flowMap")!;
+        };
+        const graph = parseNodeParticleSource(source);
+        const originalFlowInput = source.blocks[1]!.inputs.find((input) => input.name === "flowMap")!;
         const program = await compileNodeParticleGraph(graph);
-        expect(program.systemTemplates[0]!.bindings).toEqual({ frame: [{ blockId: 3, kind: "flowMapViewProjection" }] });
-        const set = await buildNodeParticleSetWithFlowMaps({ _device: {} } as never, scene, program);
+        const set = await buildNodeParticleSet({ _device: {} } as never, scene, program);
         const system = set.systems[0]!;
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(originalFlowInput.targetBlockId).toBe(2);
-        expect(graph.blocks.get(3)!.inputs).toContain(originalFlowInput);
+        expect(graph).toBe(source);
+        expect(source.blocks[1]!.inputs).toContain(originalFlowInput);
         const animationStep = vi.fn();
         scene._beforeRender.push(animationStep);
         await Promise.all(scene._deferredBuilders.splice(0).map((builder) => builder()));
@@ -401,10 +393,12 @@ describe("NPE UpdateFlowMapBlock", () => {
     it("prefers serialized textureDataUrl for a flow-map texture", () => {
         const block = {
             id: 2,
-            className: "ParticleTextureSourceBlock",
+            customType: "BABYLON.ParticleTextureSourceBlock",
             name: "flow texture",
             inputs: [],
-            serialized: { url: "fallback.png", textureDataUrl: "data:image/png;base64,AA==", invertY: true },
+            url: "fallback.png",
+            textureDataUrl: "data:image/png;base64,AA==",
+            invertY: true,
         } as ParsedParticleBlock;
         let output: NpeGetter | undefined;
         const ctx = {
@@ -422,10 +416,11 @@ describe("NPE UpdateFlowMapBlock", () => {
     it("rejects unsupported texture URL schemes", () => {
         const block = {
             id: 2,
-            className: "ParticleTextureSourceBlock",
+            customType: "BABYLON.ParticleTextureSourceBlock",
             name: "flow texture",
             inputs: [],
-            serialized: { url: "javascript:alert(1)", invertY: false },
+            url: "javascript:alert(1)",
+            invertY: false,
         } as ParsedParticleBlock;
         let output: NpeGetter | undefined;
         const ctx = {

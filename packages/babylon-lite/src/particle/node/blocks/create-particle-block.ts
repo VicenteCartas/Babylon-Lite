@@ -94,3 +94,5 @@ export const createParticleBlock: NpeBlockEvaluator = {
         };
     },
 };
+
+export { createParticleBlock as evaluator };

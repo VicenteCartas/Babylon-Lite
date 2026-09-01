@@ -74,7 +74,7 @@ function makeSystem(blendMode = 2, capacity = 4) {
 }
 
 function makeSet(...systems: ReturnType<typeof createParticleSystem>[]): NodeParticleSet {
-    return { systems, _program: {} as never };
+    return { systems };
 }
 
 function addParticle(system: ReturnType<typeof createParticleSystem>): void {

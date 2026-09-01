@@ -45,6 +45,7 @@ interface BundleManifestEntry {
     rawKB: number;
     gzipKB: number;
     rawBytes?: number;
+    gzipBytes?: number;
     ceilingKB?: number;
     [key: string]: unknown;
 }

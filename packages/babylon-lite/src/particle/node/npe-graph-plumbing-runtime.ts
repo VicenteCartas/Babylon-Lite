@@ -1,4 +1,4 @@
-import type { ParsedNodeParticleGraph, ParsedParticleBlock, ParsedParticleInput } from "./npe-types.js";
+import type { CompilableNodeParticleGraph, CompiledParticleBlock, ParsedParticleBlock, ParsedParticleInput } from "./npe-types.js";
 
 type SourcePair = readonly [blockId: number, connectionName: string];
 
@@ -15,27 +15,29 @@ function cyclePath(stack: readonly number[], repeatedId: number): string {
 }
 
 function connectionRole(block: ParsedParticleBlock, input: ParsedParticleInput): ConnectionRole {
-    if (input.name === "particle") {
+    const className = block.customType.slice(8);
+    const inputName = input.name.trim();
+    if (inputName === "particle") {
         return "particle flow";
     }
-    if (/^(system|on(Start|End))$/.test(input.name)) {
+    if (/^(system|on(Start|End))$/.test(inputName)) {
         return "system flow";
     }
     if (
-        (block.className === "SystemBlock" && input.name === "texture") ||
-        (block.className === "UpdateFlowMapBlock" && input.name === "flowMap") ||
-        (block.className === "UpdateNoiseBlock" && input.name === "noiseTexture")
+        (className === "SystemBlock" && inputName === "texture") ||
+        (className === "UpdateFlowMapBlock" && inputName === "flowMap") ||
+        (className === "UpdateNoiseBlock" && inputName === "noiseTexture")
     ) {
         return "texture";
     }
-    if (block.className === "ParticleGradientBlock" && input.name.startsWith("value")) {
+    if (className === "ParticleGradientBlock" && inputName.startsWith("value")) {
         return "gradient metadata";
     }
     return "";
 }
 
 /** @internal Compile reachable graph-plumbing routes without mutating parsed source data. */
-export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): ParsedNodeParticleGraph {
+export function compileNodeParticleTopology(graph: CompilableNodeParticleGraph): CompilableNodeParticleGraph {
     const resolvedSources = new Map<string, SourcePair>();
 
     const resolveSource = (blockId: number, connectionName: string, role: ConnectionRole, stack: readonly number[]): SourcePair => {
@@ -49,11 +51,12 @@ export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): Par
         if (!block) {
             return [blockId, connectionName];
         }
-        if (block.className === "ParticleTeleportInBlock") {
+        const className = block.customType.slice(8);
+        if (className === "ParticleTeleportInBlock") {
             throw new Error(`NodeParticle: ParticleTeleportInBlock ${block.id} does not expose output "${connectionName}"`);
         }
 
-        switch (block.className) {
+        switch (className) {
             case "ParticleTeleportOutBlock":
             case "ParticleElbowBlock":
             case "ParticleDebugBlock":
@@ -66,17 +69,17 @@ export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): Par
             }
         }
         if (connectionName !== "output") {
-            throw new Error(`NodeParticle: ${block.className} ${block.id} does not expose output "${connectionName}"`);
+            throw new Error(`NodeParticle: ${className} ${block.id} does not expose output "${connectionName}"`);
         }
         if (stack.includes(block.id)) {
             throw new Error(`NodeParticle: graph plumbing cycle ${cyclePath(stack, block.id)}`);
         }
-        if ((block.className === "ParticleDebugBlock" || block.className === "ParticleLocalVariableBlock") && role) {
-            throw new Error(`NodeParticle: ${block.className} ${block.id} does not support ${role} connections`);
+        if ((className === "ParticleDebugBlock" || className === "ParticleLocalVariableBlock") && role) {
+            throw new Error(`NodeParticle: ${className} ${block.id} does not support ${role} connections`);
         }
 
-        if (block.className === "ParticleTeleportOutBlock") {
-            const entryPoint = block.serialized.entryPoint;
+        if (className === "ParticleTeleportOutBlock") {
+            const entryPoint = block.entryPoint;
             if (typeof entryPoint !== "number" || !Number.isInteger(entryPoint) || entryPoint < 0) {
                 throw new Error(`NodeParticle: ParticleTeleportOutBlock ${block.id} has invalid entryPoint`);
             }
@@ -84,13 +87,13 @@ export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): Par
             if (!endpoint) {
                 throw new Error(`NodeParticle: ParticleTeleportOutBlock ${block.id} references missing entryPoint ${entryPoint}`);
             }
-            if (endpoint.className !== "ParticleTeleportInBlock") {
+            if (endpoint.customType.slice(8) !== "ParticleTeleportInBlock") {
                 throw new Error(`NodeParticle: ParticleTeleportOutBlock ${block.id} entryPoint ${entryPoint} is not ParticleTeleportInBlock`);
             }
             if (stack.includes(endpoint.id)) {
                 throw new Error(`NodeParticle: graph plumbing cycle ${cyclePath(stack, endpoint.id)}`);
             }
-            const input = endpoint.inputs.find((candidate) => candidate.name === "input");
+            const input = endpoint.inputs.find((candidate) => candidate.name.trim() === "input");
             if (!isConnected(input)) {
                 throw new Error(`NodeParticle: ParticleTeleportInBlock ${endpoint.id} input is not connected`);
             }
@@ -100,11 +103,11 @@ export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): Par
             return resolved;
         }
 
-        const input = block.inputs.find((candidate) => candidate.name === "input");
+        const input = block.inputs.find((candidate) => candidate.name.trim() === "input");
         if (!isConnected(input)) {
-            throw new Error(`NodeParticle: ${block.className} ${block.id} input is not connected`);
+            throw new Error(`NodeParticle: ${className} ${block.id} input is not connected`);
         }
-        if (block.className === "ParticleLocalVariableBlock") {
+        if (className === "ParticleLocalVariableBlock") {
             const terminal: SourcePair = [blockId, connectionName];
             resolvedSources.set(cacheKey, terminal);
             return terminal;
@@ -115,7 +118,7 @@ export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): Par
     };
 
     const visitedDomains = new Map<number, number>();
-    let blocks: Map<number, ParsedParticleBlock> | undefined;
+    let blocks: Map<number, CompiledParticleBlock> | undefined;
     const visitBlock = (blockId: number, incomingDomain: number): void => {
         const visited = visitedDomains.get(blockId) ?? 0;
         const domain = visited | incomingDomain;
@@ -127,7 +130,8 @@ export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): Par
         if (!block) {
             return;
         }
-        if (block.className === "ParticleLocalVariableBlock" && block.serialized.scope === 0 && (domain & SYSTEM_DOMAIN) !== 0) {
+        const className = block.customType.slice(8);
+        if (className === "ParticleLocalVariableBlock" && block.scope === 0 && (domain & SYSTEM_DOMAIN) !== 0) {
             throw new Error(`NodeParticle: ParticleLocalVariableBlock ${block.id} Particle scope requires particle-only evaluation`);
         }
 
@@ -142,17 +146,17 @@ export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): Par
                 inputs ??= block.inputs.slice();
                 inputs[index] = { ...input, targetBlockId: resolvedBlockId, targetConnectionName: resolvedConnectionName };
             }
-            const childDomain = block.className === "SystemBlock" ? (input.name === "particle" ? PARTICLE_DOMAIN : SYSTEM_DOMAIN) : domain;
+            const childDomain = className === "SystemBlock" ? (input.name.trim() === "particle" ? PARTICLE_DOMAIN : SYSTEM_DOMAIN) : domain;
             visitBlock(resolvedBlockId, childDomain);
         };
 
         for (let index = 0; index < block.inputs.length; index++) {
-            if (block.inputs[index]!.name === "particle") {
+            if (block.inputs[index]!.name.trim() === "particle") {
                 visitInput(block.inputs[index]!, index);
             }
         }
         for (let index = 0; index < block.inputs.length; index++) {
-            if (block.inputs[index]!.name !== "particle") {
+            if (block.inputs[index]!.name.trim() !== "particle") {
                 visitInput(block.inputs[index]!, index);
             }
         }
@@ -167,5 +171,5 @@ export function compileNodeParticleTopology(graph: ParsedNodeParticleGraph): Par
     if (!blocks) {
         return graph;
     }
-    return { blocks, systemBlockIds: graph.systemBlockIds };
+    return { blocks, systemBlockIds: graph.systemBlockIds, _features: graph._features };
 }

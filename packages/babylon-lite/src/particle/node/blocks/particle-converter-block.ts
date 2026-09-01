@@ -123,3 +123,5 @@ export const particleConverterBlock: NpeBlockEvaluator = {
         });
     },
 };
+
+export { particleConverterBlock as evaluator };

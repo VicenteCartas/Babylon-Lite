@@ -17,3 +17,5 @@ export async function loadEmitterBlockEvaluator(className: string): Promise<NpeB
             throw new Error(`NodeParticle: unsupported emitter block "${className}"`);
     }
 }
+
+export { loadEmitterBlockEvaluator as load };

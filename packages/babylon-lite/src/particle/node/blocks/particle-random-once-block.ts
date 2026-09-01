@@ -13,3 +13,5 @@ export const particleRandomOnceBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", createOnceRandomGetter(ctx.state.buffer!, block.id, draw as ScalarGetter));
     },
 };
+
+export { particleRandomOnceBlock as evaluator };

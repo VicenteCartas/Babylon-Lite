@@ -80,7 +80,7 @@ describe("NPE UpdateAttractorBlock", () => {
     it("copies a scratch-backed attractor before evaluating strength", () => {
         const system = createParticleSystem(1);
         const scratch: Vec3 = { x: 3, y: 0, z: 0 };
-        const block = { id: 1, className: "UpdateAttractorBlock", name: "attractor", inputs: [], serialized: {} } as ParsedParticleBlock;
+        const block = { id: 1, customType: "BABYLON.UpdateAttractorBlock", name: "attractor", inputs: [] } as ParsedParticleBlock;
         const ctx = {
             state: { system, buffer: system.buffer },
             input(_block: ParsedParticleBlock, name: string): NpeGetter {

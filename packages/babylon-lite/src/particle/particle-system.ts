@@ -28,6 +28,8 @@ export interface ParticleEmitterInverse {
 export interface ParticleSpriteHandle {
     readonly cellWidth: number;
     readonly cellHeight: number;
+    readonly startCellID?: number;
+    readonly endCellID?: number;
     readonly cellIndex: Uint16Array;
     readonly update: (i: number) => void;
 }

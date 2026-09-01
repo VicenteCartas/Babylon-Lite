@@ -14,6 +14,7 @@ import { buildNodeParticleSetWithTextureUpdates } from "../../../packages/babylo
 import { mat4Identity } from "../../../packages/babylon-lite/src/math/mat4-identity";
 import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/index";
 import type { ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
+import type { NodeParticleProgram, ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 
 interface GraphSource {
     blocks: Array<Record<string, unknown>>;
@@ -22,6 +23,10 @@ interface GraphSource {
 interface Connection {
     targetBlockId: number;
     targetConnectionName: string;
+}
+
+function getSystemBlockIds(program: NodeParticleProgram): number[] {
+    return program._systems.map((operations) => (operations[operations.length - 2] as ParsedParticleBlock).id);
 }
 
 function appendTeleport(blocks: GraphSource["blocks"], source: Connection, ids: { next: number }): Connection {
@@ -251,19 +256,10 @@ describe("NPE graph plumbing", () => {
         );
         const graph = parseNodeParticleSource({ blocks });
         const program = await compileNodeParticleGraph(graph);
-        const input = (blockId: number, name: string) => program.blocks.get(blockId)!.inputs.find((candidate) => candidate.name === name)!;
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
 
-        expect(input(20, "particle")).toMatchObject({ targetBlockId: 10, targetConnectionName: "output" });
-        expect(input(20, "texture")).toMatchObject({ targetBlockId: 2, targetConnectionName: "texture" });
-        expect(input(20, "onStart")).toMatchObject({ targetBlockId: 3, targetConnectionName: "output" });
-        expect(input(20, "targetStopDuration")).toMatchObject({ targetBlockId: 8, targetConnectionName: "output" });
-        expect(input(10, "particle")).toMatchObject({ targetBlockId: 9, targetConnectionName: "particle" });
-        expect(input(10, "direction1")).toMatchObject({ targetBlockId: 5, targetConnectionName: "output" });
-        expect(input(9, "scale")).toEqual({ name: "scale", value: [9, 9], valueType: "BABYLON.Vector2", targetBlockId: 4, targetConnectionName: "output" });
-        expect(input(9, "color")).toMatchObject({ targetBlockId: 6, targetConnectionName: "output" });
-        expect(input(8, "value0")).toMatchObject({ targetBlockId: 7, targetConnectionName: "output" });
-        expect(input(8, "gradient")).toMatchObject({ targetBlockId: 3, targetConnectionName: "output" });
-        expect(input(7, "value")).toMatchObject({ targetBlockId: 3, targetConnectionName: "output" });
+        expect(set.systems).toHaveLength(1);
+        expect(set.systems[0]!.targetStopDuration).toBe(1);
     });
 
     it("keeps specialized flow-map texture evaluation keyed by the consumer input", async () => {
@@ -306,24 +302,12 @@ describe("NPE graph plumbing", () => {
 
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(set.systems[0]!.updateSteps).toHaveLength(1);
-        expect(set._program.blocks.get(5)!.inputs.find((input) => input.name === "flowMap")).toMatchObject({ targetBlockId: 2, targetConnectionName: "texture" });
     });
 
-    it("keeps parser output free of executable metadata and rejects duplicate ids", () => {
-        const ordinary = parseNodeParticleSource(scalarRouteSource(false));
-        const teleported = parseNodeParticleSource(scalarRouteSource(true));
+    it("uses the trusted serialized graph as the compiler input", () => {
+        const source = scalarRouteSource(true);
 
-        expect(Object.keys(ordinary)).toEqual(["blocks", "systemBlockIds"]);
-        expect(Object.keys(teleported)).toEqual(["blocks", "systemBlockIds"]);
-        expect(() =>
-            parseNodeParticleSource({
-                blocks: [
-                    { customType: "BABYLON.SystemBlock", id: 4, inputs: [] },
-                    { customType: "BABYLON.ParticleInputBlock", id: 1, name: "first", inputs: [] },
-                    { customType: "BABYLON.ParticleInputBlock", id: 1, name: "second", inputs: [] },
-                ],
-            })
-        ).toThrow("NodeParticle: duplicate block id 1");
+        expect(parseNodeParticleSource(source)).toBe(source);
     });
 
     it("compiles ordinary and detached graphs into independent executable programs", async () => {
@@ -337,13 +321,11 @@ describe("NPE graph plumbing", () => {
         const ordinaryProgram = await compileNodeParticleGraph(ordinary);
         const detachedProgram = await compileNodeParticleGraph(detached);
 
-        expect(Object.keys(detached)).toEqual(["blocks", "systemBlockIds"]);
+        expect(detached).toBe(detachedSource);
         expect(ordinaryProgram).not.toBe(ordinary);
         expect(detachedProgram).not.toBe(detached);
-        expect(ordinaryProgram._compiled).toBe(true);
-        expect(detachedProgram._compiled).toBe(true);
-        expect(detachedProgram.systemTemplates).toEqual([{ systemBlockId: 4, resources: { columns: [] } }]);
-        expect((await buildNodeParticleSet({} as EngineContext, {} as SceneContext, detachedProgram))._program).toBe(detachedProgram);
+        expect(getSystemBlockIds(detachedProgram)).toEqual([4]);
+        expect((await buildNodeParticleSet({} as EngineContext, {} as SceneContext, detachedProgram)).systems[0]!.targetStopDuration).toBe(7);
     });
 
     it("reuses one immutable program across repeated instantiation", async () => {
@@ -351,9 +333,9 @@ describe("NPE graph plumbing", () => {
         const program = await compileNodeParticleGraph(parsed);
 
         const first = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
-        const rebuilt = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, first._program);
-        expect(first._program).toBe(program);
-        expect(rebuilt._program).toBe(program);
+        const rebuilt = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        expect(first.systems[0]!.targetStopDuration).toBe(7);
+        expect(rebuilt.systems[0]!.targetStopDuration).toBe(7);
     });
 
     it("compiles and activates a LocalVariable", async () => {
@@ -373,11 +355,10 @@ describe("NPE graph plumbing", () => {
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
 
         expect(program).not.toBe(graph);
-        expect(program._compiled).toBe(true);
         expect(set.systems[0]!.targetStopDuration).toBe(7);
     });
 
-    it("leaves a reachable TeleportIn-only graph unsupported after compilation", async () => {
+    it("rejects a reachable TeleportIn-only graph during compilation", async () => {
         const graph = parseNodeParticleSource({
             blocks: [
                 { customType: "BABYLON.ParticleTeleportInBlock", id: 1, inputs: [] },
@@ -385,8 +366,7 @@ describe("NPE graph plumbing", () => {
             ],
         });
 
-        const program = await compileNodeParticleGraph(graph);
-        await expect(buildNodeParticleSet({} as EngineContext, {} as SceneContext, program)).rejects.toThrow('NodeParticle: unsupported value block "ParticleTeleportInBlock"');
+        await expect(compileNodeParticleGraph(graph)).rejects.toThrow('NodeParticle: unsupported value block "ParticleTeleportInBlock"');
     });
 
     it("normalizes fan-out, chains, endpoint zero, and multiple roots without mutating source data", async () => {
@@ -418,30 +398,12 @@ describe("NPE graph plumbing", () => {
             ],
         };
         const rawSnapshot = structuredClone(source);
-        const graph = parseNodeParticleSource(source);
-        const originalRoot = graph.blocks.get(10)!;
-        const originalEmitRate = originalRoot.inputs[0]!;
-        const originalDuration = originalRoot.inputs[1]!;
-        const program = await compileNodeParticleGraph(graph);
+        const originalDuration = (source.blocks[6]!.inputs as Array<Record<string, unknown>>)[1]!;
+        const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
 
-        expect(program).not.toBe(graph);
-        expect(program.systemTemplates).toEqual([
-            { systemBlockId: 10, resources: { columns: [] } },
-            { systemBlockId: 11, resources: { columns: [] } },
-        ]);
-        expect(program.blocks.get(10)).not.toBe(originalRoot);
-        expect(program.blocks.get(10)!.inputs[0]).toEqual(originalEmitRate);
-        expect(program.blocks.get(10)!.inputs[1]).toEqual({
-            name: "targetStopDuration",
-            value: 99,
-            valueType: "number",
-            targetBlockId: 1,
-            targetConnectionName: "output",
-        });
-        expect(program.blocks.get(11)!.inputs[0]).toMatchObject({ targetBlockId: 1, targetConnectionName: "output" });
+        expect(getSystemBlockIds(program)).toEqual([10, 11]);
         expect(originalDuration).toMatchObject({ targetBlockId: 2, targetConnectionName: "output" });
         expect(source).toEqual(rawSnapshot);
-        expect(graph.blocks.get(10)).toBe(originalRoot);
 
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
         expect(set.systems.map((system) => system.targetStopDuration)).toEqual([7, 7]);
@@ -465,21 +427,6 @@ describe("NPE graph plumbing", () => {
         await expect(compileNodeParticleGraph(parseNodeParticleSource(source))).rejects.toThrow(
             "NodeParticle: ParticleTeleportOutBlock 3 entryPoint 2 is not ParticleTeleportInBlock"
         );
-    });
-
-    it.each([
-        ["TeleportOut", 3],
-        ["TeleportIn", 2],
-    ] as const)("rejects a repeated %s route id", async (_name, repeatedId) => {
-        const source = basicTeleportSource();
-        source.blocks.unshift({ customType: "BABYLON.ParticleInputBlock", id: repeatedId, inputs: [] });
-        expect(() => parseNodeParticleSource(source)).toThrow(`NodeParticle: duplicate block id ${repeatedId}`);
-    });
-
-    it("applies the endpoint-class diagnostic to the final parsed block", async () => {
-        const source = basicTeleportSource();
-        source.blocks.push({ customType: "BABYLON.ParticleInputBlock", id: 2, inputs: [] });
-        expect(() => parseNodeParticleSource(source)).toThrow("NodeParticle: duplicate block id 2");
     });
 
     it("rejects a disconnected TeleportIn input", async () => {
@@ -575,7 +522,6 @@ describe("NPE graph plumbing", () => {
         const set = await parseNodeParticleSetFromSnippet({} as EngineContext, {} as SceneContext, "", { json: scalarRouteSource(true) });
 
         expect(set.systems[0]!.targetStopDuration).toBe(7);
-        expect(set._program._compiled).toBe(true);
     });
 
     it("compiles through the fetched snippet delegation", async () => {
@@ -591,19 +537,17 @@ describe("NPE graph plumbing", () => {
 
         expect(fetchMock).toHaveBeenCalledWith("https://snippets.invalid/TELEPORT/1");
         expect(set.systems[0]!.targetStopDuration).toBe(7);
-        expect(set._program._compiled).toBe(true);
     });
 
     it("builds a non-Teleport snippet as a compiled program", async () => {
         const set = await parseNodeParticleSetFromSnippet({} as EngineContext, {} as SceneContext, "", { json: scalarRouteSource(false) });
 
         expect(set.systems[0]!.targetStopDuration).toBe(7);
-        expect(Object.keys(set._program)).toEqual(["blocks", "systemTemplates", "_compiled"]);
     });
 
     it("keeps graph recognition out of the parser and all owning builders", () => {
         const nodeDirectory = resolve(__dirname, "../../../packages/babylon-lite/src/particle/node");
-        for (const file of ["npe-parser.ts", "npe-build.ts", "npe-flow-map-runtime.ts", "npe-texture-update-runtime.ts"]) {
+        for (const file of ["npe-parser.ts", "npe-build.ts", "npe-flow-map-runtime.ts"]) {
             const source = readFileSync(resolve(nodeDirectory, file), "utf8");
             expect(source, file).not.toContain("_hasGraphPlumbing");
             expect(source, file).not.toContain("compileNodeParticleTopology");
@@ -612,11 +556,15 @@ describe("NPE graph plumbing", () => {
 
     it("keeps topology compilation behind the async compiler boundary", () => {
         const nodeDirectory = resolve(__dirname, "../../../packages/babylon-lite/src/particle/node");
-        const compilerSource = readFileSync(resolve(nodeDirectory, "npe-compiler.ts"), "utf8");
+        const buildSource = readFileSync(resolve(nodeDirectory, "npe-build.ts"), "utf8");
+        const featureCompilerSource = readFileSync(resolve(nodeDirectory, "npe-feature-compilation.ts"), "utf8");
+        const generalCompilerSource = readFileSync(resolve(nodeDirectory, "npe-general-feature-compilation.ts"), "utf8");
         const snippetSource = readFileSync(resolve(nodeDirectory, "node-particle.ts"), "utf8");
 
-        expect(compilerSource).toContain('import("./npe-graph-plumbing-runtime.js")');
-        expect(compilerSource).not.toMatch(/^(?!\s*import type).*from ["']\.\/npe-graph-plumbing-runtime/m);
+        expect(buildSource).toContain('import("./npe-feature-compilation.js")');
+        expect(featureCompilerSource).toContain('import("./npe-general-feature-compilation.js")');
+        expect(generalCompilerSource).toContain('import("./npe-graph-plumbing-runtime.js")');
+        expect(generalCompilerSource).not.toMatch(/^(?!\s*import type).*from ["']\.\/npe-graph-plumbing-runtime/m);
         expect(snippetSource).toContain("await compileNodeParticleGraph(parseNodeParticleSource(source))");
     });
 

@@ -1,29 +1,25 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
-import type { ParsedParticleBlock } from "./npe-types.js";
+import type { CompiledParticleBlock, ParsedParticleBlock } from "./npe-types.js";
+
+const loadSprite = () => import("./npe-pack-sprite.js");
+
+/** Detect value compilation needed by contextual sprite-cell Int sources. */
+export async function c(blocks: ReadonlyMap<number, CompiledParticleBlock>): Promise<0 | 0x11> {
+    return (await loadSprite()).detect(blocks);
+}
 
 /** Resolve serialized variants that should add zero loader bytes to ordinary block instances. */
 export async function loadVariantBlockEvaluator(block: ParsedParticleBlock): Promise<NpeBlockEvaluator> {
-    switch (block.className) {
-        case "ParticleInputBlock": {
-            if (block.serialized.contextualValue === 0x18) {
-                return (await import("./blocks/particle-input-local-block.js")).particleInputLocalBlock;
-            }
-            return (await import("./blocks/particle-input-extra-block.js")).particleInputExtraBlock;
-        }
-        case "ParticleMathBlock":
-            return (await import("./blocks/particle-math-block.js")).particleMathBlock;
-        case "ParticleRandomBlock": {
-            const valueType = block.inputs.find((input) => input.name === "min")?.valueType ?? block.inputs.find((input) => input.name === "max")?.valueType ?? "number";
-            if (valueType[0] === "B") {
-                return (await import("./blocks/particle-random-once-typed-block.js")).particleRandomOnceTypedBlock;
-            }
-            return (await import("./blocks/particle-random-once-block.js")).particleRandomOnceBlock;
-        }
-        case "SystemBlock":
-            return (await import("./blocks/system-dynamic-emit-rate-block.js")).systemDynamicEmitRateBlock;
-        case "SetupSpriteSheetBlock":
-            return (await import("./blocks/setup-sprite-sheet-random-block.js")).setupSpriteSheetRandomBlock;
-        default:
-            throw new Error(`NodeParticle: unsupported block variant "${block.className}"`);
+    if (block.customType === "BABYLON.ParticleInputBlock" && typeof block.contextualValue === "number" && block.contextualValue >= 0x10 && block.contextualValue <= 0x12) {
+        return (await loadSprite()).load("ParticleInputBlock");
     }
+    if (block.customType === "BABYLON.ParticleInputBlock" && block.contextualValue === 0x18) {
+        return (await import("./blocks/particle-input-local-block.js")).evaluator;
+    }
+    if (block.customType === "BABYLON.SetupSpriteSheetBlock" && block.randomStartCell === true) {
+        return (await loadSprite()).loadRandomStartSpriteBlockEvaluator();
+    }
+    return (await import("./npe-registry-variants-extra.js")).load(block);
 }
+
+export { loadVariantBlockEvaluator as load };

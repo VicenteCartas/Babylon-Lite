@@ -89,3 +89,5 @@ export const cylinderShapeLocalBlock: NpeBlockEvaluator = {
         };
     },
 };
+
+export { cylinderShapeLocalBlock as evaluator };
