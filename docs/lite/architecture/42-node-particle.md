@@ -58,7 +58,7 @@ function enableNodeParticleBlendModes(set: NodeParticleSet): NodeParticleSet;
 
 function parseNodeParticleSetFromSnippet(engine: EngineContext, scene: SceneContext, snippetId: string, options?: ParseNodeParticleOptions): Promise<NodeParticleSet>;
 
-function startParticleSystem(system: ParticleSystem): void;
+function startParticleSystem(system: ParticleSystem, delay?: number): void;
 function stopParticleSystem(system: ParticleSystem): void;
 function animateParticleSystem(system: ParticleSystem, scaledRatio: number): void;
 
@@ -422,6 +422,12 @@ interface ParticleSystem {
     emitRate: number;
     updateSpeed: number;
     targetStopDuration: number;
+    manualEmitCount: number;
+    preWarmCycles: number;
+    preWarmStepOffset: number;
+    startDelay: number;
+    disposeOnStop: boolean;
+    doNoStart: boolean;
     blendMode: number;
     texture: Texture2D | null;
 
@@ -441,9 +447,11 @@ interface ParticleSystem {
     _newPartsExcess: number;
     _started: boolean;
     _stopped: boolean;
+    _disposed: boolean;
     _actualFrame: number;
     _emitRateGetter?: () => number;
     _prepareFrame?: () => void;
+    _dispose?: () => void;
     _spriteSheet?: ParticleSpriteHandle;
     _writeColorDead?: (i: number, color: Color4) => void;
     _suppressInitialDirectionCapture?: boolean;
@@ -459,6 +467,12 @@ interface ParticleSystem {
 | `emitRate`                | `10`             |
 | `updateSpeed`             | `0.0167`         |
 | `targetStopDuration`      | `0`              |
+| `manualEmitCount`         | `-1`             |
+| `preWarmCycles`           | `0`              |
+| `preWarmStepOffset`       | `1`              |
+| `startDelay`              | `0`              |
+| `disposeOnStop`           | `false`          |
+| `doNoStart`               | `false`          |
 | `blendMode`               | `2`              |
 | `texture`                 | `null`           |
 | all eight `create*` slots | `null`           |
@@ -468,17 +482,24 @@ interface ParticleSystem {
 | `_scaledUpdateSpeed`      | `0`              |
 | `_newPartsExcess`         | `0`              |
 | `_started`, `_stopped`    | `false`, `false` |
+| `_disposed`               | `false`          |
 | `_actualFrame`            | `0`              |
 
 Optional internal fields are absent until a feature installs them.
 
 ### 5.2 Start and stop
 
-`startParticleSystem(system)` sets `_started = true`, `_stopped = false`, and `_actualFrame = 0`. It does not clear live particles, ids, columns, creation/update steps, `_newPartsExcess`, texture, or feature handles.
+`startParticleSystem(system, delay = system.startDelay)` first returns without scheduling work when `doNoStart` or `_disposed` is true. A user may clear `doNoStart` and call start again; a disposed system cannot restart.
+
+When `delay` is truthy, start assigns it to `startDelay`, schedules `startParticleSystem(system, 0)` through `setTimeout` in milliseconds, and returns before changing simulation state. The delayed call rechecks `doNoStart` and `_disposed`. Multiple delayed starts are not deduplicated or cancelled.
+
+An immediate start sets `_started = true`, `_stopped = false`, and `_actualFrame = 0`. It does not clear live particles, ids, columns, creation/update steps, `_newPartsExcess`, texture, or feature handles. It then calls `animateParticleSystem(system, system.preWarmStepOffset)` exactly `preWarmCycles` times. Prewarm uses the normal simulation path, including frame preparation, manual emission, target-stop handling, particle updates, births, random draws, and disposal checks; it differs only in the caller-supplied step ratio.
 
 `stopParticleSystem(system)` sets `_stopped = true`. It does not set `_started = false` and does not clear live particles. Calls to `animateParticleSystem` continue to update and expire live particles while suppressing creation.
 
-Starting a stopped system resets simulated time and permits emission while retaining all live particles and fractional emission carry.
+After an already-stopped system has no live particles at the end of an animation call, animation sets `_started = false`. When `disposeOnStop` is true, it also sets `_disposed = true`, invokes `_dispose?.()` once, and clears that optional owner-installed callback. The pure CPU system owns no GPU allocation; scene and Sprite2D registrations may install `_dispose` for their own resources.
+
+Starting a stopped, non-disposed system resets simulated time and permits emission while retaining all live particles and fractional emission carry.
 
 ### 5.3 Compiled frame preparation
 
@@ -505,13 +526,14 @@ One wrapped options object may be reused across builds without coupling them. It
 1. Return when `_started` is false.
 2. Invoke `_prepareFrame?.()` when present.
 3. Compute `scaledUpdateSpeed = updateSpeed * scaledRatio` and assign it to `_scaledUpdateSpeed`.
-4. Evaluate `_emitRateGetter()` when present; otherwise read `emitRate`. A connected getter observes the current `_actualFrame` before this call advances it.
-5. Compute `emission = emitRate * scaledUpdateSpeed` and `newParticles = emission >> 0`.
-6. Add `emission - newParticles` to `_newPartsExcess`. Only when `_newPartsExcess > 1.0`, take `extra = _newPartsExcess >> 0`, add `extra` to `newParticles`, and subtract `extra` from `_newPartsExcess`. Equality with `1.0` does not release a particle.
-7. If `_stopped` was already true, set `newParticles = 0`. The rate getter and fractional-carry calculation have already run.
-8. If `_stopped` was false, add `scaledUpdateSpeed` to `_actualFrame`. When `targetStopDuration` is truthy and `_actualFrame >= targetStopDuration`, call `stopParticleSystem`. The `newParticles` count computed for this call is retained, so the threshold call still creates its computed cohort.
-9. Update all particles that were live at the start of the update loop.
-10. Create up to `newParticles`, subject to capacity.
+4. When `manualEmitCount > -1`, assign it directly to `newParticles`, reset `_newPartsExcess = 0`, assign `manualEmitCount = 0`, and do not evaluate the rate getter. Otherwise evaluate `_emitRateGetter()` when present or read `emitRate`, then compute `emission = emitRate * scaledUpdateSpeed`, `newParticles = emission >> 0`, and add `emission - newParticles` to `_newPartsExcess`. A connected getter observes the current `_actualFrame` before this call advances it.
+5. Only when `_newPartsExcess > 1.0`, take `extra = _newPartsExcess >> 0`, add `extra` to `newParticles`, and subtract `extra` from `_newPartsExcess`. Equality with `1.0` does not release a particle.
+6. If `_stopped` was already true, set `newParticles = 0`. Manual state or rate-based fractional carry has already been updated.
+7. If `_stopped` was false, add `scaledUpdateSpeed` to `_actualFrame`. When `targetStopDuration` is truthy and `_actualFrame >= targetStopDuration`, call `stopParticleSystem`. The `newParticles` count computed for this call is retained, so the threshold call still creates its computed cohort.
+8. Update all particles that were live at the start of the update loop.
+9. Create up to `newParticles`, subject to capacity.
+10. When `_stopped` and `buffer.alive === 0`, set `_started = false`; when `disposeOnStop`, also mark disposed and invoke the one-shot disposal callback specified in section 5.2.
+11. When `manualEmitCount === 0 && disposeOnStop`, call `stopParticleSystem`. A positive manual burst therefore emits once, stops after its birth call, drains on later animation calls, and disposes after the final death.
 
 The `| 0` and `>> 0` operations use JavaScript signed 32-bit conversion. Rates, ratios, and speeds are not clamped or validated.
 
@@ -665,7 +687,7 @@ The output map key is `${blockId}:${connectionName}`. Getter outputs are:
 - `color`, `xyz`, `xy`, `zw`, `x`, `y`, `z`, and `w`: `ParticleConverterBlock`.
 - `texture`: `cpuTextureSourceBlock`, reachable only through a CPU texture-update builder's dependency override.
 
-`SystemBlock`, `CreateParticleBlock`, all six shape classes, `SetupSpriteSheetBlock`, `BasicSpriteUpdateBlock`, and all seven update classes install no getter output. Their `particle` connections control reachability and ordering only. Update blocks do not publish flow outputs.
+`SystemBlock`, `CreateParticleBlock`, all six shape classes, `SetupSpriteSheetBlock`, `BasicSpriteUpdateBlock`, and all update classes install no getter output. Their `particle` connections control reachability and ordering only. Update blocks do not publish flow outputs.
 
 ### 7.3 Input resolution and literals
 
@@ -695,7 +717,7 @@ The initial pack topology is:
 - **Lifecycle:** System, CreateParticle, ParticleTextureSource, and UpdatePosition. These blocks co-occur in every representative NPE runtime.
 - **Standard values:** ordinary ParticleInput and contextual helpers, ParticleRandom, compact ParticleMath, ParticleLerp, ParticleConverter, and UpdateColor. These blocks co-occur in every representative value-driven graph; graphs such as the minimal moving-emitter fixture do not load this pack.
 - **Sprite:** SetupSpriteSheet, BasicSpriteUpdate, SpriteCellIndex/Start/End, and UpdateSpriteCellIndex. Sprite-cell Int reachability detection is part of this pack, not a separate router. Random-start setup remains owned by this catalog but is a measured mutually exclusive leaf, so deterministic sprite graphs do not fetch its extra column and update implementation.
-- **Basic updates:** UpdateSize, Gradient, GradientValue, UpdateAttractor, UpdateDirection, and UpdateAngle. Future `UpdateScaleBlock`, `UpdateAgeBlock`, `BasicPositionUpdateBlock`, and `BasicColorUpdateBlock` join this pack unless measurement demonstrates a better existing home.
+- **Basic updates:** UpdateSize, Gradient, GradientValue, UpdateAttractor, UpdateDirection, UpdateAngle, UpdateScale, UpdateAge, BasicPositionUpdate, and BasicColorUpdate.
 - **Advanced values:** Condition, FloatToInt, VectorLength, NumberMath, Clamp, Step, Trigonometry, VectorMath, SmoothStep, NLerp, and their shared value-type propagation. Small value evaluators do not receive individual chunks.
 - **Topology and variables:** Teleport normalization, Elbow, Debug, LocalVariable, and reusable nested system-plan compilation. Future `ParticleTriggerBlock` and System `onStart`/`onEnd` support join this family.
 - **Texture simulation:** shared CPU texture decoding plus flow-map and noise update support. Flow and noise may remain separate large leaves only when the measured total is smaller than one combined pack.
@@ -825,7 +847,7 @@ Contextual source has precedence over system source, and system source has prece
 
 ## 9. Supported blocks
 
-Compiled programs support exactly 42 of Babylon.js's 49 registered block class names. The parser can represent arbitrary serialized class names; compilation owns topology validation, value typing, evaluator specialization, and operation planning before any builder runs.
+Compiled programs support exactly 46 of Babylon.js's 49 registered block class names. The parser can represent arbitrary serialized class names; compilation owns topology validation, value typing, evaluator specialization, and operation planning before any builder runs.
 
 ```text
 SystemBlock                         CreateParticleBlock
@@ -845,6 +867,8 @@ ParticleTextureSourceBlock          SetupSpriteSheetBlock
 BasicSpriteUpdateBlock              UpdatePositionBlock
 UpdateColorBlock                    UpdateDirectionBlock
 UpdateAngleBlock                    UpdateSizeBlock
+UpdateScaleBlock                    UpdateAgeBlock
+BasicPositionUpdateBlock            BasicColorUpdateBlock
 UpdateSpriteCellIndexBlock
 UpdateAttractorBlock                UpdateFlowMapBlock
 UpdateNoiseBlock                    ParticleTeleportInBlock
@@ -874,6 +898,8 @@ The builder has created the system before this evaluator runs. The evaluator:
 
 - Assigns `serialized.updateSpeed` only when it is a number.
 - Assigns `serialized.blendMode` only when it is a number.
+- Assigns numeric `manualEmitCount`, `preWarmCycles`, `preWarmStepOffset`, and `startDelay` with `-1`, `0`, `0`, and `0` fallbacks respectively. The `SystemBlock` fallback for `preWarmStepOffset` is `0`, while a directly-created non-NPE `ParticleSystem` defaults to `1`, matching the corresponding Babylon.js defaults.
+- Assigns `disposeOnStop = serialized.disposeOnStop === true` and `doNoStart = !!serialized.doNoStart`.
 - For an unconnected `emitRate`, evaluates the input once at build with fallback `10` and assigns a numeric result.
 - For a connected `emitRate`, the dynamic evaluator installs `_emitRateGetter`. Each call evaluates the graph at particle index `0` and returns its number result, or the system's constant `emitRate` when the result is not numeric. It is not evaluated during build.
 - Evaluates `targetStopDuration` once at build with fallback `0` and assigns a numeric result.
@@ -1265,7 +1291,23 @@ When `angle` is connected, request the standard angle column and append an updat
 
 When `size` is connected, request the standard size column and append an update step that writes the scalar result. With an unconnected input, append nothing. No output getter is installed.
 
-### 9.31 Compiled topology and local values
+### 9.31 UpdateScaleBlock
+
+When `scale` is connected, append an update step that evaluates a Vector2 and writes `scaleX` and `scaleY`. With an unconnected input, append nothing. No output getter is installed.
+
+### 9.32 UpdateAgeBlock
+
+When `age` is connected, append an update step that writes the scalar result into the F64 `age` column. This write occurs in serialized update-queue order after the simulation loop's lifetime-clamped pre-increment, so it can overwrite that increment and any earlier age writer. With an unconnected input, append nothing. No output getter is installed.
+
+### 9.33 BasicPositionUpdateBlock
+
+Append an update step that adds `direction * system._scaledStep` to position. `_scaledStep` is the per-particle lifetime-clamped delta selected by the simulation loop. The evaluator captures and mutates the buffer's authoritative position columns directly: ordinary systems retain F32 assignment behavior, while floating-origin systems preserve the result in their Phase 6 F64 columns. Direction remains F32. The block has no value input, optional storage, scratch value, or output getter.
+
+### 9.34 BasicColorUpdateBlock
+
+Append an update step that adds `colorStep * system._scaledUpdateSpeed` to all four color components, then clamps alpha to zero when it is negative. This intentionally uses the frame's unclamped system step rather than the dying particle's `_scaledStep`, matching Babylon.js. RGB values are not clamped. The block has no value input, optional storage, scratch value, or output getter.
+
+### 9.35 Compiled topology and local values
 
 `compileNodeParticleGraph` is the only transition from trusted parsed source to executable plans. Its initial scan creates a temporary id map and root list while detecting which optional compiler passes may be needed. Topology rewrites use copy-on-write records and never mutate source objects or serialized class names. The resulting `NodeParticleProgram` retains only one post-order block/evaluator operation plan per system root; compiler maps, feature bits, and registries are discarded.
 
@@ -1283,7 +1325,7 @@ The required properties are:
 - Loop local snapshots are per started `animateParticleSystem` call and per instantiated system.
 - Reusing a program creates independent systems, columns, evaluator state, and Loop epochs.
 
-#### 9.31.1 Serialized block contracts
+#### 9.35.1 Serialized block contracts
 
 | Class                        | Input             | Output   | Serialized field | Contract                                                                                                                                                            |
 | ---------------------------- | ----------------- | -------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1297,7 +1339,7 @@ Babylon leaves TeleportIn and Elbow `AutoDetect` without excluding Particle, Sys
 
 Babylon excludes Particle, System, Texture, and all four gradient connection types from Debug and LocalVariable. Lite keeps that boundary: those two classes accept only scalar, Vector2, Vector3, and Color4 `NpeValue` paths. The topology compiler reports a class-specific unsupported-connection diagnostic when the consumer-role table identifies a flow, texture, or gradient route; LocalVariable also performs runtime shape validation because serialized output points contain no usable type or `valueType` metadata.
 
-#### 9.31.2 Reachability, feature loading, and operation compilation
+#### 9.35.2 Reachability, feature loading, and operation compilation
 
 The compiler uses this exact path:
 
@@ -1344,7 +1386,7 @@ The resolver records the ordered proxy-id stack. Revisiting a proxy already on t
 
 Copy-on-write occurs after successful edge resolution. Only an input whose source pair changes is copied; only a block containing a changed input is copied. Its id, class, name, unmodified input objects, literal values, and value-type tags remain by reference. A new temporary block map is constructed only when at least one reachable edge changes; `systemBlockIds` and every untouched compiled block reference are preserved. Distinct TeleportOut ids may reference the same TeleportIn entry for fan-out.
 
-#### 9.31.3 Graph merge contract
+#### 9.35.3 Graph merge contract
 
 Lite has no public graph-merge API. The following contract reserves safe behavior for a future merge without adding current API or code:
 
@@ -1358,7 +1400,7 @@ Merging already parsed graphs without their source-local remap is unsupported. T
 
 This is intentional hardening beyond Babylon's current reconnect behavior. Babylon uses a truthy `entryPoint` guard, so serialized `0` and `""` are silently ignored, and raw-id merge collisions can reconnect to the wrong source. Lite accepts finite integer id `0` when present, rejects empty strings and all other invalid endpoint values, and requires source-local remapping so collisions cannot cross-link graphs.
 
-#### 9.31.4 Particle-scope local-variable storage
+#### 9.35.4 Particle-scope local-variable storage
 
 During instantiation, each reachable Particle-scope LocalVariable evaluator requests six keyed optional columns named with its block id:
 
@@ -1386,7 +1428,7 @@ Scalar output reads `value0`. Vector2, Vector3, and Color4 output copy the requi
 
 This id-plus-valid design intentionally avoids Babylon's reset callback coupling. Babylon assigns one particle object's single `_properties.onReset` callback from each LocalVariable block, so a later local block can overwrite an earlier block's cleanup. Lite has no per-particle callback or hidden block ordering: each local's columns move with swap-remove and id mismatch invalidates stale data. The separate valid column also distinguishes particle id `0` from empty storage.
 
-#### 9.31.5 Loop-scope epoch and frame preparation
+#### 9.35.5 Loop-scope epoch and frame preparation
 
 Loop intentionally means one started `animateParticleSystem` call for one built system. This is a Lite-defined simulation boundary, not a claim that manual calls reproduce Babylon's scene-frame-id cache. It gives deterministic semantics to manual simulation, fixed-step replay, and renderer-managed simulation without making a particle system depend on a Scene frame counter.
 
@@ -1405,7 +1447,7 @@ started animate call
 
 The provider callback and Loop wrapper capture no system and create no self-cycle. A provider exception prevents the epoch increment and simulation, preserving error atomicity. Systems without Loop retain their provider hook or no `_prepareFrame` field at all, while the existing optional call in `animateParticleSystem` remains the only common simulation cost.
 
-The first Loop read in an epoch evaluates and snapshots its input with the discriminator in section 9.31.4. Every subsequent read in that same call returns the snapshot, including reads from a system getter, multiple existing particles, and newly created particles. An unstarted call returns before the epoch advances. A stopped-but-started drain call advances it. Zero scaled ratio still advances it because one explicit animation call is one Loop.
+The first Loop read in an epoch evaluates and snapshots its input with the discriminator in section 9.35.4. Every subsequent read in that same call returns the snapshot, including reads from a system getter, multiple existing particles, and newly created particles. An unstarted call returns before the epoch advances. A stopped-but-started drain call advances it. Zero scaled ratio still advances it because one explicit animation call is one Loop.
 
 Each System root receives fresh evaluators, epoch state, and snapshots. Separate systems and separate builds are therefore independent even when instantiated from one reusable program and animated in the same call sequence. This intentionally differs from Babylon, where one LocalVariable block instance shares its Loop map across systems that observe the same scene frame id. Lite keeps state owned by the pure-state system, avoids a cross-system hidden registry, and makes manual simulation deterministic. Tests must expect independent systems.
 
@@ -1413,7 +1455,7 @@ Particle-scope LocalVariable is rejected on any path whose accumulated mask cont
 
 There is no direct Babylon oracle for Lite's Loop boundary. Babylon requires a non-null scene to read a Loop local, while the null-scene manual procedure in section 13.2 throws; retaining a scene and repeatedly calling particle animation without rendering does not advance its frame id. Deterministic Lite tests therefore own started-call semantics. No Babylon fixture is claimed as proof of that boundary. A future limited fixture may call `scene.render()` once per observed step with a real advancing frame id and exactly one relevant first read per render; it would cover only that compatible case.
 
-#### 9.31.6 Elbow and Debug behavior
+#### 9.35.6 Elbow and Debug behavior
 
 Elbow and Debug use the same recursive source resolver as TeleportOut. After compilation no reachable consumer targets either block, so neither class needs a registry entry or evaluator file.
 
@@ -1423,11 +1465,11 @@ Elbow, Debug, and LocalVariable inputs are mandatory in Lite. A disconnected rea
 
 Chained Elbow, Debug, and Teleport routes resolve to one terminal source pair. A cycle among any combination of those proxies uses the same deterministic cycle diagnostic.
 
-#### 9.31.7 Diagnostics
+#### 9.35.7 Diagnostics
 
 All implemented topology and LocalVariable diagnostics are listed once in section 11. Their implementations use inline literal or template arguments so the Lite error extraction plugin can replace prose in production bundles.
 
-#### 9.31.8 Pay-for-use and bundle contract
+#### 9.35.8 Pay-for-use and bundle contract
 
 - The small compiler orchestrator is universal; topology, typed value math, and resource derivation are separate conditional dynamic imports.
 - Graphs without topology candidates do not fetch `npe-graph-plumbing-runtime.ts`. TeleportIn alone is not a trigger.
@@ -1437,7 +1479,7 @@ All implemented topology and LocalVariable diagnostics are listed once in sectio
 - Production bundle assertions inspect fetched runtime chunks and their modules. Generated bundle output remains ignored.
 - Scene 305 is the positive topology and Particle LocalVariable fixture. Representative graphs without those features must not fetch the topology runtime or LocalVariable evaluator.
 
-#### 9.31.9 Alternatives and risks
+#### 9.35.9 Alternatives and risks
 
 | Alternative                                                    | Decision                                                                                                                                              |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1454,7 +1496,7 @@ All implemented topology and LocalVariable diagnostics are listed once in sectio
 
 The main implementation risks are proxy-cycle handling, accidentally diagnosing detached blocks, scratch aliasing, and slot reuse. The ordered-stack resolver, root-only traversal, component copies, and id/valid columns are the required mitigations.
 
-#### 9.31.10 Implementation and test coverage
+#### 9.35.10 Implementation and test coverage
 
 Compiled topology and runtime metadata are implemented by these side-effect-free node infrastructure files:
 
@@ -1756,7 +1798,7 @@ Additional behavior is observable:
 
 ## 12. Current limitations
 
-- The parser represents arbitrary serialized class names. Compiled programs support the 42 classes listed in section 9. Other reachable NPE classes follow the registry errors in section 11.
+- The parser represents arbitrary serialized class names. Compiled programs support the 46 classes listed in section 9. Other reachable NPE classes follow the registry errors in section 11.
 - Simulation is CPU-only.
 - Rendering is selected explicitly by the caller: camera-facing billboards or pure-2D Sprite2D. Serialized `billBoardMode` and `isBillboardBased` do not select either runtime path.
 - The Sprite2D bridge maps only NPE world XY. It ignores `posZ` and does not support XZ/YZ projection.
@@ -1791,6 +1833,7 @@ Snapshots sort live slots by particle id. The scene 262 canonical state test use
 The current unit categories are:
 
 - Buffer and lifecycle: base-only allocation, string-key column sharing, dense spawn/swap-remove, capacity, emission, integration, death clamp, and sprite-column math.
+- System lifecycle properties: direct and serialized defaults; delayed and blocked starts; synchronous prewarm birth/death state and random consumption; one-shot manual emission without rate evaluation; fractional-carry reset; stopped drain completion; terminal disposal; and restart rejection after disposal.
 - Compilation and build behavior: trusted parse identity, program reuse, root reachability, detached-block isolation, immutable post-order operation plans, evaluator-owned keyed storage, Loop preparation, flow-map bindings, two-field connection criteria, dynamic emit-rate laziness, system-time reevaluation, deliberate URL-over-data precedence for serializer-unreachable hand-authored input, and default-path embedded texture upload with explicit-false mapping and Lite's class default when `invertY` is omitted.
 - Canonical graph state: scenes 262, 263, 264, and 276; full Basic Properties; Size; Sphere; and deterministic/random-start sprite variants.
 - Change graphs: Size, Color, Speed, Angular Speed, multi-stop Angular Speed, Drag, Emit Rate, Lifetime, Start Size, and Speed Limit.
@@ -1798,6 +1841,7 @@ The current unit categories are:
 - Moving emitters: translating and rotating provider snapshots, newly returned matrices and in-place mutation, static-option precedence and immutability, world births, all six world/local shape paths, `LocalPositionUpdated`, contextual Emitter, every implicit Cylinder inverse in one system, all builder families, Parse-option preservation, unstarted and stopped-but-started calls, independent multi-system sampling, wrapped-options reuse isolation, and provider exception/invalid-result atomicity across matrix, translation, inverse, and particle state.
 - Value correctness: shared-scratch Math, Lerp/Gradient endpoints, Random min/max aliasing, lock modes, Uint32 id edge cases, and capacity-bounded OncePerParticle caches.
 - Attractors: softened inverse-square attraction, negative-strength repulsion, defaults, coincident-point handling, lifetime-clamped step scaling, and lazy evaluator isolation.
+- Core updates: serialized queue order; direct scale and age writes; lifetime-clamped authoritative F32/F64 position integration; unclamped color-step scaling; alpha-only clamping; disconnected-input behavior; and basic-update family isolation.
 - Flow maps: projected nearest-neighbor sampling including non-zero row stride, vertical screen mapping, RGBA force decoding, alpha and bounds handling, per-particle strength evaluation, lifetime-clamped step scaling, allocator-selected F32/F64 matrix snapshots, and lazy texture/evaluator isolation.
 - Noise textures: exact three-sample red-channel addressing, six deterministic Float64 random coordinates, coordinate reuse and slot recycling, Vector3 defaults/strength, lifetime-clamped step scaling, extraction failure, parsed graph wiring including ordinary/CPU embedded-texture fan-out, Babylon multi-step state fixtures, and lazy runtime isolation.
 - Topology compilation: trusted parser metadata absence; TeleportIn-only nonactivation; candidate-free and detached-malformed paths; Teleport and Elbow routes for scalar, Vector2, Vector3, Color4, gradient, particle/system flow, and texture roles; Debug value-only routing; two-bit shared-domain revisits; consumer-edge-first diagnostic priority; specialized texture evaluator overrides; endpoint id `0`; malformed endpoints; mixed cycles; compiler copy-on-write without source mutation; all builder families; automatic inline/fetched snippets; no Teleport/Elbow/Debug evaluator body; and topology-runtime chunk/module isolation.

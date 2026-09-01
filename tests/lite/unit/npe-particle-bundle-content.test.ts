@@ -32,7 +32,7 @@ const HAS_MANIFEST = hasManifests(CANONICAL_PARTICLE_SCENES);
 const HAS_MOVING_EMITTER_MANIFEST = hasManifests(PROVIDER_ISOLATION_SCENES);
 const HAS_SPRITE_2D_MANIFEST = hasManifests(SPRITE_2D_BLEND_SCENES);
 const UNUSED_FEATURE_CHUNK =
-    /particle-(blend|billboard-renderable|billboard-scene)|registry-(variants|extra-basic|extra-emitters|extra-remaining|extra-values|input-extra|local-shapes|phase4b|value-math)|update-(attractor|flow-map|noise|direction|angle|sprite-cell-index)-block|npe-(blend-modes|emitter-provider|feature-compilation|flow-map-runtime|general-feature-compilation|graph-plumbing-runtime|live-emitter|noise-runtime|sprite-cell-compilation|system-plan-compilation|value-compilation|texture-update-evaluator|texture-content)|cpu-texture-source|random-once-typed|random-composed-typed|setup-sprite-sheet-random|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|nlerp|number-math|smooth-step|step|trigonometry|value-type|vector-length|vector-math)|particle-input-(local|sprite-cell)|local-position|box-shape-local|sphere-shape-local|point-shape|cone-shape|cylinder-shape|mesh-shape/;
+    /particle-(blend|billboard-renderable|billboard-scene)|registry-(variants|extra-basic|extra-emitters|extra-remaining|extra-values|input-extra|local-shapes|phase4b|value-math)|update-(attractor|flow-map|noise|direction|angle|scale|age|sprite-cell-index)-block|basic-(position|color)-update-block|npe-(blend-modes|emitter-provider|feature-compilation|flow-map-runtime|general-feature-compilation|graph-plumbing-runtime|live-emitter|noise-runtime|pack-core-updates|sprite-cell-compilation|system-plan-compilation|value-compilation|texture-update-evaluator|texture-content)|cpu-texture-source|random-once-typed|random-composed-typed|setup-sprite-sheet-random|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|nlerp|number-math|smooth-step|step|trigonometry|value-type|vector-length|vector-math)|particle-input-(local|sprite-cell)|local-position|box-shape-local|sphere-shape-local|point-shape|cone-shape|cylinder-shape|mesh-shape/;
 const OPTIONAL_BLEND_MODULE = /particle\/(particle-(blend|billboard-renderable|billboard-scene)|node\/npe-blend-modes)/;
 
 function findUnusedFeatureChunks(sceneId: number, chunks: string[]): string[] {
@@ -164,6 +164,18 @@ describe("Particle bundle feature isolation", () => {
         expect(engine).not.toMatch(/from ["']\.\.\/particle\/particle-buffer-f64\.js["']/);
         expect(build).toContain("engine._createParticleBuffer?.(capacity)");
         expect(build).not.toContain("particle-buffer-f64");
+    });
+
+    it("routes core updates through one optional pack without changing the compiler", () => {
+        const compiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-compiler.ts"), "utf8");
+        const basicRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-extra-basic.ts"), "utf8");
+        const corePack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-core-updates.ts"), "utf8");
+
+        expect(basicRegistry.match(/import\("\.\/npe-pack-core-updates\.js"\)/g)).toHaveLength(1);
+        for (const moduleName of ["update-scale-block", "update-age-block", "basic-position-update-block", "basic-color-update-block"]) {
+            expect(corePack).toContain(`from "./blocks/${moduleName}.js"`);
+            expect(compiler).not.toContain(moduleName);
+        }
     });
 
     it.skipIf(!hasManifests([276]))("fetches no duplicate resource compiler for the sprite fixture", () => {

@@ -43,6 +43,18 @@ export interface ParticleSystem {
     updateSpeed: number;
     /** When non-zero, the system stops once `_actualFrame` reaches this value. */
     targetStopDuration: number;
+    /** One-shot emission count; `-1` uses rate-based emission. */
+    manualEmitCount: number;
+    /** Number of synchronous simulation steps performed when the system starts. */
+    preWarmCycles: number;
+    /** Step ratio used by pre-warm simulation calls. */
+    preWarmStepOffset: number;
+    /** Start delay in milliseconds. */
+    startDelay: number;
+    /** Dispose the system after stopped particles have drained. */
+    disposeOnStop: boolean;
+    /** Prevent start calls until cleared. */
+    doNoStart: boolean;
     /** Rendering blend mode (Babylon.js BaseParticleSystem blend constants). */
     blendMode: number;
     /** Particle texture, bound after the build's async loads settle (null until then / for headless builds). */
@@ -71,12 +83,16 @@ export interface ParticleSystem {
     _started: boolean;
     /** @internal Whether the system has been stopped (drains remaining particles). */
     _stopped: boolean;
+    /** @internal Whether terminal drain disposed the system. */
+    _disposed: boolean;
     /** @internal Accumulated simulated time, in update-speed units. */
     _actualFrame: number;
     /** @internal Optional system-level emit-rate getter, installed only for a connected emit-rate graph. */
     _emitRateGetter?: () => number;
     /** @internal Optional feature preparation, run before every started simulation call. */
     _prepareFrame?: () => void;
+    /** @internal Optional owner cleanup invoked once by `disposeOnStop`. */
+    _dispose?: () => void;
     /** @internal Sprite-sheet feature handle, present only for sprite systems. */
     _spriteSheet?: ParticleSpriteHandle;
     /** @internal Optional feature writer installed only when a graph reads ColorDead. */
@@ -96,6 +112,12 @@ export function createParticleSystem(capacity: number, buffer: ParticleBuffer = 
         emitRate: 10,
         updateSpeed: 0.0167,
         targetStopDuration: 0,
+        manualEmitCount: -1,
+        preWarmCycles: 0,
+        preWarmStepOffset: 1,
+        startDelay: 0,
+        disposeOnStop: false,
+        doNoStart: false,
         blendMode: 2,
         texture: null,
         createLifeTime: null,
@@ -113,15 +135,27 @@ export function createParticleSystem(capacity: number, buffer: ParticleBuffer = 
         _newPartsExcess: 0,
         _started: false,
         _stopped: false,
+        _disposed: false,
         _actualFrame: 0,
     };
 }
 
-/** Start emission. Resets the simulated-time accumulator. */
-export function startParticleSystem(system: ParticleSystem): void {
+/** Start emission after the configured delay, then synchronously pre-warm. */
+export function startParticleSystem(system: ParticleSystem, delay = system.startDelay): void {
+    if (system.doNoStart || system._disposed) {
+        return;
+    }
+    if (delay) {
+        system.startDelay = delay;
+        setTimeout(() => startParticleSystem(system, 0), delay);
+        return;
+    }
     system._started = true;
     system._stopped = false;
     system._actualFrame = 0;
+    for (let index = 0; index < system.preWarmCycles; index++) {
+        animateParticleSystem(system, system.preWarmStepOffset);
+    }
 }
 
 /** Stop emission. Existing particles continue until they expire. */
@@ -142,10 +176,17 @@ export function animateParticleSystem(system: ParticleSystem, scaledRatio: numbe
 
     const scaledUpdateSpeed = system.updateSpeed * scaledRatio;
     system._scaledUpdateSpeed = scaledUpdateSpeed;
-    const emitRate = system._emitRateGetter ? system._emitRateGetter() : system.emitRate;
-    const emission = emitRate * scaledUpdateSpeed;
-    let newParticles = emission >> 0;
-    system._newPartsExcess += emission - newParticles;
+    let newParticles: number;
+    if (system.manualEmitCount > -1) {
+        newParticles = system.manualEmitCount;
+        system._newPartsExcess = 0;
+        system.manualEmitCount = 0;
+    } else {
+        const emitRate = system._emitRateGetter ? system._emitRateGetter() : system.emitRate;
+        const emission = emitRate * scaledUpdateSpeed;
+        newParticles = emission >> 0;
+        system._newPartsExcess += emission - newParticles;
+    }
     if (system._newPartsExcess > 1.0) {
         const extra = system._newPartsExcess >> 0;
         newParticles += extra;
@@ -163,6 +204,20 @@ export function animateParticleSystem(system: ParticleSystem, scaledRatio: numbe
 
     updateExisting(system, scaledUpdateSpeed);
     createNew(system, newParticles);
+
+    if (system._stopped && system.buffer.alive === 0) {
+        system._started = false;
+        if (system.disposeOnStop) {
+            system._disposed = true;
+            const dispose = system._dispose;
+            system._dispose = undefined;
+            dispose?.();
+        }
+    }
+
+    if (system.manualEmitCount === 0 && system.disposeOnStop) {
+        stopParticleSystem(system);
+    }
 }
 
 function updateExisting(system: ParticleSystem, scaledUpdateSpeed: number): void {
