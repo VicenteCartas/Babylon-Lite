@@ -16,6 +16,7 @@ const MANIFEST_DIR = resolve(__dirname, "../../../lab/public/bundle/manifest");
 const BUNDLE_INFO_DIR = resolve(__dirname, "../../../lab/public/bundle/bundle-info");
 const SCENE_305_SOURCE = resolve(__dirname, "../../../lab/lite/src/lite/scene305.ts");
 const NPE_SOURCE_DIR = resolve(__dirname, "../../../packages/babylon-lite/src/particle/node");
+const ENGINE_SOURCE = resolve(__dirname, "../../../packages/babylon-lite/src/engine/engine.ts");
 const CANONICAL_PARTICLE_SCENES = [262, 263, 264, 276, 277, 280, 281, 283, 284];
 const PROVIDER_ISOLATION_SCENES = [12, ...CANONICAL_PARTICLE_SCENES, 300, 301, 302];
 const SPRITE_2D_BLEND_SCENES = [50, 300, 301];
@@ -153,6 +154,16 @@ describe("Particle bundle feature isolation", () => {
         expect(compiler).not.toContain("resource-compilation");
         expect(localVariable).toContain("column(buffer");
         expect(spriteSheet).toContain("useSpriteSheet(buffer");
+    });
+
+    it("keeps F64 particle storage behind the floating-origin engine gate", () => {
+        const engine = readFileSync(ENGINE_SOURCE, "utf8");
+        const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+
+        expect(engine).toContain('import("../particle/particle-buffer-f64.js")');
+        expect(engine).not.toMatch(/from ["']\.\.\/particle\/particle-buffer-f64\.js["']/);
+        expect(build).toContain("engine._createParticleBuffer?.(capacity)");
+        expect(build).not.toContain("particle-buffer-f64");
     });
 
     it.skipIf(!hasManifests([276]))("fetches no duplicate resource compiler for the sprite fixture", () => {

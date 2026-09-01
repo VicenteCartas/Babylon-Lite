@@ -90,9 +90,9 @@ export interface ParticleSystem {
 }
 
 /** Create a data-oriented particle system with an empty buffer of the given capacity. */
-export function createParticleSystem(capacity: number): ParticleSystem {
+export function createParticleSystem(capacity: number, buffer: ParticleBuffer = createParticleBuffer(capacity)): ParticleSystem {
     return {
-        buffer: createParticleBuffer(capacity),
+        buffer,
         emitRate: 10,
         updateSpeed: 0.0167,
         targetStopDuration: 0,

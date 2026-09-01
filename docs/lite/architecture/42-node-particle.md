@@ -314,20 +314,20 @@ The Sprite2D dependency is one-way: the opt-in particle bridges import sprite mo
 
 ### 4.1 Built-in columns
 
-`createParticleBuffer(capacity)` creates 21 columns, each with exactly `capacity` elements:
+`createParticleBuffer(capacity)` creates 21 columns, each with exactly `capacity` elements. The three world-position columns use the engine-selected precision; all other built-in columns have one fixed representation:
 
-| Field                                                  | Typed array    | Meaning                        |
-| ------------------------------------------------------ | -------------- | ------------------------------ |
-| `posX`, `posY`, `posZ`                                 | `Float32Array` | world render position          |
-| `dirX`, `dirY`, `dirZ`                                 | `Float32Array` | movement direction or velocity |
-| `age`                                                  | `Float64Array` | elapsed particle lifetime      |
-| `lifeTime`                                             | `Float64Array` | death threshold                |
-| `id`                                                   | `Uint32Array`  | spawn identity                 |
-| `size`                                                 | `Float32Array` | uniform particle size          |
-| `angle`                                                | `Float32Array` | render rotation                |
-| `scaleX`, `scaleY`                                     | `Float32Array` | per-axis size multipliers      |
-| `colorR`, `colorG`, `colorB`, `colorA`                 | `Float32Array` | current render color           |
-| `colorStepR`, `colorStepG`, `colorStepB`, `colorStepA` | `Float32Array` | color change per lifetime unit |
+| Field                                                  | Typed array                    | Meaning                                                            |
+| ------------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------ |
+| `posX`, `posY`, `posZ`                                 | `Float32Array \| Float64Array` | authoritative world position; F64 only for floating-origin engines |
+| `dirX`, `dirY`, `dirZ`                                 | `Float32Array`                 | movement direction or velocity                                     |
+| `age`                                                  | `Float64Array`                 | elapsed particle lifetime                                          |
+| `lifeTime`                                             | `Float64Array`                 | death threshold                                                    |
+| `id`                                                   | `Uint32Array`                  | spawn identity                                                     |
+| `size`                                                 | `Float32Array`                 | uniform particle size                                              |
+| `angle`                                                | `Float32Array`                 | render rotation                                                    |
+| `scaleX`, `scaleY`                                     | `Float32Array`                 | per-axis size multipliers                                          |
+| `colorR`, `colorG`, `colorB`, `colorA`                 | `Float32Array`                 | current render color                                               |
+| `colorStepR`, `colorStepG`, `colorStepB`, `colorStepA` | `Float32Array`                 | color change per lifetime unit                                     |
 
 `ParticleColumn` is the union `Float64Array | Float32Array | Uint32Array | Uint16Array | Uint8Array | Int32Array`.
 
@@ -337,9 +337,9 @@ The Sprite2D dependency is one-way: the opt-in particle bridges import sprite mo
 interface ParticleBuffer {
     readonly capacity: number;
     alive: number;
-    readonly posX: Float32Array;
-    readonly posY: Float32Array;
-    readonly posZ: Float32Array;
+    readonly posX: Float32Array | Float64Array;
+    readonly posY: Float32Array | Float64Array;
+    readonly posZ: Float32Array | Float64Array;
     readonly dirX: Float32Array;
     readonly dirY: Float32Array;
     readonly dirZ: Float32Array;
@@ -363,6 +363,8 @@ interface ParticleBuffer {
     _nextId: number;
 }
 ```
+
+The default buffer factory allocates F32 positions. A floating-origin engine dynamically installs the optional F64 buffer factory used by NPE instantiation, so only LWR scenes fetch that implementation and pay the additional 12 bytes per configured particle. Direction and feature-local coordinates remain F32. The F64 arrays are the sole authoritative world-position storage for those systems; contextual `Position`, local-to-world projection, update blocks, and rendering all use them directly rather than maintaining a shadow copy. Rendering still packs camera-relative billboard positions into the existing F32 GPU layout.
 
 Live particles occupy the dense interval `[0, buffer.alive)`. `_all` starts with all 21 built-in arrays and receives every optional feature array.
 

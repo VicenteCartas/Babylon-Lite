@@ -236,7 +236,7 @@ export async function buildNodeParticleSet(
         const systemBlock = operations[operations.length - 2] as ParsedParticleBlock;
 
         const capacity = typeof systemBlock.capacity === "number" ? systemBlock.capacity : 1000;
-        const system = createParticleSystem(capacity);
+        const system = createParticleSystem(capacity, engine._createParticleBuffer?.(capacity));
 
         let emitterWorldMatrix: Mat4;
         const emitter: Vec3 = { x: 0, y: 0, z: 0 };

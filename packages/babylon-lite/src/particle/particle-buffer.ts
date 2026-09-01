@@ -14,6 +14,9 @@
 /** A particle column: one typed-array slot per particle index. */
 export type ParticleColumn = Float64Array | Float32Array | Uint32Array | Uint16Array | Uint8Array | Int32Array;
 
+/** World-position storage selected per particle system. */
+export type ParticlePositionColumn = Float32Array | Float64Array;
+
 /** Pure-state Struct-of-Arrays particle store. Behaviour is provided by the standalone functions below. */
 export interface ParticleBuffer {
     /** Maximum simultaneously-alive particles; every column is sized to this. */
@@ -22,9 +25,9 @@ export interface ParticleBuffer {
     alive: number;
 
     /** World-space position. */
-    readonly posX: Float32Array;
-    readonly posY: Float32Array;
-    readonly posZ: Float32Array;
+    readonly posX: ParticlePositionColumn;
+    readonly posY: ParticlePositionColumn;
+    readonly posZ: ParticlePositionColumn;
     /** Movement direction (advances position each step). */
     readonly dirX: Float32Array;
     readonly dirY: Float32Array;
@@ -63,10 +66,10 @@ export interface ParticleBuffer {
 }
 
 /** Create a particle buffer with all built-in columns sized to `capacity`. */
-export function createParticleBuffer(capacity: number): ParticleBuffer {
-    const posX = new Float32Array(capacity);
-    const posY = new Float32Array(capacity);
-    const posZ = new Float32Array(capacity);
+export function createParticleBuffer(capacity: number, PositionColumn: typeof Float32Array | typeof Float64Array = Float32Array): ParticleBuffer {
+    const posX = new PositionColumn(capacity);
+    const posY = new PositionColumn(capacity);
+    const posZ = new PositionColumn(capacity);
     const dirX = new Float32Array(capacity);
     const dirY = new Float32Array(capacity);
     const dirZ = new Float32Array(capacity);
