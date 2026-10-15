@@ -81,7 +81,7 @@ export const particleLocalVariableBlock: NpeBlockEvaluator = {
         const scratch: LocalScratch = { x: 0, y: 0 };
         let shape = 0;
         let getter: NpeGetter;
-        if (block.serialized.scope === 0) {
+        if (block.scope === 0) {
             const buffer = ctx.state.buffer!;
             const prefix = `local.${block.id}.`;
             const cachedId = column(buffer, `${prefix}id`, Uint32Array);
@@ -147,3 +147,5 @@ export const particleLocalVariableBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleLocalVariableBlock as evaluator };

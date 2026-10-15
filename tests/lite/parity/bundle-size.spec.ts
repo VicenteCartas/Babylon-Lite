@@ -268,8 +268,8 @@ for (const scene of SCENES) {
 
         if (scene.slug === "scene305-npe-teleport") {
             expect(
-                runtimeModules.some((id) => /\/particle\/node\/npe-graph-plumbing\.[jt]s$/.test(id)),
-                `scene305 is missing the thin graph-plumbing helper; loaded modules: ${runtimeModules.join(", ")}`
+                runtimeModules.some((id) => /\/particle\/node\/npe-general-feature-compilation\.[jt]s$/.test(id)),
+                `scene305 is missing the general feature compiler; loaded modules: ${runtimeModules.join(", ")}`
             ).toBe(true);
             expect(
                 runtimeModules.some((id) => /\/particle\/node\/npe-graph-plumbing-runtime\.[jt]s$/.test(id)),

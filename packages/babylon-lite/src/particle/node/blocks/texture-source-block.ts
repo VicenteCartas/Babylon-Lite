@@ -8,7 +8,7 @@ import type { NpeBlockEvaluator } from "../npe-build.js";
  */
 export const particleTextureSourceBlock: NpeBlockEvaluator = {
     build(block, ctx) {
-        const { url: serializedUrl, textureDataUrl, invertY } = block.serialized;
+        const { url: serializedUrl, textureDataUrl, invertY } = block;
         const rawUrl = (typeof serializedUrl === "string" && serializedUrl) || (typeof textureDataUrl === "string" && textureDataUrl) || "";
         const state = ctx.state;
         const base = state.textureBaseUrl;
@@ -28,3 +28,5 @@ export const particleTextureSourceBlock: NpeBlockEvaluator = {
         }
     },
 };
+
+export { particleTextureSourceBlock as evaluator };

@@ -10,14 +10,13 @@ export const systemBlock: NpeBlockEvaluator = {
     build(block, ctx) {
         const system = ctx.state.system!;
 
-        const serialized = block.serialized;
+        const serialized = block;
         if (typeof serialized.updateSpeed === "number") {
             system.updateSpeed = serialized.updateSpeed;
         }
         if (typeof serialized.blendMode === "number") {
             system.blendMode = serialized.blendMode;
         }
-
         if (!ctx.isConnected(block, "emitRate")) {
             const emitRate = ctx.input(block, "emitRate", () => 10)(0);
             if (typeof emitRate === "number") {
@@ -31,3 +30,5 @@ export const systemBlock: NpeBlockEvaluator = {
         }
     },
 };
+
+export { systemBlock as evaluator };

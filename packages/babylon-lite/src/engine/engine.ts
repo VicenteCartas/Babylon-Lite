@@ -201,6 +201,8 @@ export interface EngineContext extends SurfaceContext {
     _lightFoVersion?: (scene: import("../scene/scene-core.js").SceneContext) => number;
     /** @internal See `_lightFoVersion`. */
     _applyLightFoOffset?: (data: Float32Array, scene: import("../scene/scene-core.js").SceneContext) => void;
+    /** @internal Floating-origin particle buffer factory, dynamically installed only for LWR engines. */
+    _createParticleBuffer?: (capacity: number) => import("../particle/particle-buffer.js").ParticleBuffer;
 }
 
 /**
@@ -448,15 +450,18 @@ export async function createEngine(canvas: RenderCanvas, options?: EngineOptions
     let _makePackMeshWorld: EngineContext["_makePackMeshWorld"];
     let _lightFoVersion: EngineContext["_lightFoVersion"];
     let _applyLightFoOffset: EngineContext["_applyLightFoOffset"];
+    let _createParticleBuffer: EngineContext["_createParticleBuffer"];
     if (useFO) {
-        const [{ wrapRenderableForFO, lightFoVersion, applyLightFoOffset }, { makePackMeshWorld }] = await Promise.all([
+        const [{ wrapRenderableForFO, lightFoVersion, applyLightFoOffset }, { makePackMeshWorld }, { createF64ParticleBuffer }] = await Promise.all([
             import("../large-world/floating-origin.js"),
             import("../large-world/pack-mat4-with-offset.js"),
+            import("../particle/particle-buffer-f64.js"),
         ]);
         _wrapRenderableForFO = wrapRenderableForFO;
         _makePackMeshWorld = makePackMeshWorld;
         _lightFoVersion = lightFoVersion;
         _applyLightFoOffset = applyLightFoOffset;
+        _createParticleBuffer = createF64ParticleBuffer;
     }
 
     // The engine extends `SurfaceContext`, so we need to assemble both the engine-only
@@ -488,6 +493,7 @@ export async function createEngine(canvas: RenderCanvas, options?: EngineOptions
             _makePackMeshWorld,
             _lightFoVersion,
             _applyLightFoOffset,
+            _createParticleBuffer,
         } satisfies Partial<EngineContext>,
         _buildSurface(engine, canvas, options)
     );

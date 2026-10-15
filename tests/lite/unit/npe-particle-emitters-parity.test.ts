@@ -19,6 +19,7 @@ import rotatedGraph from "./fixtures/emitter-cylinder-rotated-npe.json";
 import rotatedStates from "./fixtures/emitter-cylinder-rotated-states.json";
 import { SCENE262_NPE_JSON } from "../../../lab/lite/src/shared/scene262-npe";
 import { SCENE263_NPE_JSON } from "../../../lab/lite/src/shared/scene263-npe";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { startParticleSystem, stopParticleSystem, animateParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
@@ -165,9 +166,9 @@ async function expectTransformedLocalMatchesIdentity(source: unknown, steps: num
 describe("NPE emitter shapes — deterministic parity with Babylon.js", () => {
     for (const testCase of CASES) {
         it(`${testCase.name} reproduces Babylon.js states after ${testCase.truth.N} steps`, async () => {
-            const graph = parseNodeParticleSource(testCase.graph);
+            const program = await compileNodeParticleGraph(parseNodeParticleSource(testCase.graph));
             const emitterWorldMatrix = testCase.truth.emitterMatrix ? (new Float32Array(testCase.truth.emitterMatrix) as unknown as Mat4) : undefined;
-            const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, {
+            const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, {
                 emitter: { x: 0, y: 0, z: 0 },
                 emitterWorldMatrix,
             });
@@ -240,8 +241,8 @@ describe("NPE emitter shapes — deterministic parity with Babylon.js", () => {
         shape.cachedVertexData!.colors = Array.from({ length: vertexCount }, (_, i) => [i / vertexCount, (i % 3) / 2, (i % 5) / 4, 1]).flat();
         shape.useMeshColorForColor = true;
 
-        const graph = parseNodeParticleSource(source);
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, { emitter: { x: 0, y: 0, z: 0 } });
+        const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         expect(system.createColor).toBeNull();
 
@@ -362,7 +363,7 @@ describe("NPE emitter shapes — deterministic parity with Babylon.js", () => {
         radius.targetBlockId = localPosition.id;
         radius.targetConnectionName = "output";
 
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(source));
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, await compileNodeParticleGraph(parseNodeParticleSource(source)));
         const system = set.systems[0]!;
         system.emitRate = 1000;
         const restoreRandom = seedRandom();
@@ -379,7 +380,7 @@ describe("NPE emitter shapes — deterministic parity with Babylon.js", () => {
         const system = source.blocks.find((block) => block.customType === "BABYLON.SystemBlock")!;
         system.isLocal = false;
 
-        await expect(buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(source))).rejects.toThrow(
+        await expect(buildNodeParticleSet({} as EngineContext, {} as SceneContext, await compileNodeParticleGraph(parseNodeParticleSource(source)))).rejects.toThrow(
             "LocalPositionUpdated requires SystemBlock.isLocal"
         );
     });

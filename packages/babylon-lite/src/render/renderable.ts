@@ -75,6 +75,8 @@ export interface Renderable {
     readonly mesh?: Mesh;
     /** @internal Scratch: camera-space depth for transparent sorting. */
     _sortDistance?: number;
+    /** @internal Optional feature-owned transparent ordering group. */
+    _renderingGroupId?: number;
     /** @internal World-space center for distance sort computation. */
     _worldCenter?: [number, number, number];
     /** @internal Material reference at build time — for detecting material swaps. */

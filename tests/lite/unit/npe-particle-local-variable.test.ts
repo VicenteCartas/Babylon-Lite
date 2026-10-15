@@ -4,8 +4,8 @@ import { createIdentityMat4 } from "../../../packages/babylon-lite/src/math/crea
 import { createTranslationMat4 } from "../../../packages/babylon-lite/src/math/create-translation-mat4";
 import type { Color4, Vec2, Vec3 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet, type NpeBuildContext, type NpeBuildState } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { withNodeParticleEmitterProvider } from "../../../packages/babylon-lite/src/particle/node/npe-emitter-provider";
-import { normalizeNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-graph-plumbing";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { loadValueBlockEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-registry-extra-values";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
@@ -30,10 +30,10 @@ function createBuildState(capacity: number): NpeBuildState {
 async function buildLocalGetter(state: NpeBuildState, blockId: number, scope: unknown, draw: NpeGetter): Promise<NpeGetter> {
     const block: ParsedParticleBlock = {
         id: blockId,
-        className: "ParticleLocalVariableBlock",
+        customType: "BABYLON.ParticleLocalVariableBlock",
         name: "local",
         inputs: [{ name: "input", targetBlockId: 1, targetConnectionName: "output" }],
-        serialized: scope === undefined ? {} : { scope },
+        ...(scope === undefined ? {} : { scope }),
     };
     let output: NpeGetter | undefined;
     const context: NpeBuildContext = {
@@ -46,7 +46,7 @@ async function buildLocalGetter(state: NpeBuildState, blockId: number, scope: un
         },
         addBuildPromise: () => undefined,
     };
-    (await loadValueBlockEvaluator(block.className)).build(block, context);
+    (await loadValueBlockEvaluator("ParticleLocalVariableBlock")).build(block, context);
     return output!;
 }
 
@@ -102,10 +102,10 @@ describe("ParticleLocalVariableBlock", () => {
         const system = createParticleSystem(2);
         const block: ParsedParticleBlock = {
             id: 12,
-            className: "ParticleLocalVariableBlock",
+            customType: "BABYLON.ParticleLocalVariableBlock",
             name: "local",
             inputs: [{ name: "input", targetBlockId: 1, targetConnectionName: "output" }],
-            serialized: { scope: 0 },
+            scope: 0,
         };
         let evaluations = 0;
         let output: NpeGetter | undefined;
@@ -127,7 +127,7 @@ describe("ParticleLocalVariableBlock", () => {
             },
             addBuildPromise: () => undefined,
         };
-        const evaluator = await loadValueBlockEvaluator(block.className);
+        const evaluator = await loadValueBlockEvaluator("ParticleLocalVariableBlock");
         evaluator.build(block, context);
 
         system.buffer.id[0] = 0;
@@ -169,7 +169,7 @@ describe("ParticleLocalVariableBlock", () => {
     });
 
     it("prepares a provider before advancing the shared Loop epoch", async () => {
-        const graph = await normalizeNodeParticleGraph(
+        const graph = await compileNodeParticleGraph(
             parseNodeParticleSource({
                 blocks: [
                     { customType: "BABYLON.ParticleInputBlock", id: 1, systemSource: 3, inputs: [] },
@@ -382,7 +382,7 @@ describe("ParticleLocalVariableBlock", () => {
 
     it("uses one Loop snapshot for dynamic emit rate, existing updates, and births", async () => {
         let providerCalls = 0;
-        const graph = await normalizeNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
+        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
         const set = await buildNodeParticleSet(
             {} as EngineContext,
             {} as SceneContext,
@@ -403,7 +403,7 @@ describe("ParticleLocalVariableBlock", () => {
 
     it("keeps Loop snapshots independent across systems and builds", async () => {
         let providerCalls = 0;
-        const graph = await normalizeNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph(2)));
+        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph(2)));
         const options = withNodeParticleEmitterProvider(() => createTranslationMat4(++providerCalls, 0, 0));
         const firstBuild = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
         const secondBuild = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
@@ -433,7 +433,7 @@ describe("ParticleLocalVariableBlock", () => {
             setupEmitter(state);
             buildState = state;
         };
-        const graph = await normalizeNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
+        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
         const system = set.systems[0]!;
         startParticleSystem(system);

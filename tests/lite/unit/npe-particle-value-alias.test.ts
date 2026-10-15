@@ -9,7 +9,7 @@ import type { Vec3 } from "../../../packages/babylon-lite/src/math/types";
 describe("NPE scratch-backed value operands", () => {
     it("copies the left math operand before a shared scratch getter evaluates the right", () => {
         const scratch: Vec3 = { x: 0, y: 0, z: 0 };
-        const block = { id: 1, className: "ParticleMathBlock", name: "add", serialized: { operation: 0 }, inputs: [] } as unknown as ParsedParticleBlock;
+        const block = { id: 1, customType: "BABYLON.ParticleMathBlock", name: "add", operation: 0, inputs: [] } as ParsedParticleBlock;
         let output: NpeGetter | null = null;
         const ctx = {
             input(_block: ParsedParticleBlock, name: string): NpeGetter {

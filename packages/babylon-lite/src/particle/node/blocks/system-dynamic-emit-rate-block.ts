@@ -13,3 +13,5 @@ export const systemDynamicEmitRateBlock: NpeBlockEvaluator = {
         };
     },
 };
+
+export { systemDynamicEmitRateBlock as evaluator };

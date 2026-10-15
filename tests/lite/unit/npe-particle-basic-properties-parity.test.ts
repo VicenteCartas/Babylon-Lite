@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import graphJson from "./fixtures/basic-properties-full-npe.json";
 import groundTruth from "./fixtures/basic-properties-full-states.json";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { startParticleSystem, animateParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
@@ -23,8 +24,8 @@ const truth = groundTruth as { N: number; count: number; particles: BjsParticle[
 
 describe("NPE particle simulation (full Basic Properties) — deterministic parity with Babylon.js", () => {
     it(`reproduces Babylon.js particle states after ${truth.N} deterministic steps`, async () => {
-        const graph = parseNodeParticleSource(graphJson);
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, { emitter: { x: 0, y: 0, z: 0 } });
+        const program = await compileNodeParticleGraph(parseNodeParticleSource(graphJson));
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         const previousRandom = Math.random;
         let seed = 1;

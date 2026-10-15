@@ -23,37 +23,19 @@ export function createRandomDraw(minGetter: NpeGetter, maxGetter: NpeGetter): Np
             const hi = typeof max === "number" ? max : 0;
             return randomBetween(min, hi);
         }
-        if ("r" in min) {
-            const minR = min.r;
-            const minG = min.g;
-            const minB = min.b;
-            const minA = min.a;
-            const max = maxGetter(i);
-            const hi = typeof max !== "number" && "r" in max ? max : null;
-            color4.r = randomBetween(minR, hi?.r ?? 0);
-            color4.g = randomBetween(minG, hi?.g ?? 0);
-            color4.b = randomBetween(minB, hi?.b ?? 0);
-            color4.a = randomBetween(minA, hi?.a ?? 0);
-            return color4;
+        const result = "r" in min ? color4 : "z" in min ? vector3 : vector2;
+        const low = min as unknown as Record<string, number>;
+        const output = result as unknown as Record<string, number>;
+        for (const key in output) {
+            output[key] = low[key]!;
         }
-        if ("z" in min) {
-            const minX = min.x;
-            const minY = min.y;
-            const minZ = min.z;
-            const max = maxGetter(i);
-            const hi = typeof max !== "number" && "z" in max ? max : null;
-            vector3.x = randomBetween(minX, hi?.x ?? 0);
-            vector3.y = randomBetween(minY, hi?.y ?? 0);
-            vector3.z = randomBetween(minZ, hi?.z ?? 0);
-            return vector3;
-        }
-        const minX = min.x;
-        const minY = min.y;
         const max = maxGetter(i);
-        const hi = typeof max !== "number" && !("r" in max) && !("z" in max) ? max : null;
-        vector2.x = randomBetween(minX, hi?.x ?? 0);
-        vector2.y = randomBetween(minY, hi?.y ?? 0);
-        return vector2;
+        const sameShape = typeof max !== "number" && ("r" in result ? "r" in max : "z" in result ? "z" in max : !("r" in max) && !("z" in max));
+        const high = sameShape ? (max as unknown as Record<string, number>) : null;
+        for (const key in output) {
+            output[key] = randomBetween(output[key]!, high?.[key] ?? 0);
+        }
+        return result;
     };
 }
 
@@ -67,7 +49,7 @@ export const particleRandomBlock: NpeBlockEvaluator = {
     build(block, ctx) {
         const minGetter = ctx.input(block, "min", () => 0);
         const maxGetter = ctx.input(block, "max", () => 1);
-        const lockMode = typeof block.serialized.lockMode === "number" ? block.serialized.lockMode : LOCK_PER_PARTICLE;
+        const lockMode = typeof block.lockMode === "number" ? block.lockMode : LOCK_PER_PARTICLE;
 
         const buffer = ctx.state.buffer!;
         let stored: NpeValue = 0;
@@ -93,3 +75,5 @@ export const particleRandomBlock: NpeBlockEvaluator = {
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleRandomBlock as evaluator };

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { rebuildSceneRenderables } from "../../../packages/babylon-lite/src/scene/scene-rebuild";
 import { processMaterialSwaps } from "../../../packages/babylon-lite/src/scene/scene-material-swap";
 import { removeFromScene } from "../../../packages/babylon-lite/src/scene/scene-remove";
-import { disposeScene } from "../../../packages/babylon-lite/src/scene/scene-core";
+import { addDeferredSceneRenderables, disposeScene } from "../../../packages/babylon-lite/src/scene/scene-core";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene-core";
 import type { Task } from "../../../packages/babylon-lite/src/frame-graph/task";
 import type { MeshGroupBuilder, MeshRebuildResources, Renderable } from "../../../packages/babylon-lite/src/render/renderable";
@@ -62,6 +62,23 @@ function drainRetirements(scene: SceneContext): void {
 }
 
 describe("rebuildSceneRenderables", () => {
+    it("adds and removes late feature renderables with exact ownership", async () => {
+        const scene = fakeScene();
+        const featureRenderable = renderable(2);
+        const disposeFeature = vi.fn();
+
+        const unregister = addDeferredSceneRenderables(scene, async () => ({ renderables: [featureRenderable], dispose: disposeFeature }));
+        await vi.waitFor(() => expect(scene._renderables).toEqual([featureRenderable]));
+        expect(scene._renderableVersion).toBe(1);
+
+        unregister();
+        unregister();
+        expect(scene._renderables).toEqual([]);
+        expect(scene._disposables).toEqual([]);
+        expect(scene._renderableVersion).toBe(2);
+        expect(disposeFeature).toHaveBeenCalledOnce();
+    });
+
     it("is a no-op before the scene's initial build", async () => {
         const scene = fakeScene();
         scene._built = false;

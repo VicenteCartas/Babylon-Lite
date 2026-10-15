@@ -7,6 +7,9 @@ import type { Texture2D } from "../../../packages/babylon-lite/src/texture/textu
 import { packBillboardPickUbo } from "../../../packages/babylon-lite/src/picking/billboard-pick-pipeline";
 import { createAxisLockedBillboardSystem, createFacingBillboardSystem } from "../../../packages/babylon-lite/src/sprite/billboard-sprite";
 import { addAxisLockedBillboardSystem, addFacingBillboardSystem } from "../../../packages/babylon-lite/src/sprite/billboard-scene";
+import { addBillboardSpriteIndex } from "../../../packages/babylon-lite/src/sprite/billboard-sprite";
+import { addFacingBillboardSystemWithParticleRenderProperties } from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties";
+import { copyParticleRenderPropertyPickInstances } from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties-pick";
 
 function makeMockAtlas(): SpriteAtlas {
     const texture = {
@@ -112,5 +115,43 @@ describe("billboard scene pick registration", () => {
         }
 
         expect(scene._pickSources).toHaveLength(0);
+    });
+});
+
+describe("particle render-property picking", () => {
+    it("shifts transient pick anchors to reproduce translated-pivot geometry, including zero size", () => {
+        const system = createFacingBillboardSystem(makeMockAtlas(), { capacity: 1 });
+        addBillboardSpriteIndex(system, { position: [1, 2, 3], sizeWorld: [0, 0], rotation: 0.75 });
+        const view = new Float32Array(16);
+        view[0] = 1;
+        view[5] = 1;
+        view[10] = 1;
+        view[15] = 1;
+        const transformed = new Float32Array(system._instanceData.length);
+
+        copyParticleRenderPropertyPickInstances(system, { x: 0.25, y: -0.5 }, view as unknown as Mat4, transformed);
+
+        expect(Array.from(transformed.slice(0, 3))).toEqual([1.25, 2.5, 3]);
+        expect(Array.from(system._instanceData.slice(0, 3))).toEqual([1, 2, 3]);
+    });
+
+    it("registers the specialized lazy pick source only for a nonzero translation pivot", () => {
+        const translatedScene = makeStubScene();
+        const translated = createFacingBillboardSystem(makeMockAtlas());
+        addFacingBillboardSystemWithParticleRenderProperties(translatedScene, translated, 2, {
+            translationPivot: { x: 0.25, y: 0 },
+            textureMask: { r: 1, g: 1, b: 1, a: 1 },
+            renderingGroupId: 0,
+        });
+        const ordinaryScene = makeStubScene();
+        const ordinary = createFacingBillboardSystem(makeMockAtlas());
+        addFacingBillboardSystemWithParticleRenderProperties(ordinaryScene, ordinary, 2, {
+            translationPivot: { x: 0, y: 0 },
+            textureMask: { r: 0.5, g: 1, b: 1, a: 1 },
+            renderingGroupId: 1,
+        });
+
+        expect(translatedScene._pickSources[0]!.entity).toMatchObject({ system: translated, translationPivot: { x: 0.25, y: 0 } });
+        expect(ordinaryScene._pickSources[0]!.entity).toBe(ordinary);
     });
 });

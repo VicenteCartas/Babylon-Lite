@@ -45,18 +45,20 @@ export function getFloatingOriginOffset(scene: SceneContext): Vec3;
 
 ```typescript
 if (useFO) {
-    const [{ wrapRenderableForFO, lightFoVersion, applyLightFoOffset }, { makePackMeshWorld }] = await Promise.all([
+    const [{ wrapRenderableForFO, lightFoVersion, applyLightFoOffset }, { makePackMeshWorld }, { createF64ParticleBuffer }] = await Promise.all([
         import("../large-world/floating-origin.js"),
         import("../large-world/pack-mat4-with-offset.js"),
+        import("../particle/particle-buffer-f64.js"),
     ]);
     _wrapRenderableForFO = wrapRenderableForFO;
     _makePackMeshWorld = makePackMeshWorld;
     _lightFoVersion = lightFoVersion;
     _applyLightFoOffset = applyLightFoOffset;
+    _createParticleBuffer = createF64ParticleBuffer;
 }
 ```
 
-Each reference is stored on the engine (`engine._wrapRenderableForFO`, `_makePackMeshWorld`, `_lightFoVersion`, `_applyLightFoOffset`). Consumers reach them through optional chaining with a non-FO fallback, e.g. `engine._makePackMeshWorld?.(scene) ?? packMat4IntoF32`. Non-LWR engines leave every field undefined, so no consumer of the FO runtime imports the module statically. Tree-shakers drop it entirely from non-LWR bundles. Validated by `tests/parity/bundle-size.spec.ts` ceilings.
+Each reference is stored on the engine (`engine._wrapRenderableForFO`, `_makePackMeshWorld`, `_lightFoVersion`, `_applyLightFoOffset`, `_createParticleBuffer`). Consumers reach them through optional chaining with a non-FO fallback, e.g. `engine._makePackMeshWorld?.(scene) ?? packMat4IntoF32`. Non-LWR engines leave every field undefined, so no consumer of the FO runtime imports the module statically. Tree-shakers drop it entirely from non-LWR fetched bundles. Validated by `tests/parity/bundle-size.spec.ts` ceilings and the NPE bundle-content tests.
 
 ### Reading the offset (`getFloatingOriginOffset`)
 
@@ -74,6 +76,14 @@ export function getFloatingOriginOffset(scene: SceneContext): Vec3 {
 ```
 
 An earlier design kept `scene._floatingOriginOffset` / `_floatingOriginVersion` / `_eyePosition` in sync through a per-frame `updateFloatingOriginOffset` call. That was removed as net cost without value: the mirror had to be written every frame and read through an extra indirection, to hold a value the camera already carries. Invalidation now rides the camera's own `worldMatrixVersion` (see below).
+
+### Particle world-position precision
+
+Node particles keep authoritative world positions in the precision selected by their engine. A normal engine creates `posX`, `posY`, and `posZ` as `Float32Array`; a floating-origin engine creates those three columns as `Float64Array`. The engine's floating-origin dynamic-import gate installs the F64 buffer factory, and NPE instantiation uses that optional factory when present. The F64 allocation implementation is therefore absent from ordinary fetched bundles, and an ordinary engine retains the existing F32 memory and simulation behavior.
+
+Only authoritative world position is widened. Direction and `LocalPositionUpdated`'s emitter-local position columns remain F32, matching their compact simulation role. The local-to-world transform writes its JS-number result into the F64 world columns, while contextual `Position` and every graph position writer read and mutate those same authoritative columns. There is no F64 shadow to synchronize.
+
+The three widened columns add 12 bytes per configured particle. GPU instance layout and memory do not change: particle billboard synchronization passes the F64 world values to the existing billboard anchor state, and the billboard pipeline subtracts the active-camera offset before its F32 instance upload.
 
 ### Four places the offset is applied
 
@@ -128,14 +138,16 @@ if (eng.useFloatingOrigin && ctx.camera && !ctx.camera._useFloatingOrigin) {
 - Unit: `tests/unit/floating-origin.test.ts` covers the offset read and the lifecycle — `getFloatingOriginOffset` returning the active camera's world position and zero when no camera is set, and `scene._update` stamping `camera._useFloatingOrigin` only when the engine has FO on.
 - Unit: `tests/unit/floating-origin-upload.test.ts` covers the zeroing and precision-recovery paths — `getViewMatrix` zeroing the view translation under `_useFloatingOrigin` (with the FO-off large-magnitude control), `packMat4IntoF32WithOffset` landing `delta` in the F32 view for a mesh at world `1e6 + delta`, and the eye-relative-zero `vEyePosition` write.
 - Unit: `tests/unit/shader-material-floating-origin.test.ts` covers subtraction site (4) behaviourally — moving the camera toward a fixed mesh must change projected depth and on-screen span in proportion to the real distance, `world`/`worldView`/`worldViewProjection` must stay in one frame, and the eye must sit at the origin under FO and at its real position without it. The FO-off cases are controls: without them a fix that merely zeroed the translation would pass.
+- Unit: `tests/lite/unit/npe-particle-floating-origin.test.ts` covers particle precision — ordinary systems retain F32 positions and lose a 0.0015 step at 1e6, while LWR systems retain that delta through direct world integration and `LocalPositionUpdated`; it also verifies F32 local/direction state and the exact 12-byte-per-particle memory increment.
+- Unit: `tests/lite/unit/npe-particle-bundle-content.test.ts` locks the dynamic import boundary so NPE build code cannot statically import the F64 allocator.
 - Parity: `tests/parity/scenes/scene200-fo-off.spec.ts` and `scene201-fo-on.spec.ts` render the same far-from-origin scene with FO off vs FO on. The two captures MUST diverge (cross-golden MAD ≥ 5.0), proving the offset path is engaged and meaningfully shifts pixels.
-- Bundle: HPM-off bundles do not contain the LWR module; LWR-on bundle adds ~1-2 KB per scene for the FO logic.
+- Bundle: HPM-off bundles do not contain the LWR module or F64 particle allocator. LWR-on bundles fetch the allocator chunk; ordinary NPE bundles do not.
 
 ## Tree-shaking proof
 
 The module has exactly one static edge in the source tree: `index.ts` re-exports `getFloatingOriginOffset` from it. That edge is tree-shakeable — a scene that never imports the accessor drops it — and it carries only the accessor, not the FO runtime.
 
-Everything else is reached dynamically. Consumers of the runtime go through engine fields left undefined when FO is off (`engine._wrapRenderableForFO?.(...)`, `engine._makePackMeshWorld?.(...)`), which are property accesses rather than module imports, and `createEngine`'s `await import(...)` lives inside `if (useFO)`, which the bundler proves unreachable when `useFloatingOrigin` is never set true in any reachable scene. So a non-LWR bundle contains neither the accessor nor the runtime. Verified by bundle-size ceilings.
+Everything else is reached dynamically. Consumers of the runtime go through engine fields left undefined when FO is off (`engine._wrapRenderableForFO?.(...)`, `engine._makePackMeshWorld?.(...)`, `engine._createParticleBuffer?.(...)`), which are property accesses rather than module imports, and `createEngine`'s `await import(...)` lives inside `if (useFO)`. So a non-LWR scene never fetches the accessor, the LWR runtime, or the F64 particle allocator. Verified by bundle-size ceilings and focused NPE bundle-content tests.
 
 ## Files / size
 
@@ -149,6 +161,8 @@ Everything else is reached dynamically. Consumers of the runtime go through engi
 | `material/{standard,pbr,node}-renderable.ts` (packer selection, FO wrapper) | Mesh UBO invalidation when the camera moves                                     |
 | `frame-graph/scene-uniforms-pack.ts` (`_packSceneUniforms`)                 | Writes `vEyePosition = (0, 0, 0)` under FO                                      |
 | `math/pack-mat4-into-f32.ts` (`packMat4IntoF32`)                            | Precision-only packer; the non-FO fallback and the view-matrix path             |
+| `particle/particle-buffer-f64.ts`                                           | LWR-only F64 world-position buffer factory                                      |
+| `particle/node/npe-build.ts`                                                | Selects the engine-installed buffer factory during NPE instantiation            |
 
 ## Wired features
 
@@ -172,6 +186,9 @@ Each has a paired parity scene (Lite `useFloatingOrigin` vs BJS `useLargeWorldRe
   (with velocity preserved and a 20% hysteresis margin) as they cross region boundaries, mirroring
   Babylon.js's `scene.floatingOriginMode` + Havok plugin `floatingOriginWorldRadius`. Per-region
   gravity is supported via the optional `worldPosition` argument to `setPhysicsGravity` — scene 209.
+- Node particles: NPE systems instantiated on a floating-origin engine store authoritative world
+  `posX`, `posY`, and `posZ` in F64. Local position and direction remain F32, and the existing
+  billboard anchor/upload path performs camera-relative subtraction before GPU F32 packing.
 
 ## Out of scope
 
@@ -192,7 +209,6 @@ is no correct far-from-origin reference to match and Lite intentionally does not
   `normalize(0)` and the ground fades to fully transparent. (`createDefaultEnvironment` users
   should keep the environment near the origin.)
 
-- Particles: N/A — Lite has no particle system.
 - Rect-area lights, cascaded shadow maps, edges/bounding-box renderers, utility-layer/gizmos:
   N/A — Lite does not implement these yet. Babylon.js floating-origin-wires them; when any is
   ported to Lite, the floating-origin offset MUST be ported with it (see `GUIDANCE.md` →

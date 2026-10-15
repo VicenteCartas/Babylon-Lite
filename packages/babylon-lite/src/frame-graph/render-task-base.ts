@@ -47,6 +47,7 @@ import { _packSceneUniforms } from "./scene-uniforms-pack.js";
 import { createEmptyUniformBuffer } from "../resource/empty-uniform-buffer.js";
 import { SCENE_UBO_BYTES } from "../shader/scene-uniforms-size.js";
 import { ensureSceneLightState, refreshSceneLightsUBO } from "../render/scene-lights-ubo.js";
+import { _getTransparentSortCompare } from "../render/transparent-sort-hook.js";
 import type { Task } from "./task.js";
 
 /** Configuration for `createRenderTask`: render target, clear state, optional camera override, and transmission settings. */
@@ -373,7 +374,8 @@ function sortTransparentBindings(task: RenderTaskBase, camera: Camera | null | u
         const wc = b.renderable._worldCenter;
         b._sortDistance = wc ? wc[0]! * v[2]! + wc[1]! * v[6]! + wc[2]! * v[10]! + v[14]! : 0;
     }
-    arr.sort(compareTransparentBindings);
+    const featureCompare = _getTransparentSortCompare();
+    arr.sort(featureCompare ? (a, b) => featureCompare(a, b) || compareTransparentBindings(a, b) : compareTransparentBindings);
 }
 
 /** @internal Build and publish a complete binding generation. Explicit candidates defer retirement until task publication. */

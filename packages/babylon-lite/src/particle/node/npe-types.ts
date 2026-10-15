@@ -1,30 +1,58 @@
-/** A parsed connection on a block input. `targetBlockId === null` means the input is unconnected. */
+import type { NpeBlockEvaluator } from "./npe-build.js";
+
+/** A serialized connection on a block input. */
 export interface ParsedParticleInput {
     readonly name: string;
-    readonly targetBlockId: number | null;
-    readonly targetConnectionName: string | null;
+    readonly targetBlockId?: number;
+    readonly targetConnectionName?: string;
     /** Literal value serialized on the input itself (used when unconnected), if any. */
     readonly value?: unknown;
     /** Type tag for {@link value} (e.g. `number`, `BABYLON.Vector3`, `BABYLON.Color4`). */
     readonly valueType?: string;
 }
 
-/** A parsed graph block. The raw `serialized` object carries block-specific fields. */
+/** A trusted block serialized by the Node Particle Editor. */
 export interface ParsedParticleBlock {
     readonly id: number;
-    /** Class name with the `BABYLON.` prefix stripped (e.g. `SystemBlock`). */
-    readonly className: string;
-    readonly name: string;
+    readonly customType: string;
+    readonly name?: string;
     readonly inputs: readonly ParsedParticleInput[];
-    /** Raw serialized block, for block-specific fields (value, type, url, operation, lockMode, capacity, …). */
-    readonly serialized: Readonly<Record<string, unknown>>;
+    readonly [key: string]: unknown;
 }
 
-/** A parsed node-particle graph. */
-export interface ParticleGraph {
-    readonly blocks: ReadonlyMap<number, ParsedParticleBlock>;
-    /** Ids of the `SystemBlock` roots — one runtime system is built per root. */
+/** Trusted Node Particle Editor source accepted by the compiler. */
+export interface ParsedNodeParticleGraph {
+    readonly blocks: readonly ParsedParticleBlock[];
+}
+
+/** @internal Temporary graph lookup state used only during compilation. */
+export interface CompilableNodeParticleGraph {
+    readonly blocks: ReadonlyMap<number, CompiledParticleBlock>;
     readonly systemBlockIds: readonly number[];
-    /** @internal True only on a graph returned by the graph-plumbing normalizer. */
-    readonly _isGraphPlumbingNormalized?: true;
+    /** @internal */
+    readonly _features: number;
+}
+
+/** A block after graph compilation. Its serialized class identity is preserved. */
+export interface CompiledParticleBlock extends ParsedParticleBlock {
+    /** @internal Evaluator implementation selected independently of the serialized class name. */
+    readonly _evaluatorClassName?: string;
+    /** @internal Reusable system plans keyed by the consuming input name. */
+    readonly _systemPlans?: Readonly<Record<string, NodeParticleSystemPlan>>;
+}
+
+/** @internal Reusable executable operations for one system. */
+export type NodeParticleSystemPlan = readonly (CompiledParticleBlock | NpeBlockEvaluator)[];
+
+/** @internal Immutable metadata for one reachable named constant input. */
+export type NodeParticleInputPlan = ParsedParticleBlock;
+
+/** Opaque executable node-particle program produced by {@link compileNodeParticleGraph}. */
+export interface NodeParticleProgram {
+    /** @internal Per-system alternating block/evaluator entries in post-order. */
+    readonly _systems: readonly NodeParticleSystemPlan[];
+    /** @internal Reachable named constant inputs after serialized-order name collision resolution. */
+    readonly _inputs: readonly NodeParticleInputPlan[];
+    /** @internal True only when the executable plans contain Phase 13 system flow. */
+    readonly _subEmitters?: true;
 }

@@ -2791,5 +2791,25 @@
         "description": "The hosted coastalCliff.glb asset exercises real PBR materials, unique per-mesh tags, known foliage exclusions, screen depth, linear albedo shadow attenuation, asset-scaled radii, and Medium-quality mesh blending over most of the frame.",
         "tags": ["frame-graph", "geometry-renderer", "post-process", "mesh-blending", "pbr", "gltf", "albedo"],
         "skipPerf": true
+    },
+    {
+        "id": 316,
+        "slug": "scene316-npe-particle-trigger",
+        "name": "Scene 316 — NPE Particle Trigger",
+        "maxMad": 0.1,
+        "maxRawKB": 55,
+        "description": "A ParticleTriggerBlock follows an updated parent particle and creates eight independently simulated child systems at its successive positions. The graph, seeded random stream, explicit simulation steps, and frozen frame are shared with the Babylon.js oracle.",
+        "tags": ["npe", "particles", "billboards", "particle-trigger", "sub-emitters"],
+        "skipPerf": true
+    },
+    {
+        "id": 317,
+        "slug": "scene317-npe-system-lifecycle",
+        "name": "Scene 317 — NPE System Lifecycle",
+        "maxMad": 0.15,
+        "maxRawKB": 55,
+        "description": "SystemBlock onStart and onEnd connections create distinct blue and pink child systems around a stopped parent. The graph, seeded random stream, explicit lifecycle transitions, and frozen frame are shared with the Babylon.js oracle.",
+        "tags": ["npe", "particles", "billboards", "system-lifecycle", "sub-emitters"],
+        "skipPerf": true
     }
 ]

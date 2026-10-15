@@ -19,11 +19,10 @@ describe("NPE particle gradients", () => {
         };
         const block = {
             id: 1,
-            className: "ParticleGradientBlock",
+            customType: "BABYLON.ParticleGradientBlock",
             name: "gradient",
-            serialized: {},
             inputs: [
-                { name: "gradient", targetBlockId: null, targetConnectionName: null },
+                { name: "gradient" },
                 { name: "value0", targetBlockId: 2, targetConnectionName: "output" },
                 { name: "value1", targetBlockId: 3, targetConnectionName: "output" },
             ],

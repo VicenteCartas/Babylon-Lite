@@ -1,5 +1,9 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
 
+const loadExtra = () => import("./npe-registry-extra.js");
+const loadLifecycle = () => import("./npe-pack-lifecycle.js");
+const loadStandardValues = () => import("./npe-pack-standard-values.js");
+
 /**
  * Node-particle block registry — side-effect-free lazy dispatch.
  *
@@ -10,30 +14,20 @@ import type { NpeBlockEvaluator } from "./npe-build.js";
 export async function loadNpeBlockEvaluator(className: string): Promise<NpeBlockEvaluator> {
     switch (className) {
         case "SystemBlock":
-            return (await import("./blocks/system-block.js")).systemBlock;
         case "CreateParticleBlock":
-            return (await import("./blocks/create-particle-block.js")).createParticleBlock;
-        case "BoxShapeBlock":
-            return (await import("./blocks/box-shape-block.js")).boxShapeBlock;
         case "UpdatePositionBlock":
-            return (await import("./blocks/update-position-block.js")).updatePositionBlock;
-        case "UpdateColorBlock":
-            return (await import("./blocks/update-color-block.js")).updateColorBlock;
         case "ParticleTextureSourceBlock":
-            return (await import("./blocks/texture-source-block.js")).particleTextureSourceBlock;
+            return (await loadLifecycle()).load(className);
         case "ParticleInputBlock":
-            return (await import("./blocks/particle-input-block.js")).particleInputBlock;
-        case "ParticleMathBlock":
-            return (await import("./blocks/particle-math-compact-block.js")).particleMathCompactBlock;
-        case "ParticleLerpBlock":
-            return (await import("./blocks/particle-lerp-block.js")).particleLerpBlock;
-        case "ParticleConverterBlock":
-            return (await import("./blocks/particle-converter-block.js")).particleConverterBlock;
         case "ParticleRandomBlock":
-            return (await import("./blocks/particle-random-block.js")).particleRandomBlock;
+        case "ParticleMathBlock":
+        case "ParticleLerpBlock":
+        case "ParticleConverterBlock":
+        case "UpdateColorBlock":
+            return (await loadStandardValues()).load(className);
+        case "BoxShapeBlock":
+            return (await import("./blocks/box-shape-block.js")).evaluator;
         default:
-            return className.endsWith("ShapeBlock")
-                ? (await import("./npe-registry-extra-emitters.js")).loadEmitterBlockEvaluator(className)
-                : (await import("./npe-registry-extra.js")).loadExtraBlockEvaluator(className);
+            return className.endsWith("ShapeBlock") ? (await import("./npe-registry-extra-emitters.js")).load(className) : (await loadExtra()).load(className);
     }
 }

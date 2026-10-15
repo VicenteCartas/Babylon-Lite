@@ -439,15 +439,56 @@ export interface DeferredSceneRenderables {
 export function addDeferredSceneRenderables(
     scene: SceneContext,
     build: (engine: EngineContext, scene: SceneContext) => DeferredSceneRenderables | Promise<DeferredSceneRenderables>
-): void {
+): () => void {
     const ctx = scene as SceneContext;
-    ctx._deferredBuilders.push(async () => {
-        const built = await build(ctx.surface.engine, ctx);
-        ctx._renderables.push(...built.renderables);
-        if (built.dispose) {
-            ctx._disposables.push(built.dispose);
+    let result: DeferredSceneRenderables | undefined;
+    let disposed = false;
+    const dispose = () => {
+        if (disposed) {
+            return;
         }
-    });
+        disposed = true;
+        if (!ctx._z) {
+            const index = ctx._disposables.indexOf(dispose);
+            if (index !== -1) {
+                ctx._disposables.splice(index, 1);
+            }
+        }
+        if (!result) {
+            return;
+        }
+        let removed = false;
+        for (const renderable of result.renderables) {
+            const index = ctx._renderables.indexOf(renderable);
+            if (index !== -1) {
+                ctx._renderables.splice(index, 1);
+                removed = true;
+            }
+        }
+        if (removed) {
+            ctx._renderableVersion++;
+        }
+        result.dispose?.();
+    };
+    const install = async () => {
+        const built = await build(ctx.surface.engine, ctx);
+        if (disposed || ctx._z) {
+            built.dispose?.();
+            return;
+        }
+        result = built;
+        ctx._renderables.push(...built.renderables);
+        if (ctx._built) {
+            ctx._renderableVersion++;
+        }
+    };
+    ctx._disposables.push(dispose);
+    if (ctx._built) {
+        void install();
+    } else {
+        ctx._deferredBuilders.push(install);
+    }
+    return dispose;
 }
 
 /**

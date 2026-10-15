@@ -7,7 +7,7 @@ import type { ParticleEmitterInverse } from "../particle-system.js";
 import type { SceneContext } from "../../scene/scene.js";
 import { buildNodeParticleSet } from "./npe-build.js";
 import type { BuildNodeParticleOptions, NodeParticleSet, NpeBuildState } from "./npe-build.js";
-import type { ParticleGraph } from "./npe-types.js";
+import type { NodeParticleProgram } from "./npe-types.js";
 
 /** Pure-state source sampled for the emitter world transform. */
 export type NodeParticleEmitterProvider = () => Mat4;
@@ -76,13 +76,15 @@ export function withNodeParticleEmitterProvider<T extends object = BuildNodePart
     } as T & BuildNodeParticleOptions;
 }
 
-/** Build an NPE set with a live emitter provider. */
+/**
+ * Build an NPE set with a live emitter provider.
+ */
 export async function buildNodeParticleSetWithEmitterProvider(
     engine: EngineContext,
     scene: SceneContext,
-    graph: ParticleGraph,
+    program: NodeParticleProgram,
     provider: NodeParticleEmitterProvider,
     options: BuildNodeParticleOptions = {}
 ): Promise<NodeParticleSet> {
-    return buildNodeParticleSet(engine, scene, graph, withNodeParticleEmitterProvider(provider, options));
+    return buildNodeParticleSet(engine, scene, program, withNodeParticleEmitterProvider(provider, options));
 }

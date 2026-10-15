@@ -25,3 +25,5 @@ export const updatePositionBlock: NpeBlockEvaluator = {
         });
     },
 };
+
+export { updatePositionBlock as evaluator };

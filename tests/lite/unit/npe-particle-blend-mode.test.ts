@@ -4,6 +4,7 @@ import { addFacingBillboardSystemWithParticleBlend } from "../../../packages/bab
 import { createParticleBlend } from "../../../packages/babylon-lite/src/particle/particle-blend";
 import { createParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import { buildNodeParticleSetWithBlendModes, enableNodeParticleBlendModes } from "../../../packages/babylon-lite/src/particle/node/npe-blend-modes";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { systemBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/system-block";
 import type { NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
@@ -38,7 +39,7 @@ function createRegistrationScene(): SceneContext {
 describe("NPE particle blend modes", () => {
     it("preserves a serialized SystemBlock mode through billboard creation", () => {
         const system = createParticleSystem(1);
-        const block = { id: 1, className: "SystemBlock", name: "system", serialized: { blendMode: 4 }, inputs: [] } as ParsedParticleBlock;
+        const block = { id: 1, customType: "BABYLON.SystemBlock", name: "system", blendMode: 4, inputs: [] } as ParsedParticleBlock;
         const ctx = {
             state: { system },
             input(_block: ParsedParticleBlock, _name: string, fallback?: () => unknown) {
@@ -72,10 +73,12 @@ describe("NPE particle blend modes", () => {
     });
 
     it("resolves a mutable blend mode when the enriched set is registered", async () => {
-        const graph = parseNodeParticleSource({
-            blocks: [{ customType: "BABYLON.SystemBlock", id: 1, name: "system", capacity: 1, blendMode: 3, inputs: [], outputs: [] }],
-        });
-        const set = await buildNodeParticleSetWithBlendModes({} as EngineContext, {} as SceneContext, graph);
+        const program = await compileNodeParticleGraph(
+            parseNodeParticleSource({
+                blocks: [{ customType: "BABYLON.SystemBlock", id: 1, name: "system", capacity: 1, blendMode: 3, inputs: [], outputs: [] }],
+            })
+        );
+        const set = await buildNodeParticleSetWithBlendModes({} as EngineContext, {} as SceneContext, program);
         const system = set.systems[0]!;
         system.blendMode = 4;
         system.texture = {
@@ -97,6 +100,16 @@ describe("NPE particle blend modes", () => {
 
         expect(enableNodeParticleBlendModes(set)).toBe(set);
         expect(set.systems[0]!._registerBillboard).toBeTypeOf("function");
+    });
+
+    it("preserves a richer registrar already installed by an optional SystemBlock pack", () => {
+        const set = { systems: [createParticleSystem(1)] } as NodeParticleSet;
+        const registrar = () => undefined;
+        set.systems[0]!._registerBillboard = registrar;
+
+        enableNodeParticleBlendModes(set);
+
+        expect(set.systems[0]!._registerBillboard).toBe(registrar);
     });
 
     it("matches Babylon.js color and alpha blend factors", () => {

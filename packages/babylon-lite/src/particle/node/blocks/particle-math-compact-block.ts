@@ -24,7 +24,7 @@ function apply(operation: number, left: number, right: number): number {
 /** Compact math evaluator for distinct source blocks, whose result scratches cannot alias. */
 export const particleMathCompactBlock: NpeBlockEvaluator = {
     build(block, ctx) {
-        const operation = typeof block.serialized.operation === "number" ? block.serialized.operation : 0;
+        const operation = typeof block.operation === "number" ? block.operation : 0;
         const left = ctx.input(block, "left");
         const right = ctx.input(block, "right");
         const vector2: Vec2 = { x: 0, y: 0 };
@@ -39,29 +39,20 @@ export const particleMathCompactBlock: NpeBlockEvaluator = {
                 return apply(operation, a, b);
             }
             const shape = aScalar ? b : a;
-            if (typeof shape !== "number" && "r" in shape) {
-                const leftColor = a as Color4;
-                const rightColor = b as Color4;
-                color4.r = apply(operation, aScalar ? a : leftColor.r, bScalar ? b : rightColor.r);
-                color4.g = apply(operation, aScalar ? a : leftColor.g, bScalar ? b : rightColor.g);
-                color4.b = apply(operation, aScalar ? a : leftColor.b, bScalar ? b : rightColor.b);
-                color4.a = apply(operation, aScalar ? a : leftColor.a, bScalar ? b : rightColor.a);
-                return color4;
+            if (typeof shape === "number") {
+                return shape;
             }
-            if (typeof shape !== "number" && "z" in shape) {
-                const leftVector = a as Vec3;
-                const rightVector = b as Vec3;
-                vector3.x = apply(operation, aScalar ? a : leftVector.x, bScalar ? b : rightVector.x);
-                vector3.y = apply(operation, aScalar ? a : leftVector.y, bScalar ? b : rightVector.y);
-                vector3.z = apply(operation, aScalar ? a : leftVector.z, bScalar ? b : rightVector.z);
-                return vector3;
+            const result = "r" in shape ? color4 : "z" in shape ? vector3 : vector2;
+            const output = result as unknown as Record<string, number>;
+            const leftValue = a as unknown as Record<string, number>;
+            const rightValue = b as unknown as Record<string, number>;
+            for (const key in output) {
+                output[key] = apply(operation, aScalar ? a : leftValue[key]!, bScalar ? b : rightValue[key]!);
             }
-            const leftVector = a as Vec2;
-            const rightVector = b as Vec2;
-            vector2.x = apply(operation, aScalar ? a : leftVector.x, bScalar ? b : rightVector.x);
-            vector2.y = apply(operation, aScalar ? a : leftVector.y, bScalar ? b : rightVector.y);
-            return vector2;
+            return result;
         };
         ctx.setOutput(block.id, "output", getter);
     },
 };
+
+export { particleMathCompactBlock as evaluator };

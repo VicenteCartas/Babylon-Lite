@@ -51,7 +51,7 @@ describe("Particle buffer", () => {
 
     it("sprite feature lives in columns and advances cellIndex over life", () => {
         const buffer = createParticleBuffer(4);
-        const sheet = useSpriteSheet(buffer, { startCellID: 0, endCellID: 3, loop: true, changeSpeed: 1 });
+        const sheet = useSpriteSheet(buffer, 0, 3, true, 1);
         // Static sheet configuration stays in the closure; only the per-particle render cell is a column.
         expect(buffer._columns.size).toBe(1);
 

@@ -15,7 +15,7 @@ export const sphereShapeBlock: NpeBlockEvaluator = {
         const system = state.system!;
         const buffer = state.buffer!;
 
-        const isHemispheric = block.serialized.isHemispheric === true;
+        const isHemispheric = block.isHemispheric === true;
         const radiusGetter = ctx.input(block, "radius", () => 1);
         const radiusRangeGetter = ctx.input(block, "radiusRange", () => 1);
         const directionRandomizerGetter = ctx.input(block, "directionRandomizer", () => 0);

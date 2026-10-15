@@ -43,3 +43,5 @@ export const particleInputLocalBlock: NpeBlockEvaluator = {
         });
     },
 };
+
+export { particleInputLocalBlock as evaluator };
