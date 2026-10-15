@@ -18,8 +18,7 @@ export function enableNodeParticleBlendModes(set: NodeParticleSet): NodeParticle
     }
     const registerChildren = set._registerChildren;
     if (registerChildren) {
-        (set as { _registerChildren?: NodeParticleSet["_registerChildren"] })._registerChildren = (register) =>
-            registerChildren((system) => register(enableBlendMode(system)));
+        (set as { _registerChildren?: NodeParticleSet["_registerChildren"] })._registerChildren = (register) => registerChildren((system) => register(enableBlendMode(system)));
     }
     return set;
 }

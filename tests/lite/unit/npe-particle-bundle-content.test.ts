@@ -267,8 +267,8 @@ describe("Particle bundle feature isolation", () => {
         expect(modules).toEqual([]);
     });
 
-    it.skipIf(!hasManifests([316, 317]))("fetches sub-emitter compilation, evaluation, and ownership only for Phase 13 scenes", () => {
-        for (const sceneId of [316, 317]) {
+    it.skipIf(!hasManifests([330, 331]))("fetches sub-emitter compilation, evaluation, and ownership only for Phase 13 scenes", () => {
+        for (const sceneId of [330, 331]) {
             const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, `scene${sceneId}.json`), "utf8")) as SceneManifest;
             const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
             expect(runtimeChunks.size, `scene${sceneId} has no runtime chunks recorded`).toBeGreaterThan(0);
