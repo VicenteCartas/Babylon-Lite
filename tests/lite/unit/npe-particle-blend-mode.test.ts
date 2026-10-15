@@ -72,10 +72,10 @@ describe("NPE particle blend modes", () => {
     });
 
     it("resolves a mutable blend mode when the enriched set is registered", async () => {
-        const graph = parseNodeParticleSource({
+        const program = parseNodeParticleSource({
             blocks: [{ customType: "BABYLON.SystemBlock", id: 1, name: "system", capacity: 1, blendMode: 3, inputs: [], outputs: [] }],
         });
-        const set = await buildNodeParticleSetWithBlendModes({} as EngineContext, {} as SceneContext, graph);
+        const set = await buildNodeParticleSetWithBlendModes({} as EngineContext, {} as SceneContext, program);
         const system = set.systems[0]!;
         system.blendMode = 4;
         system.texture = {
@@ -97,6 +97,16 @@ describe("NPE particle blend modes", () => {
 
         expect(enableNodeParticleBlendModes(set)).toBe(set);
         expect(set.systems[0]!._registerBillboard).toBeTypeOf("function");
+    });
+
+    it("preserves a richer registrar already installed by an optional SystemBlock pack", () => {
+        const set = { systems: [createParticleSystem(1)] } as NodeParticleSet;
+        const registrar = () => () => undefined;
+        set.systems[0]!._registerBillboard = registrar;
+
+        enableNodeParticleBlendModes(set);
+
+        expect(set.systems[0]!._registerBillboard).toBe(registrar);
     });
 
     it("matches Babylon.js color and alpha blend factors", () => {

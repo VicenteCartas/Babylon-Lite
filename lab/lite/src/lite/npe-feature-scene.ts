@@ -20,7 +20,7 @@ export async function runFeatureScene(sceneId: number): Promise<void> {
     const engine = await createEngine(canvas, largeWorld ? { useHighPrecisionMatrix: true, useFloatingOrigin: true } : {});
     const scene = createSceneContext(engine);
     scene.clearColor = { r: 0.008, g: 0.012, b: 0.018, a: 1 };
-    scene.camera = createArcRotateCamera(-1.15, 1.1, 7, { x: offset, y: 0.3, z: offset });
+    scene.camera = createArcRotateCamera(-1.15, 1.1, sceneId === 336 ? 10 : 7, { x: offset, y: 0.3, z: offset });
     scene.camera.nearPlane = largeWorld ? 1 : 0.1;
     scene.camera.farPlane = 100;
     const set = await buildNodeParticleSet(engine, scene, parseNodeParticleSource(createFeatureGraph(sceneId, "https://playground.babylonjs.com/textures/flare.png")), {

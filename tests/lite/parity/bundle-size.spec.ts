@@ -339,10 +339,10 @@ for (const scene of SCENES) {
         // Mesh-only / non-sprite 3D scenes must NOT pull in any sprite code.
         // List excludes the sprite-using scenes (50-59, the 92-98 custom-shader scenes, and the
         // 117/118 sprite-picking scenes). 60-series are NME demos with no sprites; 1-40 are core 3D.
-        // 262/263/264/276/277/280/281/283/284/302/305/332/333/334/337 are NPE billboard scenes; 300/301/303 use Sprite2D.
+        // 262/263/264/276/277/280/281/283/284/302/305/332–337 are NPE billboard scenes; 300/301/303 use Sprite2D.
         const SPRITE_USING_IDS = new Set([
             50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 92, 93, 94, 95, 96, 97, 98, 117, 118, 205, 206, 262, 263, 264, 276, 277, 280, 281, 283, 284, 300, 301, 302, 303, 305, 332, 333,
-            334, 337,
+            334, 335, 336, 337,
         ]);
         if (!SPRITE_USING_IDS.has(scene.id)) {
             const offenders = runtimeModules.filter((id) => /\/sprite\/.*\.[jt]s$/.test(id));

@@ -25,6 +25,10 @@ import { BILLBOARD_SYSTEM_UBO_BYTES, createBillboardPipelineCache, getOrCreateBi
 import { createBillboardCustomShader } from "../../../packages/babylon-lite/src/sprite/billboard-custom-shader";
 import { SPRITE_FX_UBO_BYTES } from "../../../packages/babylon-lite/src/sprite/custom-shader-core";
 import { addFacingBillboardSystemWithParticleBlend } from "../../../packages/babylon-lite/src/particle/particle-billboard-scene";
+import {
+    addFacingBillboardSystemWithParticleRenderProperties,
+    PARTICLE_RENDER_PROPERTIES_UBO_BYTES,
+} from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties";
 import { createParticleBlend } from "../../../packages/babylon-lite/src/particle/particle-blend";
 import { createSceneContext, disposeScene } from "../../../packages/babylon-lite/src/scene/scene";
 import { registerScene } from "../../../packages/babylon-lite/src/scene/scene-core";
@@ -676,6 +680,75 @@ describe("addFacingBillboardSystemWithParticleBlend", () => {
     });
 });
 
+describe("addFacingBillboardSystemWithParticleRenderProperties", () => {
+    it("composes exact pivot and mask shading with both ordered MultiplyAdd passes", async () => {
+        const engine = makeMockEngine();
+        const scene = createSceneContext(engine);
+        const multiplyAdd = createParticleBlend(4);
+        const system = createFacingBillboardSystem(makeMockAtlas(), { capacity: 1, blendMode: multiplyAdd });
+        addBillboardSpriteIndex(system, { position: [0, 0, 0], sizeWorld: [1, 1] });
+        addFacingBillboardSystemWithParticleRenderProperties(
+            scene,
+            system,
+            4,
+            {
+                translationPivot: { x: 0.25, y: -0.5 },
+                textureMask: { r: 0.2, g: 0.4, b: 0.6, a: 0.8 },
+                renderingGroupId: 3,
+            },
+            await loadParticleRenderPropertyResources()
+        );
+        await registerScene(scene);
+
+        expect(system._customShader?._key).toBe("particle-render-properties");
+        expect(system.shaderParams).toBeUndefined();
+
+        const device = engine._device as unknown as {
+            createRenderPipeline: ReturnType<typeof vi.fn>;
+            createShaderModule: ReturnType<typeof vi.fn>;
+            queue: { writeBuffer: ReturnType<typeof vi.fn> };
+        };
+        device.createRenderPipeline.mockClear();
+        const binding = scene._renderables[0]!.bind(engine, { _colorFormat: "bgra8unorm", _depthStencilFormat: "depth32float", _sampleCount: 1 });
+
+        expect(device.createRenderPipeline).toHaveBeenCalledTimes(2);
+        const multiplyDescriptor = device.createRenderPipeline.mock.calls[0]![0] as GPURenderPipelineDescriptor;
+        const addDescriptor = device.createRenderPipeline.mock.calls[1]![0] as GPURenderPipelineDescriptor;
+        expect((multiplyDescriptor.fragment!.targets as GPUColorTargetState[])[0]!.blend).toEqual(multiplyAdd._descriptor);
+        expect((addDescriptor.fragment!.targets as GPUColorTargetState[])[0]!.blend).toEqual(createParticleBlend(2)._descriptor);
+
+        const shaderCode = device.createShaderModule.mock.calls.map((call) => (call[0] as GPUShaderModuleDescriptor).code).join("\n");
+        expect(shaderCode).toContain("let pivot = properties.translationPivot * vec2f(1, -1)");
+        expect(shaderCode).toContain("let l = (q - in.o - pivot) * in.s");
+        expect(shaderCode).toContain("vec2f(l.x * cr - l.y * sr, l.x * sr + l.y * cr) + pivot");
+        expect(shaderCode).toContain("(sampled * properties.textureMask + (vec4f(1.0) - properties.textureMask)) * in.tint * billboards.opacityMul");
+        expect(shaderCode).toContain("let sourceAlpha = sampled.a * in.tint.a * billboards.opacityMul.a");
+        expect(shaderCode).toContain("baseColor.rgb * sourceAlpha + vec3f(1.0) * (1.0 - sourceAlpha)");
+
+        const propertyWrites = device.queue.writeBuffer.mock.calls.filter((call) => call[4] === PARTICLE_RENDER_PROPERTIES_UBO_BYTES);
+        expect(propertyWrites).toHaveLength(2);
+        const propertyValues = propertyWrites.map((call) => new Float32Array(call[2] as ArrayBuffer, call[3] as number, PARTICLE_RENDER_PROPERTIES_UBO_BYTES / 4));
+        expect(propertyValues.map((values) => values[2])).toEqual([1, 0]);
+        for (const values of propertyValues) {
+            expect(Array.from(values.slice(0, 2))).toEqual([0.25, -0.5]);
+            expect(Array.from(values.slice(4))).toEqual([expect.closeTo(0.2), expect.closeTo(0.4), expect.closeTo(0.6), expect.closeTo(0.8)]);
+        }
+
+        device.queue.writeBuffer.mockClear();
+        binding.update?.({ targetWidth: 512, targetHeight: 256 });
+        expect(device.queue.writeBuffer.mock.calls.filter((call) => call[4] === BILLBOARD_INSTANCE_STRIDE_BYTES)).toHaveLength(1);
+        expect(device.queue.writeBuffer.mock.calls.filter((call) => call[4] === BILLBOARD_SYSTEM_UBO_BYTES)).toHaveLength(2);
+
+        const pass = makeDrawPassMock();
+        expect(binding.draw(pass, engine)).toBe(2);
+        expect(pass.drawIndexed).toHaveBeenCalledTimes(2);
+        const multiplyPipeline = device.createRenderPipeline.mock.results[0]!.value as GPURenderPipeline;
+        const addPipeline = device.createRenderPipeline.mock.results[1]!.value as GPURenderPipeline;
+        expect(pass.setPipeline).toHaveBeenNthCalledWith(1, addPipeline);
+        expect(pass.setPipeline).toHaveBeenNthCalledWith(2, multiplyPipeline);
+    });
+});
+
 describe("AxisLockedBillboardSpriteSystem", () => {
     it("creates an axis-locked billboard system with normalized axis", () => {
         const system = createAxisLockedBillboardSystem(makeMockAtlas(), [0, 3, 0], { capacity: 1 });
@@ -878,3 +951,4 @@ return vec4<f32>(base.rgb * (0.5 + 0.5 * sin(fx.time + fx.params.x)), base.a);`;
         expect(SPRITE_FX_UBO_BYTES).toBe(32);
     });
 });
+import { loadParticleRenderPropertyResources } from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties";

@@ -25,7 +25,7 @@ function link(name: string, targetBlockId: number, targetConnectionName = "outpu
 /** The exact serialized graph consumed by both engines; no engine-specific particle construction. */
 export function createFeatureGraph(sceneId: number, textureUrl: string): object {
     const blocks: Block[] = [{ customType: "BABYLON.ParticleTextureSourceBlock", id: 900, url: textureUrl, invertY: true, inputs: [] }];
-    const count = 1;
+    const count = sceneId === 335 ? 3 : sceneId === 336 ? 4 : 1;
     const colors = [
         [0.15, 0.8, 1, 0.85],
         [1, 0.35, 0.18, 0.85],
@@ -47,13 +47,13 @@ export function createFeatureGraph(sceneId: number, textureUrl: string): object 
                 valueType: type === 4 ? "BABYLON.Vector2" : type === 8 ? "BABYLON.Vector3" : "number",
                 ...properties,
             });
-        const x = 0;
+        const x = (branch - (count - 1) / 2) * (sceneId === 335 ? 0.85 : 1.65);
         let flow = add("CreateParticleBlock", 1, [
             literal("lifeTime", sceneId === 333 ? 3 : 5),
             literal("emitPower", 1),
-            literal("size", 0.18),
-            literal("scale", sceneId === 334 ? [0.5, 2.2] : [1, 1], "BABYLON.Vector2"),
-            literal("angle", 0),
+            literal("size", sceneId === 335 ? 0.7 : count > 1 ? 0.32 : 0.18),
+            literal("scale", sceneId === 336 || sceneId === 334 ? [0.5, 2.2] : [1, 1], "BABYLON.Vector2"),
+            literal("angle", sceneId === 336 ? 0.35 : 0),
             literal("color", colors[branch], "BABYLON.Color4"),
             literal("colorDead", [1, 0.1, 0.4, 0], "BABYLON.Color4"),
         ]);
@@ -82,6 +82,28 @@ export function createFeatureGraph(sceneId: number, textureUrl: string): object 
             flow = add("AlignAngleBlock", 6, [link("particle", flow)], { alignment: 0.4 });
         }
         const systemInputs = [link("particle", flow), link("texture", 900, "texture"), literal("emitRate", sceneId === 333 ? 30 : 0), literal("targetStopDuration", 0)];
+        if (sceneId === 335) {
+            systemInputs.push(
+                literal(
+                    "translationPivot",
+                    [
+                        [0.45, -0.25],
+                        [-0.3, 0.4],
+                        [0.2, 0.3],
+                    ][branch],
+                    "BABYLON.Vector2"
+                ),
+                literal(
+                    "textureMask",
+                    [
+                        [0, 1, 1, 1],
+                        [1, 0, 1, 0.8],
+                        [1, 1, 0, 1],
+                    ][branch],
+                    "BABYLON.Color4"
+                )
+            );
+        }
         add("SystemBlock", 20, systemInputs, {
             name: `Feature ${sceneId} / ${branch}`,
             capacity: 160,
@@ -89,7 +111,10 @@ export function createFeatureGraph(sceneId: number, textureUrl: string): object 
             manualEmitCount: sceneId === 333 ? -1 : 48,
             preWarmCycles: sceneId === 333 ? 90 : 0,
             preWarmStepOffset: sceneId === 333 ? 2 : 1,
-            blendMode: 2,
+            renderingGroupId: sceneId === 335 ? [2, 0, 1][branch] : 0,
+            blendMode: sceneId === 335 ? 1 : 2,
+            isBillboardBased: sceneId !== 336 || branch !== 3,
+            billBoardMode: sceneId === 336 ? [2, 8, 9, 7][branch] : 7,
         });
     }
     return { blocks };

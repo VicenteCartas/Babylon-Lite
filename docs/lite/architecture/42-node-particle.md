@@ -14,7 +14,7 @@ The design requirements are:
 - `ParticleSystem` is mutable pure state. Behavior is supplied by standalone functions. The public surface is imperative through functions such as `startParticleSystem`, `stopParticleSystem`, and `animateParticleSystem`; it does not expose a Babylon-style particle constructor or attached particle-system methods.
 - Particle attributes use Struct-of-Arrays storage. A particle is an integer slot, not an allocated particle value.
 - Simulation order, random-number consumption, numeric storage, and lifecycle boundaries follow the Babylon.js compatibility contract and are verified against Babylon.js as the equivalence oracle.
-- Rendering supports two explicit targets: camera-facing world-space billboards and a pure-2D Sprite2D bridge over NPE world XY. The Sprite2D path does not project XZ or YZ planes.
+- Rendering supports two explicit targets: world-space billboards/serialized particle geometry and a pure-2D Sprite2D bridge over NPE world XY. The Sprite2D path does not project XZ or YZ planes.
 - Code and optional storage are pay-for-use. Compiler passes and reachable block evaluators are dynamically imported, and each evaluator allocates only the optional columns required by its reachable behavior. Every buffer contains the base simulation and standard NPE render/lifecycle columns described in section 4.
 - The indexed simulation path does not allocate per particle or per update. Graph getters return scalars or reused scratch values. Billboard synchronization allocates transient values for each live particle; Sprite2D synchronization writes packed buffers directly without per-particle allocations.
 
@@ -467,6 +467,7 @@ interface ParticleSystem {
     _suppressInitialDirectionCapture?: boolean;
     _seedLocalPosition?: ParticleStep;
     _registerBillboard?: (scene: SceneContext, billboard: FacingBillboardSpriteSystem) => () => void;
+    _syncBillboard?: (system: ParticleSystem, billboard: FacingBillboardSpriteSystem) => void;
 }
 ```
 
@@ -744,6 +745,7 @@ Variant selection uses serialized data and connection identity:
 - Random lock mode `3` uses the scalar evaluator when the `min` or `max` value type selected by first availability is `number` or `int`; all vector and color tags use the typed evaluator.
 - Math uses the alias-safe evaluator when left and right have equal target ids and equal target connection names, including two absent or equivalently unconnected targets.
 - System uses the dynamic variant when `emitRate` is connected.
+- Before ordinary variant selection, one `usesSystemRenderFeatures` predicate selects `npe-pack-system-render.ts` directly for connected or non-default pivot/mask inputs, a truthy rendering group, disabled billboarding, or `(billBoardMode ?? 7) !== 7`. The unified pack owns base/dynamic emit-rate behavior and shared render-property resolution; the variant router contains no render classifier. Lifecycle wrapping follows evaluator selection.
 - SetupSpriteSheet uses the random variant only when `randomStartCell === true`.
 
 ### 7.6 Asynchronous texture work
@@ -916,6 +918,8 @@ The builder has created the system before this evaluator runs. The evaluator:
 - Evaluates `targetStopDuration` once at build with fallback `0` and assigns a numeric result.
 
 `capacity` and `isLocal` are builder fields. Neither System evaluator installs an output getter.
+
+Non-default connected or literal `translationPivot`/`textureMask`, a truthy `renderingGroupId`, non-ALL `billBoardMode`, or `isBillboardBased === false` select the single optional system-render pack directly from the compiler. That pack applies ordinary or connected emit-rate behavior, snapshots pivot/mask/group once, then lazily selects the mode or property renderer. The variant router has no render classification. The lazy feature owns registrar installation, geometry storage, and shading. Exact-blend enablement preserves an already-installed richer registrar.
 
 The optional lifecycle decorator runs the underlying evaluator first, then assigns numeric `manualEmitCount` (default `-1`), `preWarmCycles` (`0`), `preWarmStepOffset` (`0`), and `startDelay` (`0`) (the Babylon.js `SystemBlock` deserialization fallbacks), strict-true `disposeOnStop`, and truthy `doNoStart`. It owns the lifecycle hooks described in section 5; simple System evaluators contain no prewarm, delay, or one-shot implementation.
 
@@ -1557,7 +1561,148 @@ Bundle checks require the LocalVariable evaluator and topology runtime only for 
 
 ## 10. Rendering and live registration
 
-### 10.1 Billboard creation
+### 10.0 Render-property ownership and ordering
+
+`translationPivot`, `textureMask`, and `renderingGroupId` are one coherent optional billboard feature. The generic billboard system, public billboard custom-shader API, Sprite2D bridge, particle instance layout, and base particle system remain unchanged. Only a graph selected by the direct System render pack imports `particle-billboard-render-properties.ts` and installs its registrar. The particle-owned `particle-billboard-renderer.ts` is the single lazy entry for default particle registration, exact blends, and optional geometry renderers. It statically imports the base billboard builder and shared helpers; optional mode/property renderers destructure only their named dependencies from its dynamic import and never pass the module namespace as a value. They do not statically import pipeline, buffer, or scene-uniform modules. This keeps the shared pipeline with the particle renderer without retaining helper exports in unrelated sprite scenes. The mode picker receives index data as a parameter. No sprite module is changed.
+
+The feature object is immutable after System evaluation:
+
+```ts
+interface ParticleRenderProperties {
+    readonly translationPivot: Vec2;
+    readonly textureMask: Color4;
+    readonly renderingGroupId: number;
+}
+```
+
+Registration applies the exact particle blend descriptor for the system's current mutable `blendMode`. Modes 0, 1, 2, 3, 4, and unknown values use the same factors and pass counts specified in section 10.2. The feature owns its own private billboard shader descriptors and deferred renderable builder; it neither imports nor alters the generic public custom-shader factory. Mode 4 remains one logical transparent renderable with one logical-order instance upload and two consecutive draws, but both passes use the render-property vertex math and texture mask. The first pass uses Multiply color transformation and blending; the second uses ordinary masked color and Add blending.
+
+The feature UBO is 32 bytes and has this WGSL/Float32 layout:
+
+| Floats | WGSL field                | Meaning                                  |
+| ------ | ------------------------- | ---------------------------------------- |
+| 0..1   | `translationPivot: vec2f` | Babylon particle translation pivot       |
+| 2      | `multiplyPass: f32`       | `1` for Multiply, `0` for ordinary color |
+| 3      | padding                   | zero                                     |
+| 4..7   | `textureMask: vec4f`      | Babylon particle texture mask            |
+
+Each render pass owns one feature UBO because pipeline layouts and bind groups are pass-specific. Values are written once when the renderable attachment is created; there is no per-frame feature UBO write. Shader descriptors share lazily allocated per-device modules because the WGSL is value-independent. All caches begin as nullable module state and allocate only on first use.
+
+For quad corner `q`, atlas/frame pivot `o` (normally `[0.5, 0.5]` for NPE), particle size `s`, angle rotation `R`, and translation pivot `t`, the facing-billboard vertex stage computes exactly:
+
+```text
+angle = -particle.angle
+t = (serializedPivot.x, -serializedPivot.y)
+local = (q - o - t) * s
+rotated = R(local)
+translated = rotated + t
+world = anchor + basisRight * translated.x + basisUp * translated.y
+clip = scene.viewProjection * vec4(world, 1)
+```
+
+The generic sprite billboard's local Y points down, whereas Babylon particles use Y-up corners and angles. Particle synchronization negates the stored angle without mutating simulation state; the property shader and picker negate the authored pivot's Y component. The final `+ t` is deliberately not multiplied by particle size and occurs after rotation. Reparameterizing the existing instance pivot is forbidden: it would require division by each size component and cannot reproduce Babylon for a zero-size axis.
+
+Picking uses the same geometry. A zero translation pivot keeps the stock lazy billboard pick source. A nonzero translation pivot registers a feature-owned lazy contributor that copies logical instances into transient pick storage and shifts each copied anchor by `t - R(t * s)` along the camera's normalized billboard basis before invoking the stock pick draw. The stock pick vertex then computes `anchor' + R((q - o) * s)`, algebraically equal to the render equation above even when either size component is zero. It never mutates simulation or render instance storage, preserves sprite-index pick ids, and allocates the transient copy only on the first pick.
+
+For sampled texture color `sampled`, copied mask `mask`, per-particle tint `tint`, and billboard opacity multiplier `opacityMul`, every pass first computes:
+
+```text
+baseColor = (sampled * mask + (vec4(1) - mask)) * tint * opacityMul
+```
+
+An ordinary pass returns `baseColor`. A Multiply pass preserves Babylon's unmasked source-alpha term and computes:
+
+```text
+sourceAlpha = sampled.a * tint.a * opacityMul.a
+result = vec4(baseColor.rgb * sourceAlpha + vec3(1) * (1 - sourceAlpha), baseColor.a)
+```
+
+The mask therefore affects `baseColor.a` but does not replace `sampled.a` in `sourceAlpha`. A mask of `[1, 1, 1, 1]` reduces to stock sampling; a channel mask of zero replaces that sampled channel with one before tinting.
+
+Rendering groups are owned entirely by `particle/particle-rendering-group.ts`; shared render code and `Renderable` carry no rendering-group field or hook. For a nonzero id, `applyParticleRenderingGroup(renderable, groupId)` wraps the renderable's `bind` so the returned binding exposes a per-binding sort view: `Object.create(renderable)` with its own `_worldCenter`. Each binding `update` sets that view center to the real center moved `groupId * 1e9` world units toward the camera along the view-space depth axis. The shared transparent sort (camera-space distance descending, then `order`) therefore yields:
+
+1. `renderingGroupId` ascending, because every group's offset dwarfs any scene depth;
+2. camera-space distance descending within one group, because the offset is uniform inside a group;
+3. existing renderable `order` ascending as the stable tie-break.
+
+Group `0` renderables are not wrapped and pay nothing; scenes that never load render properties carry none of this code. Only transparent sorting reads `_worldCenter`, so opaque/direct sorting and all draw state are unchanged. Numeric ids are retained as authored; valid NPE editor output uses integer ids 0 through 3.
+
+Known gap: Babylon also clears depth between rendering groups. Lite orders the draws but does not clear depth, so a higher-group particle can still be occluded by depth written by a lower group. Particle billboards do not write depth, so the gap only shows against nearer opaque or depth-writing geometry.
+
+The Sprite2D bridges do not consume these three world-billboard properties. `translationPivot` is expressed in billboard-plane world units, while Sprite2D has a separate pixel-space pivot API; `renderingGroupId` belongs to scene renderables, not SpriteRenderer layers. Silently approximating either would violate the explicit render-target contract.
+
+### 10.1 Serialized billboard geometry modes
+
+`SystemBlock.isBillboardBased` defaults to `true`. `SystemBlock.billBoardMode` defaults to `7` and uses Babylon's serialized constants:
+
+| Value | Meaning         | Direction source                         |
+| ----: | --------------- | ---------------------------------------- |
+|   `2` | Y               | none                                     |
+|   `7` | ALL             | none                                     |
+|   `8` | STRETCHED       | current `dirX/Y/Z`                       |
+|   `9` | STRETCHED_LOCAL | current `dirX/Y/Z`                       |
+|   any | non-billboard   | initial direction, then current fallback |
+
+The last row is selected only when `isBillboardBased === false`; its numeric mode is ignored. A true billboard with an unsupported numeric mode throws `NodeParticle: unsupported billboard mode <value>` during instantiation. Missing and explicit `(true, 7)` values retain the ordinary System evaluator and existing ALL renderer unless render properties select the optional pack. Y, STRETCHED, STRETCHED_LOCAL, and non-billboard values select the mode renderer inside `npe-pack-system-render.ts`. The same pack applies base/dynamic System behavior and captures the Phase 10 pivot, mask, and rendering-group values once, so any combination is represented by one registrar and one renderable.
+
+The generic billboard system, its fixed 16-float instance layout, and public custom-shader hook remain unchanged. The mode attachment owns a sidecar direction array only for direction-consuming modes and a specialized renderable. Its GPU staging layout is:
+
+| Floats | Field                              | Modes                                         |
+| ------ | ---------------------------------- | --------------------------------------------- |
+| 0..15  | existing packed billboard instance | all four Phase 11 paths                       |
+| 16..18 | `direction: vec3f`                 | STRETCHED, STRETCHED_LOCAL, and non-billboard |
+
+Y uses the original 64-byte stride. Direction-consuming modes use a 76-byte stride. The renderer interleaves into reusable feature-owned staging in logical particle order, applies floating-origin subtraction, and uploads once per visible nonempty version. No Phase 11 array, shader, pipeline, or module is allocated or fetched for ALL systems.
+
+STRETCHED and STRETCHED_LOCAL copy the live post-emit-power direction during billboard synchronization. Non-billboard mode uses three optional `initialDir.*` particle columns. The mode evaluator allocates or reuses those columns and wraps `createEmitPower` once to snapshot the shape-produced direction before emit-power scaling. Mesh-normal emitters preserve Babylon's missing-initial-direction behavior: when `_suppressInitialDirectionCapture` is true, no columns are allocated and synchronization falls back to the live direction. When the System is local and an initial direction exists, synchronization transforms it by the current emitter matrix's upper 3 by 3 before upload, matching Babylon's CPU particle upload. Swap-remove includes the optional columns automatically.
+
+For all paths, define centered corner `c = q - o`, scaled translated-pivot corner `l = (c - t) * s`, and angle-rotated values:
+
+```text
+rx = l.x * cos(angle) - l.y * sin(angle) + t.x
+ry = l.x * sin(angle) + l.y * cos(angle) + t.y
+```
+
+The final translation pivot remains unscaled and post-rotation. Each mode then computes world position exactly as follows; WGSL `normalize`/`cross` behavior is retained without epsilon fallbacks:
+
+```text
+ALL:
+    world = anchor + cameraRight * rx + cameraUp * ry
+
+Y:
+    toParticle = normalize(vec3(anchor.x - eye.x, 0, anchor.z - eye.z))
+    right = normalize(cross(worldY, toParticle))
+    up = normalize(cross(toParticle, right))
+    world = anchor + right * rx + up * ry
+
+STRETCHED:
+    toCamera = normalize(anchor - eye)
+    right = normalize(cross(normalize(direction), toCamera))
+    up = normalize(cross(toCamera, right))
+    world = anchor + right * rx + up * ry
+
+STRETCHED_LOCAL:
+    toCamera = normalize(anchor - eye)
+    right = normalize(cross(normalize(direction), toCamera))
+    up = normalize(direction)
+    world = anchor + right * rx + up * ry
+
+NON_BILLBOARD:
+    axis = normalize(direction)
+    right = normalize(cross(worldY, axis))
+    forward = normalize(cross(axis, right))
+    world = anchor + right * rx + forward * ry
+```
+
+All four paths use `scene.vEyePosition.xyz`, preserve the Phase 10 texture-mask and blend equations, assign the copied rendering group, and retain one logical renderable for MultiplyAdd. They do not mutate simulation positions or directions. Their vertex and pick shaders restore Y-up corners using `(q - o) * (1, -1)` and recover the particle angle using `-sin(instance.rotation)`, because shared synchronization stores the generic billboard's Y-down angle. UVs continue to use the original top-down `q`.
+
+Babylon's serialized systems do not enable particle depth sorting. Particle renderers therefore retain dense simulation/insertion order, including alpha-blended and MultiplyAdd systems. The ordinary billboard builder's optional internal `sortInstances` argument defaults to `true` for existing sprite callers; every particle registrar passes `false`. The specialized mode renderer likewise uploads logical order without allocating depth/index sorting buffers. Transparent scene-level sorting and rendering-group ordering remain active, and floating-origin uploads still subtract the camera offset.
+
+Picking owns a separate lazy `particle-billboard-modes-pick.ts` contributor. It consumes the same logical instances, direction sidecar, mode, pivot, and camera values and uses the same 64/76-byte layout and vertex equations with the existing integer-id fragment contract. It never approximates a non-camera-facing quad through the stock facing-billboard picker. Pick ids and resolved `{ system, spriteIndex }` identity remain unchanged. GPU pick resources allocate only on the first pick and are destroyed with the scene contributor.
+
+`ParticleSystem` exposes one internal optional `_syncBillboard` seam. `particle-scene.ts` calls `(system._syncBillboard ?? syncParticleBillboard)(system, billboard)`; all mode meaning and sidecar writes live in the lazy mode attachment. Ordinary and Phase 10-only systems retain byte-for-byte synchronization behavior. Sprite2D remains explicit XY rendering and ignores these world-space geometry modes.
+
+### 10.2 Billboard creation
 
 `createParticleBillboard` converts a `ParticleSystem` into its generic `FacingBillboardSpriteSystem` rendering representation. It requires `system.texture`; a null texture throws `createParticleBillboard: the particle system has no texture`.
 
@@ -1604,13 +1749,13 @@ The generic `buildBillboardRenderable(engine, system)` API and its ordinary scen
 
 The private descriptor emits no `SpriteFx` UBO declaration, layout entry, allocation, or per-frame write. Its hook intentionally mirrors the public billboard-custom-shader hook instead of importing that optional feature and its core into Multiply-only bundles. The mirror remains behaviorally compatible with the last-writer-wins global hook and uses one module-level empty parameter array rather than allocating per update.
 
-Mode `3` uses the resulting normal billboard renderable unchanged. Mode `4` wraps its draw binding with one stock Add pipeline, a second bind group, and a second system uniform buffer. The two pipelines require distinct bind groups because each pipeline owns its bind-group layout. The base renderable deliberately keeps its GPU buffer private, so the optional mode-4 module owns and dirty-updates its own 32-byte copy rather than exposing GPU internals through the generic billboard contract. It remains one transparent renderable with one logical billboard system, one sorted instance upload, one instance buffer, and one index buffer.
+Mode `3` uses the resulting normal billboard renderable unchanged. Mode `4` wraps its draw binding with one stock Add pipeline, a second bind group, and a second system uniform buffer. The two pipelines require distinct bind groups because each pipeline owns its bind-group layout. The base renderable deliberately keeps its GPU buffer private, so the optional mode-4 module owns and dirty-updates its own 32-byte copy rather than exposing GPU internals through the generic billboard contract. It remains one transparent renderable with one logical billboard system, one logical-order instance upload, one instance buffer, and one index buffer.
 
 Mode `4` draws the normal Multiply binding first. The primary draw leaves its instance and index buffers bound, so the wrapper then binds only the Add pipeline and Add bind group before issuing the second indexed draw over the same instances. It restores the primary Multiply pipeline so the render task's consecutive-pipeline cache remains correct. The draw reports two GPU draw calls when particles are visible and zero when the system is hidden or empty.
 
 `registerNodeParticleSet` invokes each system's installed `_registerBillboard` callback, falling back to its particle-owned registrar. Enriched systems resolve all five modes exactly from the current `system.blendMode`; ordinary builders retain the Add fallback. Particle registrars call `buildBillboardRenderable(engine, billboard, false)` to preserve particle insertion order. Generic billboard consumers retain the default transparent depth sorting.
 
-### 10.2 Billboard synchronization
+### 10.3 Billboard synchronization
 
 `syncParticleBillboard` clears the billboard count and saved sizes, requests the standard size, scale, angle, and color columns, then iterates `[0, buffer.alive)`. It calls `addBillboardSpriteIndex` once per particle with:
 
@@ -1630,7 +1775,7 @@ Frame lookup is bounds-checked by the sprite atlas. An invalid cell throws `reso
 
 The billboard path uses the transient allocations above and the billboard subsystem's storage, shader, pipeline, bind groups, deferred renderable, and picking support.
 
-### 10.3 Billboard scene registration
+### 10.4 Billboard scene registration
 
 `registerNodeParticleSet(scene, set, options = {})` uses `autoStart = options.autoStart ?? true`. For each system, in `set.systems` order, it:
 
@@ -1644,18 +1789,18 @@ Each callback computes:
 ```ts
 const ratio = deltaMs > 0 ? deltaMs / (1000 / 60) : 1;
 animateParticleSystem(system, ratio);
-syncParticleBillboard(system, billboard);
+(system._syncBillboard ?? syncParticleBillboard)(system, billboard);
 ```
 
 There is no synchronization during registration; the first registered callback performs the first live animation and upload. Internal callbacks append, so camera controls and feature preparation registered before the set run first, and callbacks for a multi-system set preserve system-registration order.
 
 The registration function returns `void` and exposes no billboard. Scene teardown internally disposes its systems. Unregister marks the tick inactive before deferring array removal to a microtask, preserving callback iteration when disposal occurs inside a tick. With auto-start false, the callback is still registered; animation is a no-op until the system is started, while synchronization still runs every frame.
 
-### 10.4 Sprite2D bridge creation and mapping
+### 10.5 Sprite2D bridge creation and mapping
 
 `createParticleSprite2DBridge(system, options = {})` is the manual pure-2D bridge factory. It requires `system.texture`; a missing texture throws `createParticleSprite2DBridge: the particle system has no texture`.
 
-The factory builds the same row-major grid atlas rules described in section 10.1, including full-texture fallback for missing or non-positive cell dimensions and bounds-checked frame lookup. It creates one centered `Sprite2DLayer` with:
+The factory builds the same row-major grid atlas rules described in section 10.2, including full-texture fallback for missing or non-positive cell dimensions and bounds-checked frame lookup. It creates one centered `Sprite2DLayer` with:
 
 - `capacity` fixed from `system.buffer.capacity`;
 - `depth: "none"` and `pivot: [0.5, 0.5]`;
@@ -1688,7 +1833,7 @@ Every blend operation is `add`. Mode `0` is pure one-one additive; unlike the al
 
 `enableNodeParticleBlendModes` does not change this baseline Sprite2D mapping. It installs only the billboard `_registerBillboard` callback. Modes `3`, `4`, and unknown values therefore remain `spriteBlendAdditive` when callers explicitly choose the ordinary bridge. Exact Sprite2D rendering is a separate opt-in described next.
 
-### 10.5 Exact Sprite2D blend-mode bridge
+### 10.6 Exact Sprite2D blend-mode bridge
 
 `particle-sprite-2d-blend-modes.ts` is the particle-owned opt-in for exact Sprite2D output. It works on any built `NodeParticleSet` by reading each system's current mutable `blendMode` when the bridge is created; neither `buildNodeParticleSetWithBlendModes` nor `enableNodeParticleBlendModes` is required because those APIs configure only billboard registration.
 
@@ -1731,7 +1876,7 @@ Manual callers add every `bridge.layers` entry to one renderer in array order an
 
 `NodeParticleSet2DBlendModesBinding` owns the hook and all pass-layer attachments. `disposeNodeParticleSet2DBlendModesBinding` is idempotent, and renderer disposal invokes it automatically. Disposal removes every layer and callback but does not stop systems or dispose particle textures. The optional Handle API is forbidden on every bridge-owned pass layer for the same exclusive-live-range reason as the baseline bridge.
 
-### 10.6 Sprite2D bridge synchronization
+### 10.7 Sprite2D bridge synchronization
 
 `syncParticleSprite2DBridge(bridge)` owns the layer's complete live range. The layer cannot contain independent Index API sprites, and the function rejects a layer on which the optional Handle API has installed hooks.
 
@@ -1741,7 +1886,7 @@ After the packed loop, synchronization clears saved-size entries in the stale ta
 
 Because mapping fields are mutable, each synchronization revalidates `pixelsPerUnit` and `originPx` before touching the packed range. This supports moving the origin or changing scale between frames while rejecting non-finite state.
 
-### 10.7 SpriteRenderer registration and lifecycle
+### 10.8 SpriteRenderer registration and lifecycle
 
 Manual callers create a bridge, add `bridge.layer` to a `SpriteRenderer`, and choose when to call `animateParticleSystem` and `syncParticleSprite2DBridge`. `registerNodeParticleSet2D(renderer, set, options = {})` supplies the managed path:
 
@@ -1822,7 +1967,7 @@ Additional behavior is observable:
 
 - The parser represents arbitrary serialized class names. Compiled programs support the classes listed in section 9. Other reachable NPE classes follow the registry errors in section 11.
 - Simulation is CPU-only.
-- Rendering is selected explicitly by the caller as camera-facing world-space billboards or pure-2D Sprite2D.
+- Rendering is selected explicitly as world-space billboards/serialized particle geometry or pure-2D Sprite2D. The latter intentionally ignores world-billboard translation pivots, texture masks, rendering groups, and geometry modes.
 - The Sprite2D bridge maps only NPE world XY. It ignores `posZ` and does not support XZ/YZ projection.
 - Exact particle blend factors and specialized Multiply/MultiplyAdd output are explicit per render target. Billboards require `buildNodeParticleSetWithBlendModes` or `enableNodeParticleBlendModes`; Sprite2D requires `createParticleSprite2DBridgeWithBlendModes` or `registerNodeParticleSet2DWithBlendModes` and works with a set from any builder.
 - The plain billboard path maps mode `0` to OneOne, mode `1` to alpha, and modes `2`, `3`, `4`, and unknown values to Add. The baseline Sprite2D bridge independently maps mode `0` to `spriteBlendOneOne`, mode `1` to `spriteBlendAlpha`, and every other value to `spriteBlendAdditive`. These fallback contracts remain intentionally unchanged for callers that do not opt in.
@@ -1857,6 +2002,7 @@ The current unit categories are:
 - Buffer and lifecycle: base-only allocation, string-key column sharing, dense spawn/swap-remove, capacity, emission, integration, death clamp, and sprite-column math.
 - NPE lifecycle and core updates: one-shot emission including zero, prewarm/default offsets, delayed and disabled starts, target-stop draining/disposal, scale/age writes, ordered basic integration/color stepping, shared scratch getters, and floating-origin F64 world-position precision without extra storage.
 - Camera features: per-system stable camera snapshots, shared frame preparation, missing-camera behavior, allocator-selected view precision, world CameraPosition, and view-normal AlignAngle under translated/rotated cameras.
+- Render properties and modes: default-path isolation, connected/literal property snapshots, immutable pivot/mask values, exact blends and MultiplyAdd pass composition, Y-pivot/angle conventions, rendering-group ordering, 64/76-byte mode layouts, authoritative F64 anchors, initial/current direction capture, live custom synchronization, and lazy geometry-equivalent picking.
 - Compilation and build behavior: trusted parse identity, program reuse, root reachability, detached-block isolation, immutable post-order operation plans, evaluator-owned keyed storage, Loop preparation, flow-map frame binding, two-field connection criteria, dynamic emit-rate laziness, system-time reevaluation, URL-over-data precedence, and default-path embedded texture upload.
 - Canonical graph state: scenes 262, 263, 264, and 276; full Basic Properties; Size; Sphere; and deterministic/random-start sprite variants.
 - Change graphs: Size, Color, Speed, Angular Speed, multi-stop Angular Speed, Drag, Emit Rate, Lifetime, Start Size, and Speed Limit.
@@ -2071,6 +2217,7 @@ Runtime files in `packages/babylon-lite/src/particle/`:
 - `node/npe-noise.ts`
 - `node/npe-pack-camera.ts`
 - `node/npe-pack-core-updates.ts`
+- `node/npe-pack-system-render.ts`
 - `node/npe-pack-lifecycle.ts`
 - `node/npe-pack-sprite.ts`
 - `node/npe-pack-standard-values.ts`
@@ -2100,8 +2247,14 @@ Runtime files in `packages/babylon-lite/src/particle/`:
 - `particle-billboard-renderable.ts`
 - `particle-billboard-scene.ts`
 - `particle-billboard.ts`
+- `particle-billboard-modes.ts`
+- `particle-billboard-modes-pick.ts`
+- `particle-billboard-render-properties.ts`
+- `particle-billboard-render-properties-pick.ts`
+- `particle-billboard-renderer.ts`
 - `particle-blend.ts`
 - `particle-buffer.ts`
+- `particle-rendering-group.ts`
 - `particle-scene-renderable.ts`
 - `particle-scene.ts`
 - `particle-sprite-2d-blend-modes.ts`
@@ -2110,4 +2263,4 @@ Runtime files in `packages/babylon-lite/src/particle/`:
 - `sprite-columns-random.ts`
 - `sprite-columns.ts`
 
-External integration: `src/index.ts` supplies the package-root exports; `src/sprite/billboard-renderable.ts` supplies the particle-only insertion-order seam. Scenes 262-284, 300-302, and 305 exercise the existing NPE paths. Scenes 332, 333, 334, and 337 respectively exercise core updates, prewarm, camera sources/alignment, and large-world F64 positions through the shared Lite/BJS `npe-feature-scene.ts` setup and serialized `scene332-features-npe.ts` fixture. Their parity specs compare frozen Lite frames against immutable committed goldens.
+External integration: `src/index.ts` supplies the package-root exports; `src/sprite/billboard-renderable.ts` supplies the particle-only insertion-order seam. Scenes 262-284, 300-302, and 305 exercise the existing NPE paths. Scenes 332–337 respectively exercise core updates, prewarm, camera sources/alignment, render properties, billboard geometry modes, and large-world F64 positions through the shared Lite/BJS `npe-feature-scene.ts` setup and serialized `scene332-features-npe.ts` fixture. Their parity specs compare frozen Lite frames against immutable committed goldens.

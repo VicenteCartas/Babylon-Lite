@@ -7,7 +7,7 @@ const root = resolve(__dirname, "../../..");
 const config = JSON.parse(readFileSync(resolve(root, "scene-config.json"), "utf8")) as Array<{ id: number; slug: string; maxMad: number; maxRawKB: number }>;
 
 describe("NPE feature scene configuration", () => {
-    it.each([332, 333, 334, 337])("registers scene %i with immutable golden-only parity and presentation assets", (id) => {
+    it.each([332, 333, 334, 335, 336, 337])("registers scene %i with immutable golden-only parity and presentation assets", (id) => {
         const matches = config.filter((scene) => scene.id === id);
         expect(matches).toHaveLength(1);
         const scene = matches[0]!;
@@ -31,7 +31,7 @@ describe("NPE feature scene configuration", () => {
         expect(spec).toContain("data-animation-frozen");
     });
 
-    it("serializes all four core updates, camera inputs, and prewarm", () => {
+    it("serializes all four core updates, camera inputs, prewarm, render properties, and geometry modes", () => {
         const blocks = (id: number) => (createFeatureGraph(id, "flare.png") as { blocks: Array<Record<string, unknown>> }).blocks;
         expect(blocks(332).map((block) => block.customType)).toEqual(
             expect.arrayContaining(["BABYLON.UpdateScaleBlock", "BABYLON.UpdateAgeBlock", "BABYLON.BasicPositionUpdateBlock", "BABYLON.BasicColorUpdateBlock"])
@@ -39,5 +39,20 @@ describe("NPE feature scene configuration", () => {
         expect(blocks(333).find((block) => block.customType === "BABYLON.SystemBlock")).toMatchObject({ preWarmCycles: 90, preWarmStepOffset: 2, manualEmitCount: -1 });
         expect(blocks(334).find((block) => block.systemSource === 4)).toMatchObject({ customType: "BABYLON.ParticleInputBlock", contextualValue: 0 });
         expect(blocks(334).find((block) => block.customType === "BABYLON.AlignAngleBlock")).toMatchObject({ alignment: 0.4 });
+        expect(
+            blocks(335)
+                .filter((block) => block.customType === "BABYLON.SystemBlock")
+                .map((block) => block.renderingGroupId)
+        ).toEqual([2, 0, 1]);
+        expect(
+            blocks(336)
+                .filter((block) => block.customType === "BABYLON.SystemBlock")
+                .map((block) => [block.billBoardMode, block.isBillboardBased])
+        ).toEqual([
+            [2, true],
+            [8, true],
+            [9, true],
+            [7, false],
+        ]);
     });
 });

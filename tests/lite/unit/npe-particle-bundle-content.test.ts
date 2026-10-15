@@ -36,8 +36,8 @@ const AVAILABLE_SPRITE_2D_BLEND_SCENES = scenesWithManifests(SPRITE_2D_BLEND_SCE
 const UNUSED_FEATURE_CHUNK =
     /particle-(blend|billboard-modes|billboard-render-properties|billboard-renderable|billboard-scene|trigger-block)|registry-(variants|extra-basic|extra-emitters|extra-remaining|extra-values|input-extra|local-shapes|phase4b|value-math)|update-(attractor|flow-map|noise|direction|angle|scale|age|sprite-cell-index)-block|basic-(position|color)-update-block|npe-(blend-modes|emitter-provider|feature-compilation|flow-map-runtime|general-feature-compilation|graph-plumbing-runtime|live-emitter|noise-runtime|pack-billboard-modes|pack-camera|pack-core-updates|pack-render-properties|pack-sub-emitters|sprite-cell-compilation|sub-emitter-runtime|system-plan-compilation|value-compilation|texture-update-evaluator|texture-content)|cpu-texture-source|random-once-typed|random-composed-typed|setup-sprite-sheet-random|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|nlerp|number-math|smooth-step|step|trigonometry|value-type|vector-length|vector-math)|particle-input-(local|sprite-cell)|local-position|box-shape-local|sphere-shape-local|point-shape|cone-shape|cylinder-shape|mesh-shape/;
 const OPTIONAL_BLEND_MODULE = /particle\/(particle-(blend|billboard-renderable|billboard-scene)|node\/npe-blend-modes)/;
-const OPTIONAL_RENDER_PROPERTIES_MODULE = /particle\/(particle-billboard-render-properties|node\/npe-pack-render-properties)/;
-const OPTIONAL_BILLBOARD_MODES_MODULE = /particle\/(particle-billboard-modes(?:-pick)?|node\/npe-pack-billboard-modes)/;
+const OPTIONAL_RENDER_PROPERTIES_MODULE = /particle\/(particle-billboard-render-properties|node\/npe-pack-system-render)/;
+const OPTIONAL_BILLBOARD_MODES_MODULE = /particle\/(particle-billboard-modes(?:-pick)?|node\/npe-pack-system-render)/;
 
 function findUnusedFeatureChunks(sceneId: number, chunks: string[]): string[] {
     return chunks.filter(
@@ -183,6 +183,62 @@ describe("Particle bundle feature isolation", () => {
         }
     });
 
+    it("keeps SystemBlock render-property meaning in one optional evaluator and renderer", () => {
+        const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+        const variants = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants.ts"), "utf8");
+        const variantsRuntime = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants-runtime.ts"), "utf8");
+        const pack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-system-render.ts"), "utf8");
+        const renderTask = readFileSync(resolve(NPE_SOURCE_DIR, "../../frame-graph/render-task-base.ts"), "utf8");
+
+        expect(variants).toContain('import("./npe-registry-variants-runtime.js")');
+        expect(build.match(/import\("\.\/npe-pack-system-render\.js"\)/g)).toHaveLength(1);
+        expect(variantsRuntime).not.toMatch(/usesSystemRender|npe-pack-system-render/);
+        expect(pack).toContain('import("../particle-billboard-render-properties.js")');
+        expect(build).not.toContain("particle-billboard-render-properties");
+        expect(renderTask).not.toMatch(/renderingGroup|TransparentSort/);
+    });
+
+    it("keeps non-ALL particle geometry in one optional evaluator, renderer, and lazy picker", () => {
+        const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+        const variants = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants.ts"), "utf8");
+        const variantsRuntime = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants-runtime.ts"), "utf8");
+        const pack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-system-render.ts"), "utf8");
+        const scene = readFileSync(resolve(NPE_SOURCE_DIR, "../particle-scene.ts"), "utf8");
+        const renderer = readFileSync(resolve(NPE_SOURCE_DIR, "../particle-billboard-modes.ts"), "utf8");
+
+        expect(variants).toContain('import("./npe-registry-variants-runtime.js")');
+        expect(build.match(/import\("\.\/npe-pack-system-render\.js"\)/g)).toHaveLength(1);
+        expect(variantsRuntime).not.toMatch(/usesSystemBillboard|npe-pack-billboard-modes/);
+        expect(pack).toContain('import("../particle-billboard-modes.js")');
+        expect(renderer).toContain('import("./particle-billboard-modes-pick.js")');
+        expect(scene).toContain("system._syncBillboard ?? syncParticleBillboard");
+        expect(build).not.toContain("particle-billboard-modes");
+    });
+
+    it("keeps the shared billboard helper boundary particle-owned and dynamically accessed", () => {
+        const bridge = readFileSync(resolve(NPE_SOURCE_DIR, "../particle-billboard-renderer.ts"), "utf8");
+        expect(bridge).toContain('from "../sprite/billboard-renderable.js"');
+        expect(bridge).toContain('from "../sprite/billboard-pipeline.js"');
+        for (const file of ["particle-scene.ts", "particle-billboard-scene.ts", "particle-billboard-modes.ts", "particle-billboard-render-properties.ts"]) {
+            const source = readFileSync(resolve(NPE_SOURCE_DIR, "..", file), "utf8");
+            expect(source).toContain('import("./particle-billboard-renderer.js")');
+            expect(source).not.toContain('import("../sprite/billboard-renderable.js")');
+            expect(source).not.toContain('return import("./particle-billboard-renderer.js")');
+        }
+        for (const file of [
+            "particle-billboard-modes.ts",
+            "particle-billboard-modes-pick.ts",
+            "particle-billboard-render-properties.ts",
+            "particle-billboard-render-properties-pick.ts",
+        ]) {
+            const source = readFileSync(resolve(NPE_SOURCE_DIR, "..", file), "utf8");
+            expect(source).not.toMatch(/from ["']\.\.\/(?:sprite\/billboard-pipeline|resource\/(?:gpu-buffers|mapped-buffer)|shader\/scene-uniforms)\.js["']/);
+        }
+        const spriteRenderer = readFileSync(resolve(NPE_SOURCE_DIR, "../../sprite/billboard-renderable.ts"), "utf8");
+        expect(spriteRenderer).not.toContain("particle-billboard-renderer");
+        expect(spriteRenderer).not.toContain("withBillboardRenderResources");
+    });
+
     it.skipIf(!hasManifests([276]))("fetches no duplicate resource compiler for the sprite fixture", () => {
         const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene276.json"), "utf8")) as SceneManifest;
         const chunks = manifest.runtimeChunks ?? [];
@@ -204,7 +260,10 @@ describe("Particle bundle feature isolation", () => {
     it.skipIf(!hasManifests([262]))("keeps serialized-default render properties out of scene262", () => {
         const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene262.json"), "utf8")) as SceneManifest;
         const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
-        expect([...runtimeChunks].filter((chunk) => /npe-pack-render-properties|particle-billboard-render-properties/.test(chunk))).toEqual([]);
+        expect(
+            [...runtimeChunks].filter((chunk) => /npe-pack-system-render|particle-billboard-render-(properties|resources)|billboard-pipeline|mapped-buffer/.test(chunk))
+        ).toEqual([]);
+        expect(runtimeChunks.size).toBe(11);
 
         const bundleInfo = JSON.parse(readFileSync(resolve(BUNDLE_INFO_DIR, "scene262.json"), "utf8")) as BundleInfo;
         const modules = (bundleInfo.chunks ?? [])
@@ -218,7 +277,7 @@ describe("Particle bundle feature isolation", () => {
     it.skipIf(!hasManifests([262]))("keeps serialized-default ALL geometry out of scene262", () => {
         const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene262.json"), "utf8")) as SceneManifest;
         const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
-        expect([...runtimeChunks].filter((chunk) => /npe-pack-billboard-modes|particle-billboard-modes/.test(chunk))).toEqual([]);
+        expect([...runtimeChunks].filter((chunk) => /npe-pack-system-render|particle-billboard-modes/.test(chunk))).toEqual([]);
 
         const bundleInfo = JSON.parse(readFileSync(resolve(BUNDLE_INFO_DIR, "scene262.json"), "utf8")) as BundleInfo;
         const modules = (bundleInfo.chunks ?? [])

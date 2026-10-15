@@ -2823,6 +2823,26 @@
         "skipPerf": true
     },
     {
+        "id": 335,
+        "slug": "scene335-npe-render-properties",
+        "name": "Scene 335 — NPE Render Properties",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "Three colored systems exercise textureMask, translationPivot and renderingGroupId without opaque depth interactions.",
+        "tags": ["npe", "particles", "billboards", "texture-mask", "translation-pivot", "rendering-groups"],
+        "skipPerf": true
+    },
+    {
+        "id": 336,
+        "slug": "scene336-npe-billboard-modes",
+        "name": "Scene 336 — NPE Billboard Modes",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "Y, STRETCHED, STRETCHED_LOCAL and non-billboard particle systems sit side by side with nonuniform scale and a fixed oblique camera.",
+        "tags": ["npe", "particles", "billboards", "billboard-modes"],
+        "skipPerf": true
+    },
+    {
         "id": 337,
         "slug": "scene337-npe-large-world",
         "name": "Scene 337 — NPE Large World",

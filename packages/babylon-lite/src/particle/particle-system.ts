@@ -126,6 +126,8 @@ export interface ParticleSystem {
     _seedLocalPosition?: ParticleStep;
     /** @internal Optional scene registrar installed for particle blend modes requiring specialized rendering. */
     _registerBillboard?: (scene: SceneContext, billboard: FacingBillboardSpriteSystem) => () => void;
+    /** @internal Optional billboard synchronization installed by specialized particle geometry. */
+    _syncBillboard?: (system: ParticleSystem, billboard: FacingBillboardSpriteSystem) => void;
 }
 
 /** Create a data-oriented particle system with an empty buffer of the given capacity. */

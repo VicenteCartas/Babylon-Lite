@@ -19,7 +19,7 @@ function addParticleBillboard(scene: SceneContext, billboard: FacingBillboardSpr
         scene,
         billboard,
         () => import("../picking/billboard-pick-pipeline.js"),
-        async (engine) => (await import("../sprite/billboard-renderable.js")).buildBillboardRenderable(engine, billboard, false)
+        async (engine) => (await import("./particle-billboard-renderer.js")).buildBillboardRenderable(engine, billboard, false)
     );
 }
 
@@ -36,7 +36,7 @@ function registerSystem(scene: SceneContext, system: ParticleSystem): void {
         }
         const ratio = deltaMs > 0 ? deltaMs / FRAME_MS : 1;
         animateParticleSystem(system, ratio);
-        syncParticleBillboard(system, billboard);
+        (system._syncBillboard ?? syncParticleBillboard)(system, billboard);
     };
     scene._beforeRender.push(tick);
     system._unregister = () => {

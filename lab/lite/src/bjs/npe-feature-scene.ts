@@ -19,7 +19,7 @@ export async function runFeatureScene(sceneId: number): Promise<void> {
     await engine.initAsync();
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0.008, 0.012, 0.018, 1);
-    const camera = new ArcRotateCamera("camera", -1.15, 1.1, 7, new Vector3(offset, 0.3, offset), scene);
+    const camera = new ArcRotateCamera("camera", -1.15, 1.1, sceneId === 336 ? 10 : 7, new Vector3(offset, 0.3, offset), scene);
     camera.minZ = largeWorld ? 1 : 0.1;
     camera.maxZ = 100;
     scene.updateTransformMatrix(true);
