@@ -20,7 +20,7 @@ import type {
     ParsedParticleBlock,
     ParsedParticleInput,
 } from "./npe-types.js";
-import type { ParticleBuffer } from "../particle-buffer.js";
+import { createParticleBuffer, type ParticleBuffer } from "../particle-buffer.js";
 import { createParticleSystem, type ParticleEmitterInverse, type ParticleSystem } from "../particle-system.js";
 import type { NpeGetter, NpeValue } from "./npe-value.js";
 import { loadNpeBlockEvaluator } from "./npe-registry.js";
@@ -35,6 +35,7 @@ import {
     NPE_CONTEXTUAL_DIRECTION,
     NPE_CONTEXTUAL_SCALED_DIRECTION,
     NPE_CONTEXTUAL_SCALED_COLOR_STEP,
+    NPE_SYSTEM_CAMERA_POSITION,
 } from "./npe-types.js";
 
 const loadVariants = () => import("./npe-registry-variants.js");
@@ -60,6 +61,8 @@ export interface NpeBuildState {
     emitterInverseWorldMatrices?: ParticleEmitterInverse[];
     /** @internal Installed by the first Loop LocalVariable evaluator and shared by that system's later evaluators. */
     _localVariableLoopEpoch?: { value: number };
+    /** @internal Installed by the first camera evaluator and shared by that system's later camera evaluators. */
+    _cameraBinding?: { position: Vec3; view?: Mat4; ready: boolean };
     isLocal: boolean;
     scene: SceneContext;
     textureBaseUrl?: string;
@@ -100,7 +103,11 @@ async function resolveEvaluator(
     let variant = className === "SetupSpriteSheetBlock" && block.randomStartCell === true;
     if (className === "ParticleInputBlock") {
         const contextualSource = typeof block.contextualValue === "number" ? block.contextualValue : 0;
-        variant = contextualSource === NPE_CONTEXTUAL_DIRECTION || (contextualSource > NPE_CONTEXTUAL_SCALED_DIRECTION && contextualSource !== NPE_CONTEXTUAL_SCALED_COLOR_STEP);
+        const systemSource = typeof block.systemSource === "number" ? block.systemSource : 0;
+        variant =
+            contextualSource === NPE_CONTEXTUAL_DIRECTION ||
+            (contextualSource > NPE_CONTEXTUAL_SCALED_DIRECTION && contextualSource !== NPE_CONTEXTUAL_SCALED_COLOR_STEP) ||
+            (!contextualSource && systemSource === NPE_SYSTEM_CAMERA_POSITION);
     } else if (className === "ParticleMathBlock" && !block._evaluatorClassName) {
         const left = findInput(block, "left");
         variant = left?.targetBlockId != null && left.targetBlockId === findInput(block, "right")?.targetBlockId;
@@ -108,7 +115,15 @@ async function resolveEvaluator(
         variant = isInputConnected(findInput(block, "emitRate"));
     }
 
-    return variant ? await (await loadVariants()).load(block) : ((await loadCompiledEvaluator?.(block)) ?? (await loadNpeBlockEvaluator(className)));
+    let evaluator = variant ? await (await loadVariants()).load(block) : ((await loadCompiledEvaluator?.(block)) ?? (await loadNpeBlockEvaluator(className)));
+    if (className !== "SystemBlock") {
+        return evaluator;
+    }
+    // preWarmStepOffset only matters with preWarmCycles, so it does not select the lifecycle on its own.
+    if ((block.manualEmitCount ?? -1) !== -1 || !!block.preWarmCycles || !!block.startDelay || block.disposeOnStop === true || !!block.doNoStart) {
+        evaluator = (await import("./npe-system-lifecycle.js")).withSystemLifecycle(evaluator);
+    }
+    return evaluator;
 }
 
 async function compileOperations(
@@ -222,7 +237,8 @@ function instantiateNodeParticlePlan(
     const systemBlock = operations[operations.length - 2] as ParsedParticleBlock;
 
     const capacity = typeof systemBlock.capacity === "number" ? systemBlock.capacity : 1000;
-    const system = createParticleSystem(capacity);
+    // Floating-origin engines keep world positions in F64 so large-world particles do not lose precision.
+    const system = createParticleSystem(capacity, createParticleBuffer(capacity, engine.useFloatingOrigin ? Float64Array : Float32Array));
 
     let emitterWorldMatrix: Mat4;
     const emitter: Vec3 = { x: 0, y: 0, z: 0 };

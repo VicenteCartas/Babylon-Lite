@@ -34,6 +34,22 @@ export interface ParticleSpriteHandle {
     readonly update: (i: number) => void;
 }
 
+/** @internal Extended lifecycle behavior installed only by systems that use it. */
+export interface ParticleLifecycle {
+    /** @internal Return true to defer or reject this start. */
+    _beforeStart?: (delay?: number) => boolean;
+    /** @internal Run after the system enters its started state. */
+    _started?: () => void;
+    /** @internal Return a one-shot emission count, or undefined for rate-based emission. */
+    _emit?: () => number | undefined;
+    /** @internal Run after particle updates and births. */
+    _afterAnimate?: () => void;
+    /** @internal Run before the first stop transition of one run. */
+    _stopped?: () => void;
+    /** @internal Release feature-owned resources. */
+    _dispose?: () => void;
+}
+
 /** Pure-state data-oriented particle system. Behaviour is provided by the standalone functions below. */
 export interface ParticleSystem {
     readonly buffer: ParticleBuffer;
@@ -43,6 +59,23 @@ export interface ParticleSystem {
     updateSpeed: number;
     /** When non-zero, the system stops once `_actualFrame` reaches this value. */
     targetStopDuration: number;
+    /*
+     * SystemBlock lifecycle properties. NPE assigns them, and start/animate honor them, only when the serialized
+     * SystemBlock enables a non-default lifecycle; otherwise they stay undefined and the system uses rate-based,
+     * immediate-start behavior.
+     */
+    /** One-shot emission count; `-1` uses rate-based emission. */
+    manualEmitCount?: number;
+    /** Number of synchronous simulation steps performed when the system starts. */
+    preWarmCycles?: number;
+    /** Step ratio used by pre-warm simulation calls. */
+    preWarmStepOffset?: number;
+    /** Start delay in milliseconds. */
+    startDelay?: number;
+    /** Dispose the system after stopped particles have drained. */
+    disposeOnStop?: boolean;
+    /** Prevent start calls until cleared. */
+    doNoStart?: boolean;
     /** Rendering blend mode (Babylon.js BaseParticleSystem blend constants). */
     blendMode: number;
     /** Particle texture, bound after the build's async loads settle (null until then / for headless builds). */
@@ -71,7 +104,7 @@ export interface ParticleSystem {
     _started: boolean;
     /** @internal Whether the system has been stopped (drains remaining particles). */
     _stopped: boolean;
-    /** @internal Whether this system has released its owner-managed resources. */
+    /** @internal Whether terminal drain disposed the system. */
     _disposed: boolean;
     /** @internal Accumulated simulated time, in update-speed units. */
     _actualFrame: number;
@@ -79,6 +112,8 @@ export interface ParticleSystem {
     _emitRateGetter?: () => number;
     /** @internal Optional feature preparation, run before every started simulation call. */
     _prepareFrame?: () => void;
+    /** @internal Optional non-default lifecycle behavior and ownership cleanup. */
+    _lifecycle?: ParticleLifecycle;
     /** @internal Optional live-render registration cleanup. */
     _unregister?: () => void;
     /** @internal Sprite-sheet feature handle, present only for sprite systems. */
@@ -94,9 +129,9 @@ export interface ParticleSystem {
 }
 
 /** Create a data-oriented particle system with an empty buffer of the given capacity. */
-export function createParticleSystem(capacity: number): ParticleSystem {
+export function createParticleSystem(capacity: number, buffer: ParticleBuffer = createParticleBuffer(capacity)): ParticleSystem {
     return {
-        buffer: createParticleBuffer(capacity),
+        buffer,
         emitRate: 10,
         updateSpeed: 0.0167,
         targetStopDuration: 0,
@@ -122,22 +157,30 @@ export function createParticleSystem(capacity: number): ParticleSystem {
     };
 }
 
-/** Start emission. Resets the simulated-time accumulator. */
-export function startParticleSystem(system: ParticleSystem): void {
-    if (system._disposed) {
+/**
+ * Start emission. With an installed SystemBlock lifecycle, start honors `doNoStart`, waits `delay`
+ * (default `startDelay`) milliseconds, then synchronously pre-warms.
+ */
+export function startParticleSystem(system: ParticleSystem, delay?: number): void {
+    if (system._disposed || system._lifecycle?._beforeStart?.(delay)) {
         return;
     }
     system._started = true;
     system._stopped = false;
     system._actualFrame = 0;
+    system._lifecycle?._started?.();
 }
 
 /** Stop emission. Existing particles continue until they expire. */
 export function stopParticleSystem(system: ParticleSystem): void {
+    if (system._stopped || system._disposed) {
+        return;
+    }
+    system._lifecycle?._stopped?.();
     system._stopped = true;
 }
 
-/** @internal Release a system's scene registration and particle storage. */
+/** Dispose a particle system and release its owner-managed resources. */
 export function disposeParticleSystem(system: ParticleSystem): void {
     if (system._disposed) {
         return;
@@ -149,6 +192,9 @@ export function disposeParticleSystem(system: ParticleSystem): void {
     const unregister = system._unregister;
     system._unregister = undefined;
     unregister?.();
+    const lifecycle = system._lifecycle;
+    system._lifecycle = undefined;
+    lifecycle?._dispose?.();
 }
 
 /**
@@ -164,10 +210,13 @@ export function animateParticleSystem(system: ParticleSystem, scaledRatio: numbe
 
     const scaledUpdateSpeed = system.updateSpeed * scaledRatio;
     system._scaledUpdateSpeed = scaledUpdateSpeed;
-    const emitRate = system._emitRateGetter ? system._emitRateGetter() : system.emitRate;
-    const emission = emitRate * scaledUpdateSpeed;
-    let newParticles = emission >> 0;
-    system._newPartsExcess += emission - newParticles;
+    let newParticles = system._lifecycle?._emit?.();
+    if (newParticles === undefined) {
+        const emitRate = system._emitRateGetter ? system._emitRateGetter() : system.emitRate;
+        const emission = emitRate * scaledUpdateSpeed;
+        newParticles = emission >> 0;
+        system._newPartsExcess += emission - newParticles;
+    }
     if (system._newPartsExcess > 1.0) {
         const extra = system._newPartsExcess >> 0;
         newParticles += extra;
@@ -185,6 +234,11 @@ export function animateParticleSystem(system: ParticleSystem, scaledRatio: numbe
 
     updateExisting(system, scaledUpdateSpeed);
     createNew(system, newParticles);
+
+    if (system._stopped && system.buffer.alive === 0) {
+        system._started = false;
+    }
+    system._lifecycle?._afterAnimate?.();
 }
 
 function updateExisting(system: ParticleSystem, scaledUpdateSpeed: number): void {

@@ -250,7 +250,7 @@ for (const scene of SCENES) {
                 /\/math\/invert-mat4-to-ref-or-identity\.[jt]s$/,
                 /\/particle\/particle-scene\.[jt]s$/,
                 /\/particle\/particle-billboard\.[jt]s$/,
-                /\/sprite\/billboard-scene\.[jt]s$/,
+                /\/particle\/particle-scene-renderable\.[jt]s$/,
                 /\/sprite\/billboard-renderable\.[jt]s$/,
             ]) {
                 expect(
@@ -259,7 +259,7 @@ for (const scene of SCENES) {
                 ).toBe(true);
             }
             const offenders = runtimeModules.filter((id) =>
-                /\/(math\/invert-mat4|particle\/(particle-(blend|billboard-renderable|billboard-scene|sprite-2d|sprite-2d-blend-modes)|node\/(npe-(blend-modes|flow-map-runtime|graph-plumbing(?:-runtime)?|live-emitter|noise-runtime|texture-update-runtime|texture-content)|blocks\/(cpu-texture-source-block|update-(flow-map|noise)-block)))|sprite\/(sprite-renderer|sprite-custom-shader|sprite-renderable))\.[jt]s$/.test(
+                /\/(math\/invert-mat4|particle\/(particle-(blend|billboard-renderable|billboard-scene|sprite-2d|sprite-2d-blend-modes)|node\/(npe-(blend-modes|flow-map-runtime|graph-plumbing(?:-runtime)?|live-emitter|noise-runtime|texture-update-runtime|texture-content)|blocks\/(cpu-texture-source-block|update-(flow-map|noise)-block)))|sprite\/(billboard-scene|sprite-renderer|sprite-custom-shader|sprite-renderable))\.[jt]s$/.test(
                     id
                 )
             );
@@ -268,8 +268,8 @@ for (const scene of SCENES) {
 
         if (scene.slug === "scene305-npe-teleport") {
             expect(
-                runtimeModules.some((id) => /\/particle\/node\/npe-graph-plumbing\.[jt]s$/.test(id)),
-                `scene305 is missing the thin graph-plumbing helper; loaded modules: ${runtimeModules.join(", ")}`
+                runtimeModules.some((id) => /\/particle\/node\/npe-general-feature-compilation\.[jt]s$/.test(id)),
+                `scene305 is missing the general feature compiler; loaded modules: ${runtimeModules.join(", ")}`
             ).toBe(true);
             expect(
                 runtimeModules.some((id) => /\/particle\/node\/npe-graph-plumbing-runtime\.[jt]s$/.test(id)),
@@ -339,9 +339,10 @@ for (const scene of SCENES) {
         // Mesh-only / non-sprite 3D scenes must NOT pull in any sprite code.
         // List excludes the sprite-using scenes (50-59, the 92-98 custom-shader scenes, and the
         // 117/118 sprite-picking scenes). 60-series are NME demos with no sprites; 1-40 are core 3D.
-        // 262/263/264/276/277/280/281/283/284/302/305 are NPE billboard scenes; 300/301/303 use Sprite2D.
+        // 262/263/264/276/277/280/281/283/284/302/305/332/333/334/337 are NPE billboard scenes; 300/301/303 use Sprite2D.
         const SPRITE_USING_IDS = new Set([
-            50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 92, 93, 94, 95, 96, 97, 98, 117, 118, 205, 206, 262, 263, 264, 276, 277, 280, 281, 283, 284, 300, 301, 302, 303, 305,
+            50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 92, 93, 94, 95, 96, 97, 98, 117, 118, 205, 206, 262, 263, 264, 276, 277, 280, 281, 283, 284, 300, 301, 302, 303, 305, 332, 333,
+            334, 337,
         ]);
         if (!SPRITE_USING_IDS.has(scene.id)) {
             const offenders = runtimeModules.filter((id) => /\/sprite\/.*\.[jt]s$/.test(id));

@@ -2791,5 +2791,45 @@
         "description": "The hosted coastalCliff.glb asset exercises real PBR materials, unique per-mesh tags, known foliage exclusions, screen depth, linear albedo shadow attenuation, asset-scaled radii, and Medium-quality mesh blending over most of the frame.",
         "tags": ["frame-graph", "geometry-renderer", "post-process", "mesh-blending", "pbr", "gltf", "albedo"],
         "skipPerf": true
+    },
+    {
+        "id": 332,
+        "slug": "scene332-npe-core-updates",
+        "name": "Scene 332 — NPE Core Updates",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "One shared serialized graph combines UpdateScale, UpdateAge, BasicPositionUpdate and BasicColorUpdate in a seeded frozen particle field.",
+        "tags": ["npe", "particles", "billboards", "core-updates"],
+        "skipPerf": true
+    },
+    {
+        "id": 333,
+        "slug": "scene333-npe-prewarm",
+        "name": "Scene 333 — NPE Prewarm",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "SystemBlock preWarmCycles 90 and preWarmStepOffset 2 produce the entire frozen state synchronously at start, without subsequent manual simulation.",
+        "tags": ["npe", "particles", "billboards", "prewarm"],
+        "skipPerf": true
+    },
+    {
+        "id": 334,
+        "slug": "scene334-npe-camera-features",
+        "name": "Scene 334 — NPE Camera Features",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "System CameraPosition drives particle direction; AlignAngle uses explicit alignment 0.4 under a fixed non-axis-aligned camera.",
+        "tags": ["npe", "particles", "billboards", "camera", "alignment"],
+        "skipPerf": true
+    },
+    {
+        "id": 337,
+        "slug": "scene337-npe-large-world",
+        "name": "Scene 337 — NPE Large World",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "BasicPositionUpdate preserves 0.0015 world-coordinate increments at an emitter offset of one million using floating-origin rendering and F64 particle positions.",
+        "tags": ["npe", "particles", "billboards", "hpm", "lwr", "floating-origin", "large-world"],
+        "skipPerf": true
     }
 ]

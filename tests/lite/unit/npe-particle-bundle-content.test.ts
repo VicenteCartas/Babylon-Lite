@@ -15,6 +15,7 @@ const MANIFEST_DIR = resolve(__dirname, "../../../lab/public/bundle/manifest");
 const BUNDLE_INFO_DIR = resolve(__dirname, "../../../lab/public/bundle/bundle-info");
 const SCENE_305_SOURCE = resolve(__dirname, "../../../lab/lite/src/lite/scene305.ts");
 const NPE_SOURCE_DIR = resolve(__dirname, "../../../packages/babylon-lite/src/particle/node");
+const ENGINE_SOURCE = resolve(__dirname, "../../../packages/babylon-lite/src/engine/engine.ts");
 const CANONICAL_PARTICLE_SCENES = [262, 263, 264, 276, 277, 280, 281, 283, 284];
 const PROVIDER_ISOLATION_SCENES = [12, ...CANONICAL_PARTICLE_SCENES, 300, 301, 302];
 const SPRITE_2D_BLEND_SCENES = [50, 300, 301];
@@ -160,6 +161,26 @@ describe("Particle bundle feature isolation", () => {
         expect(compiler).not.toContain("resource-compilation");
         expect(localVariable).toContain("column(buffer");
         expect(spriteSheet).toContain("useSpriteSheet(buffer");
+    });
+
+    it("keeps F64 particle storage out of the shared engine", () => {
+        const engine = readFileSync(ENGINE_SOURCE, "utf8");
+        const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+
+        expect(engine).not.toContain("particle");
+        expect(build).toContain("engine.useFloatingOrigin ? Float64Array : Float32Array");
+    });
+
+    it("routes core updates through one optional pack without changing the compiler", () => {
+        const compiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+        const basicRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-extra-basic.ts"), "utf8");
+        const corePack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-core-updates.ts"), "utf8");
+
+        expect(basicRegistry.match(/import\("\.\/npe-pack-core-updates\.js"\)/g)).toHaveLength(1);
+        for (const moduleName of ["update-scale-block", "update-age-block", "basic-position-update-block", "basic-color-update-block"]) {
+            expect(corePack).toContain(`from "./blocks/${moduleName}.js"`);
+            expect(compiler).not.toContain(moduleName);
+        }
     });
 
     it.skipIf(!hasManifests([276]))("fetches no duplicate resource compiler for the sprite fixture", () => {

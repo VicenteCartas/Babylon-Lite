@@ -23,6 +23,7 @@ export const NPE_CONTEXTUAL_SPRITE_CELL_START = 0x0011;
 export const NPE_CONTEXTUAL_SPRITE_CELL_END = 0x0012;
 export const NPE_CONTEXTUAL_SCALED_COLOR_STEP = 0x0017;
 export const NPE_CONTEXTUAL_LOCAL_POSITION_UPDATED = 0x0018;
+export const NPE_SYSTEM_CAMERA_POSITION = 4;
 
 /** Discriminates FlowMap/Noise in trusted `BABYLON.Update{FlowMap,Noise}Block` names. */
 export const NODE_PARTICLE_UPDATE_KIND_INDEX = 14;
