@@ -211,6 +211,10 @@ Compilation never mutates the parsed graph or serialized class identity. It crea
 
 `parseNodeParticleSetFromSnippet` is already an asynchronous arbitrary-content boundary, so it parses and then builds through the default builder, which compiles. Optional topology and value-math modules are dynamically imported only when the parsed classes require them.
 
+Compiler requirements are an internal, nonserialized `NPE_FEATURE_*` bitmask documented in `npe-types.ts`: general topology/value-type compilation, flow maps, noise, sub-emitter plans, and contextual Int detection. Contextual Int detection first checks sprite-cell reachability, then enables general value-type propagation only when sprite-cell values reach math. The general compiler separately names its topology, value-type, and local-variable requirements. Serialized source/type ids and the length of the trusted `BABYLON.` class namespace are also named constants; bundling inlines these numbers without adding a runtime module.
+
+Dynamic-import namespace keys survive minification, so optional modules export short role names: packs expose `load`, block modules expose `evaluator`, the feature compiler exposes `compile`, and the variants registry exposes `c` (`detectSpriteCellFeatures`) and `loadSprite`.
+
 ### 2.5 Internal APIs
 
 The following symbols are implementation APIs and are not node-particle package-root exports:

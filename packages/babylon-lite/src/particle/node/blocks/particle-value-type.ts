@@ -1,4 +1,5 @@
 import type { CompiledParticleBlock, ParsedParticleBlock } from "../npe-types.js";
+import { NODE_PARTICLE_CLASS_PREFIX_LENGTH, NPE_TYPE_INT } from "../npe-types.js";
 
 function hasIntInput(blocks: ReadonlyMap<number, ParsedParticleBlock>, block: ParsedParticleBlock, inputName: string, visiting: Set<number>): boolean {
     const input = block.inputs.find((candidate) => candidate.name.trim() === inputName);
@@ -16,9 +17,9 @@ function hasIntOutput(blocks: ReadonlyMap<number, ParsedParticleBlock>, blockId:
     if (!block || outputName !== "output") {
         return false;
     }
-    const className = block.customType.slice(8);
+    const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
     if (className === "ParticleInputBlock") {
-        return block.type === 0x0001;
+        return block.type === NPE_TYPE_INT;
     }
     if (className === "ParticleFloatToIntBlock") {
         return true;

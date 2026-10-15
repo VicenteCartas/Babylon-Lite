@@ -1,4 +1,5 @@
 import type { CompilableNodeParticleGraph, CompiledParticleBlock, ParsedParticleBlock, ParsedParticleInput } from "./npe-types.js";
+import { NODE_PARTICLE_CLASS_PREFIX_LENGTH } from "./npe-types.js";
 
 type SourcePair = readonly [blockId: number, connectionName: string];
 
@@ -15,7 +16,7 @@ function cyclePath(stack: readonly number[], repeatedId: number): string {
 }
 
 function connectionRole(block: ParsedParticleBlock, input: ParsedParticleInput): ConnectionRole {
-    const className = block.customType.slice(8);
+    const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
     const inputName = input.name.trim();
     if (inputName === "particle" || (className === "ParticleTriggerBlock" && inputName === "input")) {
         return "particle flow";
@@ -51,7 +52,7 @@ export function compileNodeParticleTopology(graph: CompilableNodeParticleGraph):
         if (!block) {
             return [blockId, connectionName];
         }
-        const className = block.customType.slice(8);
+        const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
         if (className === "ParticleTeleportInBlock") {
             throw new Error(`NodeParticle: ParticleTeleportInBlock ${block.id} does not expose output "${connectionName}"`);
         }
@@ -87,7 +88,7 @@ export function compileNodeParticleTopology(graph: CompilableNodeParticleGraph):
             if (!endpoint) {
                 throw new Error(`NodeParticle: ParticleTeleportOutBlock ${block.id} references missing entryPoint ${entryPoint}`);
             }
-            if (endpoint.customType.slice(8) !== "ParticleTeleportInBlock") {
+            if (endpoint.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH) !== "ParticleTeleportInBlock") {
                 throw new Error(`NodeParticle: ParticleTeleportOutBlock ${block.id} entryPoint ${entryPoint} is not ParticleTeleportInBlock`);
             }
             if (stack.includes(endpoint.id)) {
@@ -130,7 +131,7 @@ export function compileNodeParticleTopology(graph: CompilableNodeParticleGraph):
         if (!block) {
             return;
         }
-        const className = block.customType.slice(8);
+        const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
         if (className === "ParticleLocalVariableBlock" && block.scope === 0 && (domain & SYSTEM_DOMAIN) !== 0) {
             throw new Error(`NodeParticle: ParticleLocalVariableBlock ${block.id} Particle scope requires particle-only evaluation`);
         }

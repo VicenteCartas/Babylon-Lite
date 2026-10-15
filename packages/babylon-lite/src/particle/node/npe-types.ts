@@ -1,5 +1,35 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
 
+/** Topology routing or propagated value types require the general compiler. */
+export const NPE_FEATURE_GENERAL = 1;
+/** Flow-map updates require their optional evaluator. */
+export const NPE_FEATURE_FLOW_MAP = 2;
+/** Noise updates require their optional evaluator. */
+export const NPE_FEATURE_NOISE = 4;
+/** System connections require reusable sub-emitter plans. */
+export const NPE_FEATURE_SUB_EMITTERS = 8;
+/** Contextual Int inputs need sprite-cell reachability detection before value-type compilation. */
+export const NPE_FEATURE_CONTEXTUAL_INT = 0x10;
+/** Sprite-cell Int values reaching math require propagated value types. */
+export const NPE_FEATURE_SPRITE_CELL_VALUE_TYPES = NPE_FEATURE_GENERAL | NPE_FEATURE_CONTEXTUAL_INT;
+
+/** Length of the trusted serialized `BABYLON.` class namespace. */
+export const NODE_PARTICLE_CLASS_PREFIX_LENGTH = 8;
+
+// Serialized NodeParticleBlockConnectionPointTypes, NodeParticleContextualSources, and system-source ids.
+export const NPE_TYPE_INT = 0x0001;
+export const NPE_CONTEXTUAL_DIRECTION = 0x0002;
+export const NPE_CONTEXTUAL_SCALED_DIRECTION = 0x0006;
+export const NPE_CONTEXTUAL_SPRITE_CELL_INDEX = 0x0010;
+export const NPE_CONTEXTUAL_SPRITE_CELL_START = 0x0011;
+export const NPE_CONTEXTUAL_SPRITE_CELL_END = 0x0012;
+export const NPE_CONTEXTUAL_SCALED_COLOR_STEP = 0x0017;
+export const NPE_CONTEXTUAL_LOCAL_POSITION_UPDATED = 0x0018;
+export const NPE_SYSTEM_CAMERA_POSITION = 4;
+
+/** Discriminates FlowMap/Noise in trusted `BABYLON.Update{FlowMap,Noise}Block` names. */
+export const NODE_PARTICLE_UPDATE_KIND_INDEX = 14;
+
 /** A serialized connection on a block input. */
 export interface ParsedParticleInput {
     readonly name: string;
@@ -29,7 +59,7 @@ export interface ParsedNodeParticleGraph {
 export interface CompilableNodeParticleGraph {
     readonly blocks: ReadonlyMap<number, CompiledParticleBlock>;
     readonly systemBlockIds: readonly number[];
-    /** @internal */
+    /** @internal Bitmask of NPE_FEATURE_* compiler requirements; not serialized. */
     readonly _features: number;
 }
 

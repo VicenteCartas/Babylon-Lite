@@ -3,8 +3,8 @@ import type { ParticleSystem } from "../particle-system.js";
 import type { NpeGetter } from "./npe-value.js";
 import { color4Getter } from "./npe-contextual.js";
 import type { Vec2, Vec3 } from "../../math/types.js";
+import { NPE_CONTEXTUAL_DIRECTION } from "./npe-types.js";
 
-const CTX_DIRECTION = 0x0002;
 const CTX_SCALE = 0x0007;
 const CTX_AGE_GRADIENT = 0x0008;
 const CTX_ANGLE = 0x0009;
@@ -20,7 +20,7 @@ export function makeExtraContextualGetter(buffer: ParticleBuffer, system: Partic
     switch (source) {
         case CTX_AGE_GRADIENT:
             return (i) => buffer.age[i]! / buffer.lifeTime[i]!;
-        case CTX_DIRECTION: {
+        case NPE_CONTEXTUAL_DIRECTION: {
             const scratch: Vec3 = { x: 0, y: 0, z: 0 };
             return (i) => {
                 scratch.x = buffer.dirX[i]!;

@@ -26,8 +26,24 @@ import type { NpeGetter, NpeValue } from "./npe-value.js";
 import { loadNpeBlockEvaluator } from "./npe-registry.js";
 import { createParticleInputHandles, parseParticleInputValue, type NpeInputCell, type ParticleInputHandle } from "./npe-input.js";
 import type { NodeParticleChildHost } from "./npe-sub-emitter-runtime.js";
+import {
+    NODE_PARTICLE_CLASS_PREFIX_LENGTH,
+    NPE_FEATURE_GENERAL,
+    NPE_FEATURE_FLOW_MAP,
+    NPE_FEATURE_NOISE,
+    NPE_FEATURE_SUB_EMITTERS,
+    NPE_FEATURE_CONTEXTUAL_INT,
+    NPE_TYPE_INT,
+    NPE_CONTEXTUAL_DIRECTION,
+    NPE_CONTEXTUAL_SCALED_DIRECTION,
+    NPE_CONTEXTUAL_SCALED_COLOR_STEP,
+    NPE_SYSTEM_CAMERA_POSITION,
+} from "./npe-types.js";
 
 const loadVariants = () => import("./npe-registry-variants.js");
+
+/** Random lock mode whose value is sampled once while building the system. */
+const RANDOM_LOCK_ONCE = 3;
 
 function isInputConnected(input: ParsedParticleInput | undefined): input is ParsedParticleInput & { targetBlockId: number; targetConnectionName: string } {
     return input?.targetBlockId != null && input.targetConnectionName != null;
@@ -98,12 +114,13 @@ async function resolveEvaluator(
     isLocal: boolean,
     loadCompiledEvaluator: ((block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined>) | undefined
 ): Promise<NpeBlockEvaluator> {
-    const className = block.customType.slice(8);
+    const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
     if (className === "ParticleTriggerBlock") {
         return (await import("./npe-pack-sub-emitters.js")).load(className);
     }
-    if (className === "ParticleRandomBlock" && block.lockMode === 3) {
+    if (className === "ParticleRandomBlock" && block.lockMode === RANDOM_LOCK_ONCE) {
         const valueType = findInput(block, "min")?.valueType ?? findInput(block, "max")?.valueType ?? "number";
+        // Serialized vector/color tags start with "BABYLON."; primitive tags do not.
         return valueType[0] !== "B" ? (await import("./blocks/particle-random-once-block.js")).particleRandomOnceBlock : (await loadVariants()).load(block);
     }
     if (isLocal && className.endsWith("ShapeBlock")) {
@@ -114,7 +131,10 @@ async function resolveEvaluator(
     if (className === "ParticleInputBlock") {
         const contextualSource = typeof block.contextualValue === "number" ? block.contextualValue : 0;
         const systemSource = typeof block.systemSource === "number" ? block.systemSource : 0;
-        variant = contextualSource === 2 || (contextualSource > 6 && contextualSource !== 0x17) || (!contextualSource && systemSource === 4);
+        variant =
+            contextualSource === NPE_CONTEXTUAL_DIRECTION ||
+            (contextualSource > NPE_CONTEXTUAL_SCALED_DIRECTION && contextualSource !== NPE_CONTEXTUAL_SCALED_COLOR_STEP) ||
+            (!contextualSource && systemSource === NPE_SYSTEM_CAMERA_POSITION);
     } else if (className === "ParticleMathBlock" && !block._evaluatorClassName) {
         const left = findInput(block, "left");
         variant = left?.targetBlockId != null && left.targetBlockId === findInput(block, "right")?.targetBlockId;
@@ -206,32 +226,28 @@ export async function compileNodeParticleGraph(parsed: ParsedNodeParticleGraph):
     let featureBits = 0;
     for (const block of parsed.blocks) {
         blocks.set(block.id, block);
-        const className = block.customType.slice(8);
-        const intInput = className === "ParticleInputBlock" && block.type === 0x0001;
+        const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
         for (const input of block.inputs) {
-            featureBits |= (input.valueType === "int" ? 1 : 0) | (input.targetConnectionName === "system" ? 8 : 0);
+            featureBits |= (input.valueType === "int" ? NPE_FEATURE_GENERAL : 0) | (input.targetConnectionName === "system" ? NPE_FEATURE_SUB_EMITTERS : 0);
         }
-        featureBits |= intInput
-            ? block.contextualValue
-                ? 0x10
-                : 1
-            : className[0] === "U"
-              ? className[6] === "F"
-                  ? 2
-                  : className[6] === "N"
-                    ? 4
-                    : 0
-              : /^Particle(TeleportOut|LocalVariable|Elbow|Debug|FloatToInt|NumberMath|Clamp|Step)Block$/.test(className)
-                ? 1
-                : 0;
+        if (className === "ParticleInputBlock" && block.type === NPE_TYPE_INT) {
+            featureBits |= block.contextualValue ? NPE_FEATURE_CONTEXTUAL_INT : NPE_FEATURE_GENERAL;
+        } else if (className === "UpdateFlowMapBlock") {
+            featureBits |= NPE_FEATURE_FLOW_MAP;
+        } else if (className === "UpdateNoiseBlock") {
+            featureBits |= NPE_FEATURE_NOISE;
+        } else if (/^Particle(TeleportOut|LocalVariable|Elbow|Debug|FloatToInt|NumberMath|Clamp|Step)Block$/.test(className)) {
+            // Full-name switches/arrays duplicate these serialized affixes beyond the measured scene budget.
+            featureBits |= NPE_FEATURE_GENERAL;
+        }
         if (className === "SystemBlock") {
             systemBlockIds.push(block.id);
         }
     }
-    if (featureBits & 0x10) {
+    if (featureBits & NPE_FEATURE_CONTEXTUAL_INT) {
         const variants = await loadVariants();
-        featureBits = (featureBits & 0x0f) | variants.c(blocks);
-        loadCompiledEvaluator = variants.s;
+        featureBits = (featureBits & ~NPE_FEATURE_CONTEXTUAL_INT) | variants.c(blocks);
+        loadCompiledEvaluator = variants.loadSprite;
     }
     const graph: CompilableNodeParticleGraph = { blocks, systemBlockIds, _features: featureBits };
     let systems: NodeParticleSystemPlan[];
@@ -248,7 +264,7 @@ export async function compileNodeParticleGraph(parsed: ParsedNodeParticleGraph):
     }
 
     const inputs = collectInputPlans(blocks.values(), systems);
-    return featureBits & 8 ? { _systems: systems, _inputs: inputs, _subEmitters: true } : { _systems: systems, _inputs: inputs };
+    return featureBits & NPE_FEATURE_SUB_EMITTERS ? { _systems: systems, _inputs: inputs, _subEmitters: true } : { _systems: systems, _inputs: inputs };
 }
 
 /** A built data-oriented particle set. */
@@ -326,7 +342,7 @@ function instantiateNodeParticlePlan(
                 if (getter) {
                     return getter;
                 }
-                throw new Error(`NodeParticle: unresolved connection ${block.customType.slice(8)}.${name}`);
+                throw new Error(`NodeParticle: unresolved connection ${block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH)}.${name}`);
             }
             if (input) {
                 const literal = parseParticleInputValue(input.valueType, input.value);

@@ -9,14 +9,13 @@ import type { ParticleBuffer } from "../particle-buffer.js";
 import type { ParticleSystem } from "../particle-system.js";
 import type { NpeGetter } from "./npe-value.js";
 import type { Vec3, Color4 } from "../../math/types.js";
+import { NPE_CONTEXTUAL_SCALED_DIRECTION, NPE_CONTEXTUAL_SCALED_COLOR_STEP } from "./npe-types.js";
 
 // Contextual source ids (Babylon.js `NodeParticleContextualSources`).
 const CTX_POSITION = 0x0001;
 const CTX_AGE = 0x0003;
 const CTX_LIFETIME = 0x0004;
 const CTX_COLOR = 0x0005;
-const CTX_SCALED_DIRECTION = 0x0006;
-const CTX_SCALED_COLOR_STEP = 0x0017;
 
 /** Build a scratch-backed Color4 getter for four component columns. */
 export function color4Getter(r: Float32Array, g: Float32Array, b: Float32Array, a: Float32Array): NpeGetter {
@@ -45,44 +44,44 @@ export function makeContextualGetter(buffer: ParticleBuffer, system: ParticleSys
             const x = buffer.posX;
             const y = buffer.posY;
             const z = buffer.posZ;
-            const s: Vec3 = { x: 0, y: 0, z: 0 };
+            const scratch: Vec3 = { x: 0, y: 0, z: 0 };
             return (i) => {
-                s.x = x[i]!;
-                s.y = y[i]!;
-                s.z = z[i]!;
-                return s;
+                scratch.x = x[i]!;
+                scratch.y = y[i]!;
+                scratch.z = z[i]!;
+                return scratch;
             };
         }
-        case CTX_SCALED_DIRECTION: {
+        case NPE_CONTEXTUAL_SCALED_DIRECTION: {
             const x = buffer.dirX;
             const y = buffer.dirY;
             const z = buffer.dirZ;
-            const s: Vec3 = { x: 0, y: 0, z: 0 };
+            const scratch: Vec3 = { x: 0, y: 0, z: 0 };
             // Uses the per-particle clamped step (Babylon.js `_directionScale`).
             return (i) => {
-                const k = system._scaledStep;
-                s.x = x[i]! * k;
-                s.y = y[i]! * k;
-                s.z = z[i]! * k;
-                return s;
+                const step = system._scaledStep;
+                scratch.x = x[i]! * step;
+                scratch.y = y[i]! * step;
+                scratch.z = z[i]! * step;
+                return scratch;
             };
         }
         case CTX_COLOR:
             return color4Getter(buffer.colorR, buffer.colorG, buffer.colorB, buffer.colorA);
-        case CTX_SCALED_COLOR_STEP: {
+        case NPE_CONTEXTUAL_SCALED_COLOR_STEP: {
             const r = buffer.colorStepR;
             const g = buffer.colorStepG;
             const b = buffer.colorStepB;
             const a = buffer.colorStepA;
-            const s: Color4 = { r: 0, g: 0, b: 0, a: 0 };
+            const scratch: Color4 = { r: 0, g: 0, b: 0, a: 0 };
             // Uses the unclamped system step (Babylon.js `_scaledUpdateSpeed`).
             return (i) => {
-                const k = system._scaledUpdateSpeed;
-                s.r = r[i]! * k;
-                s.g = g[i]! * k;
-                s.b = b[i]! * k;
-                s.a = a[i]! * k;
-                return s;
+                const step = system._scaledUpdateSpeed;
+                scratch.r = r[i]! * step;
+                scratch.g = g[i]! * step;
+                scratch.b = b[i]! * step;
+                scratch.a = a[i]! * step;
+                return scratch;
             };
         }
         default:
