@@ -10,8 +10,13 @@ import { loadRenderPropertiesBlockEvaluator } from "../../../packages/babylon-li
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import { createParticleBillboard } from "../../../packages/babylon-lite/src/particle/particle-billboard";
-import { PARTICLE_RENDER_PROPERTIES_UBO_BYTES } from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties";
+import {
+    addFacingBillboardSystemWithParticleRenderProperties,
+    buildParticleRenderPropertiesBillboardRenderable,
+    PARTICLE_RENDER_PROPERTIES_UBO_BYTES,
+} from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties";
 import { createParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
+import type { Renderable } from "../../../packages/babylon-lite/src/render/renderable";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
 import type { Texture2D } from "../../../packages/babylon-lite/src/texture/texture-2d";
 
@@ -47,6 +52,37 @@ function texture(): Texture2D {
 }
 
 describe("NPE SystemBlock render properties", () => {
+    it("preserves the wrapped primary binding renderable in MultiplyAdd mode", () => {
+        const system = createParticleSystem(1);
+        system.texture = texture();
+        const billboard = createParticleBillboard(system);
+        const properties = { translationPivot: { x: 0, y: 0 }, textureMask: { r: 1, g: 1, b: 1, a: 1 }, renderingGroupId: 0 };
+        const scene = { _disposables: [], _pickSources: [], _deferredBuilders: [] } as unknown as SceneContext;
+        addFacingBillboardSystemWithParticleRenderProperties(scene, billboard, 4, properties);
+        const engine = {
+            _device: {
+                createBuffer: vi.fn(() => ({ destroy: vi.fn() })),
+                createShaderModule: vi.fn(() => ({})),
+                createBindGroupLayout: vi.fn(() => ({})),
+                createPipelineLayout: vi.fn(() => ({})),
+                createRenderPipeline: vi.fn(() => ({ getBindGroupLayout: vi.fn(() => ({})) })),
+                createBindGroup: vi.fn(() => ({})),
+                queue: { writeBuffer: vi.fn() },
+            },
+        } as unknown as EngineContext;
+        const view = { _worldCenter: [0, 0, -1e9] } as Renderable;
+        const primaryBind = vi.fn(() => ({ renderable: view, pipeline: {} as GPURenderPipeline, draw: () => 1 }));
+        const renderable = { order: 200, isTransparent: true, bind: primaryBind } satisfies Renderable;
+        const built = buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, () => ({ renderable, dispose: vi.fn() }));
+
+        const binding = built.renderable.bind(engine, { _colorFormat: "bgra8unorm", _depthStencilFormat: "depth32float", _sampleCount: 1 });
+
+        expect(primaryBind).toHaveBeenCalledOnce();
+        expect(binding.renderable).toBe(view);
+        expect(binding.renderable).not.toBe(built.renderable);
+        built.dispose();
+    });
+
     it.each([
         { name: "empty mask", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [] }, properties: {}, direct: false, dynamic: true },
         { name: "short white mask", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [1, 1, 1] }, properties: {}, direct: false, dynamic: false },

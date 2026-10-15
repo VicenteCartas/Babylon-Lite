@@ -29,17 +29,25 @@ function registerSystem(scene: SceneContext, system: ParticleSystem): void {
     }
     const billboard = createParticleBillboard(system);
     const unregisterBillboard = (system._registerBillboard ?? addParticleBillboard)(scene, billboard);
+    let active = true;
     const tick = (deltaMs: number) => {
+        if (!active) {
+            return;
+        }
         const ratio = deltaMs > 0 ? deltaMs / FRAME_MS : 1;
         animateParticleSystem(system, ratio);
         (system._syncBillboard ?? syncParticleBillboard)(system, billboard);
     };
     scene._beforeRender.push(tick);
     system._unregister = () => {
-        const index = scene._beforeRender.indexOf(tick);
-        if (index !== -1) {
-            scene._beforeRender.splice(index, 1);
-        }
+        active = false;
+        // Systems can dispose from inside a tick; splicing now would skip the next callback of the frame loop.
+        queueMicrotask(() => {
+            const index = scene._beforeRender.indexOf(tick);
+            if (index !== -1) {
+                scene._beforeRender.splice(index, 1);
+            }
+        });
         unregisterBillboard();
     };
 }

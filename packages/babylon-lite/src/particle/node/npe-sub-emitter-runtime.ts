@@ -1,5 +1,5 @@
 import type { Vec3 } from "../../math/types.js";
-import { disposeParticleSystem, startParticleSystem, type ParticleSystem } from "../particle-system.js";
+import { disposeParticleSystem, startParticleSystem, stopParticleSystem, type ParticleSystem } from "../particle-system.js";
 import type { BuildNodeParticleOptions, NodeParticleSet } from "./npe-build.js";
 import type { ParticleInputHandle } from "./npe-input.js";
 import type { NodeParticleProgram, NodeParticleSystemPlan } from "./npe-types.js";
@@ -55,6 +55,14 @@ export function createNodeParticleChildHost(instantiate: (plan: NodeParticleSyst
             const ownerChildren = ownership.children;
 
             const childLifecycle = (child._lifecycle ??= {});
+            // Templates with default lifecycle values skip the SystemBlock decorator, so install the drain-then-dispose step forced by disposeOnStop.
+            childLifecycle._afterAnimate ??= () => {
+                if (!child._started) {
+                    disposeParticleSystem(child);
+                } else if (child.manualEmitCount === 0) {
+                    stopParticleSystem(child);
+                }
+            };
             const previousDispose = childLifecycle._dispose;
             childLifecycle._dispose = () => {
                 previousDispose?.();
@@ -76,7 +84,7 @@ export function createNodeParticleChildHost(instantiate: (plan: NodeParticleSyst
             children.push(child);
             instances.push(instance);
             registerChild?.(instance);
-            startParticleSystem(child, 0);
+            startParticleSystem(child);
             void instance.ready.catch(() => disposeParticleSystem(child));
             return child;
         },

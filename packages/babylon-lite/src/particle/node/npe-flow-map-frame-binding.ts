@@ -27,6 +27,11 @@ export function createNodeParticleFlowMapBinding(state: NpeBuildState): FlowMapV
         binding.ready = true;
     };
     prepare();
-    state.scene._beforeRender.push(prepare);
+    const system = state.system!;
+    const previous = system._prepareFrame;
+    system._prepareFrame = () => {
+        previous?.();
+        prepare();
+    };
     return binding;
 }

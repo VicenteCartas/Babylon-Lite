@@ -4,7 +4,7 @@ import { _resetMatrixAllocatorForTests, _setHpmAllocator } from "../../../packag
 import { createIdentityMat4 } from "../../../packages/babylon-lite/src/math/create-identity-mat4";
 import type { Mat4 } from "../../../packages/babylon-lite/src/math/types";
 import type { Texture2D } from "../../../packages/babylon-lite/src/texture/texture-2d";
-import { createParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
+import { animateParticleSystem, createParticleSystem, startParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import { registerNodeParticleSet } from "../../../packages/babylon-lite/src/particle/particle-scene";
 import { cpuTextureSourceBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/cpu-texture-source-block";
 import { updateFlowMapBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/update-flow-map-block";
@@ -135,14 +135,27 @@ describe("NPE UpdateFlowMapBlock", () => {
             ],
         });
 
-        await buildNodeParticleSetWithFlowMaps({} as never, firstScene, program, { emitterWorldMatrix: firstEmitter });
-        await buildNodeParticleSetWithFlowMaps({} as never, secondScene, program, { emitterWorldMatrix: secondEmitter });
+        const first = await buildNodeParticleSetWithFlowMaps({} as never, firstScene, program, { emitterWorldMatrix: firstEmitter });
+        const second = await buildNodeParticleSetWithFlowMaps({} as never, secondScene, program, { emitterWorldMatrix: secondEmitter });
 
         expect(allocations).toHaveLength(2);
         expect(allocations[0]).not.toBe(allocations[1]);
-        expect(firstScene._beforeRender).toHaveLength(1);
-        expect(secondScene._beforeRender).toHaveLength(1);
-        expect(firstScene._beforeRender[0]).not.toBe(secondScene._beforeRender[0]);
+        expect(firstScene._beforeRender).toHaveLength(0);
+        expect(secondScene._beforeRender).toHaveLength(0);
+        expect(first.systems[0]!._prepareFrame).toBeTypeOf("function");
+        expect(first.systems[0]!._prepareFrame).not.toBe(second.systems[0]!._prepareFrame);
+
+        const camera = createArcRotateCamera(Math.PI / 2, Math.PI / 2, 10, { x: 0, y: 0, z: 0 });
+        firstScene.camera = camera;
+        startParticleSystem(first.systems[0]!);
+        animateParticleSystem(first.systems[0]!, 1);
+        const prepared = Array.from(allocations[0]!);
+        camera.alpha += 0.5;
+        animateParticleSystem(first.systems[0]!, 1);
+
+        expect(Array.from(allocations[0]!)).not.toEqual(prepared);
+        expect(Array.from(allocations[1]!)).toEqual(Array(16).fill(0));
+        expect(firstScene._beforeRender).toHaveLength(0);
     });
 
     it("rejects samples outside the screen and ignores transparent pixels", async () => {
@@ -296,11 +309,11 @@ describe("NPE UpdateFlowMapBlock", () => {
         const animationStep = vi.fn();
         scene._beforeRender.push(animationStep);
         await Promise.all(scene._deferredBuilders.splice(0).map((builder) => builder()));
-        expect(scene._beforeRender[1]).toBe(animationStep);
+        expect(scene._beforeRender).toEqual([animationStep]);
         camera._vpCache.fill(0);
         scene.surface.canvas.width = 200;
         scene.surface.canvas.height = 100;
-        scene._beforeRender[0]!(16);
+        system._prepareFrame!();
         system._scaledStep = 0.5;
 
         system.updateSteps[0]!(0);

@@ -254,7 +254,7 @@ export function buildParticleRenderPropertiesBillboardRenderable(
             bindGroups.set(addPipeline, addBindGroup);
         }
         return {
-            renderable: built.renderable,
+            renderable: primary.renderable,
             pipeline: primary.pipeline,
             update(context) {
                 primary.update?.(context);

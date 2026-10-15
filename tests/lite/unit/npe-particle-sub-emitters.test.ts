@@ -12,6 +12,7 @@ import {
     type ParticleSystem,
 } from "../../../packages/babylon-lite/src/particle/particle-system";
 import { createNodeParticleChildHost } from "../../../packages/babylon-lite/src/particle/node/npe-sub-emitter-runtime";
+import { enableNodeParticleBlendModes } from "../../../packages/babylon-lite/src/particle/node/npe-blend-modes";
 import type { NodeParticleProgram } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import { registerNodeParticleSet } from "../../../packages/babylon-lite/src/particle/particle-scene";
 import type { Texture2D } from "../../../packages/babylon-lite/src/texture/texture-2d";
@@ -127,6 +128,71 @@ afterEach(() => {
 });
 
 describe("NPE sub-emitter systems", () => {
+    it("disposes default-lifecycle children after they stop and drain", async () => {
+        const child = particleBranch(100, 3);
+        delete child.at(-1)!.manualEmitCount;
+        delete child.at(-1)!.doNoStart;
+        child.at(-1)!.preWarmStepOffset = 1;
+        child.at(-1)!.inputs[1]!.value = 1;
+        const parent = particleBranch(1, 5, [{ name: "onStart", targetBlockId: 102, targetConnectionName: "system" }]);
+        const set = await build([...child, ...parent]);
+        expect(findSystem(set, 3)._lifecycle).toBeUndefined();
+
+        startParticleSystem(findSystem(set, 5));
+        const spawned = childSystems(set)[0]!;
+        animateParticleSystem(spawned, 1);
+        stopParticleSystem(spawned);
+        expect(spawned._stopped).toBe(true);
+        expect(spawned._disposed).toBe(false);
+        expect(spawned.buffer.alive).toBe(1);
+        expect(childSystems(set)).toEqual([spawned]);
+
+        animateParticleSystem(spawned, 10);
+        expect(spawned.buffer.alive).toBe(0);
+        expect(spawned._disposed).toBe(true);
+        expect(childSystems(set)).toEqual([]);
+    });
+
+    it("honors the child template start delay", async () => {
+        vi.useFakeTimers();
+        const child = particleBranch(100, 3);
+        child.at(-1)!.startDelay = 100;
+        const parent = particleBranch(1, 5, [{ name: "onStart", targetBlockId: 102, targetConnectionName: "system" }]);
+        const set = await build([...child, ...parent]);
+
+        startParticleSystem(findSystem(set, 5));
+        const spawned = childSystems(set)[0]!;
+        expect(spawned._started).toBe(false);
+        await vi.advanceTimersByTimeAsync(99);
+        expect(spawned._started).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(spawned._started).toBe(true);
+    });
+
+    it("enables blend modes for existing and future children at live registration", async () => {
+        const child = particleBranch(100, 3);
+        const parent = particleBranch(1, 5, [{ name: "onStart", targetBlockId: 102, targetConnectionName: "system" }]);
+        const set = await build([...child, ...parent]);
+        const system = findSystem(set, 5);
+        startParticleSystem(system);
+        const existing = childSystems(set)[0]!;
+        expect(existing._registerBillboard).toBeUndefined();
+        enableNodeParticleBlendModes(set);
+        const register = vi.fn((instance: ParticleSystem) => instance._registerBillboard);
+        const unregister = set._registerChildren!(register);
+        await vi.waitFor(() => expect(register).toHaveBeenCalledWith(existing));
+
+        stopParticleSystem(system);
+        startParticleSystem(system);
+        const future = childSystems(set)[1]!;
+        await vi.waitFor(() => expect(register).toHaveBeenCalledWith(future));
+        expect(register).toHaveBeenCalledTimes(2);
+        expect(register.mock.results.map((result) => typeof result.value)).toEqual(["function", "function"]);
+        expect(existing._registerBillboard).toBeTypeOf("function");
+        expect(future._registerBillboard).toBeTypeOf("function");
+        unregister();
+    });
+
     it("triggers a fresh child at the current particle position and releases its active limit on disposal", async () => {
         vi.setSystemTime(1_000);
         const child = particleBranch(100, 3);
@@ -456,6 +522,7 @@ describe("NPE sub-emitter systems", () => {
         expect(child._registerBillboard).toHaveBeenCalledOnce();
 
         disposeParticleSystem(child);
+        await Promise.resolve();
         expect(scene._beforeRender).toHaveLength(1);
         expect(unregisterChild).toHaveBeenCalledOnce();
         const retired = createParticleSystem(1);
@@ -472,6 +539,7 @@ describe("NPE sub-emitter systems", () => {
         expect(scene._beforeRender).toHaveLength(1);
 
         scene._disposables.at(-1)!();
+        await Promise.resolve();
         expect(scene._beforeRender).toHaveLength(0);
         expect(unregisterParent).toHaveBeenCalledOnce();
         expect(disposeChildren).toHaveBeenCalledOnce();

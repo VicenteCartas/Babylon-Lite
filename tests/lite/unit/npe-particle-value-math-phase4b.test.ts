@@ -122,6 +122,26 @@ describe("NPE Phase 4B value math", () => {
     });
 
     describe("ParticleSmoothStepBlock", () => {
+        it("snapshots vector components before edge evaluation rewrites upstream scratch", async () => {
+            const scratch = { x: 0.25, y: 0.5, z: 0.75 };
+            const output = await buildGetter(
+                "ParticleSmoothStepBlock",
+                {},
+                {
+                    inputs: {
+                        value: () => scratch,
+                        edge0: () => {
+                            Object.assign(scratch, { x: 9, y: 9, z: 9 });
+                            return 0;
+                        },
+                        edge1: () => 1,
+                    },
+                }
+            );
+
+            expect(output(0)).toEqual({ x: 0.15625, y: 0.5, z: 0.84375 });
+        });
+
         it("uses default edges and maps vector components", async () => {
             const scalar = await buildGetter("ParticleSmoothStepBlock", {}, { inputs: { value: () => 0.5 } });
             const vector = await buildGetter("ParticleSmoothStepBlock", {}, { inputs: { value: () => ({ x: -1, y: 0.5, z: 2 }), edge0: () => 0, edge1: () => 1 } });
