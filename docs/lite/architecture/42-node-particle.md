@@ -982,7 +982,7 @@ It copies the two and four components into feature-owned values; no upstream scr
 
 Variant detection treats the ordinary Babylon.js serialization as free: unconnected literal pivot `[0, 0]`, mask `[1, 1, 1, 1]`, and group `0` select the ordinary evaluator. Missing inputs have the same defaults. Any connected pivot or mask selects the variant even when its current result equals the default because the connected graph must be evaluated. A non-default literal compares missing Vector2 components with `0`, missing Color4 RGB components with `0`, and missing Color4 alpha with `1`, exactly as input-literal parsing does.
 
-`capacity` and `isLocal` are builder fields. `billBoardMode` and `isBillboardBased` are ignored. Neither System evaluator installs an output getter.
+`capacity` and `isLocal` are builder fields. Non-default `billBoardMode` and `isBillboardBased` select the geometry-mode evaluator described in section 10.1. Neither System evaluator installs an output getter.
 
 ### 9.2 CreateParticleBlock
 
@@ -1773,7 +1773,7 @@ interface ParticleRenderProperties {
 }
 ```
 
-Registration applies the exact particle blend descriptor for the system's current mutable `blendMode`. Modes 0, 1, 2, 3, 4, and unknown values use the same factors and pass counts specified in section 10.2. The feature owns its own private billboard shader descriptors and deferred renderable builder; it neither imports nor alters the generic public custom-shader factory. Mode 4 remains one logical transparent renderable with one sorted instance upload and two consecutive draws, but both passes use the render-property vertex math and texture mask. The first pass uses Multiply color transformation and blending; the second uses ordinary masked color and Add blending.
+Registration applies the exact particle blend descriptor for the system's current mutable `blendMode`. Modes 0, 1, 2, 3, 4, and unknown values use the same factors and pass counts specified in section 10.2. The feature owns its own private billboard shader descriptors and deferred renderable builder; it neither imports nor alters the generic public custom-shader factory. Mode 4 remains one logical transparent renderable with one logical-order instance upload and two consecutive draws, but both passes use the render-property vertex math and texture mask. The first pass uses Multiply color transformation and blending; the second uses ordinary masked color and Add blending.
 
 The feature UBO is 32 bytes and has this WGSL/Float32 layout:
 
@@ -1789,6 +1789,8 @@ Each render pass owns one feature UBO because pipeline layouts and bind groups a
 For quad corner `q`, atlas/frame pivot `o` (normally `[0.5, 0.5]` for NPE), particle size `s`, angle rotation `R`, and translation pivot `t`, the facing-billboard vertex stage computes exactly:
 
 ```text
+angle = -particle.angle
+t = (serializedPivot.x, -serializedPivot.y)
 local = (q - o - t) * s
 rotated = R(local)
 translated = rotated + t
@@ -1796,7 +1798,7 @@ world = anchor + basisRight * translated.x + basisUp * translated.y
 clip = scene.viewProjection * vec4(world, 1)
 ```
 
-The final `+ t` is deliberately not multiplied by particle size and occurs after rotation. Reparameterizing the existing instance pivot is forbidden: it would require division by each size component and cannot reproduce Babylon for a zero-size axis.
+The generic sprite billboard's local Y points down, whereas Babylon particles use Y-up corners and angles. Particle synchronization negates the stored angle without mutating simulation state; the property shader and picker negate the authored pivot's Y component. The final `+ t` is deliberately not multiplied by particle size and occurs after rotation. Reparameterizing the existing instance pivot is forbidden: it would require division by each size component and cannot reproduce Babylon for a zero-size axis.
 
 Picking uses the same geometry. A zero translation pivot keeps the stock lazy billboard pick source. A nonzero translation pivot registers a feature-owned lazy contributor that copies logical instances into transient pick storage and shifts each copied anchor by `t - R(t * s)` along the camera's normalized billboard basis before invoking the stock pick draw. The stock pick vertex then computes `anchor' + R((q - o) * s)`, algebraically equal to the render equation above even when either size component is zero. It never mutates simulation or render instance storage, preserves sprite-index pick ids, and allocates the transient copy only on the first pick.
 
@@ -1848,7 +1850,7 @@ The generic billboard system, its fixed 16-float instance layout, and public cus
 | 0..15  | existing packed billboard instance | all four Phase 11 paths                       |
 | 16..18 | `direction: vec3f`                 | STRETCHED, STRETCHED_LOCAL, and non-billboard |
 
-Y uses the original 64-byte stride. Direction-consuming modes use a 76-byte stride. The renderer interleaves into reusable feature-owned staging, applies the same stable depth sort and floating-origin subtraction as the generic billboard renderer, and uploads once per visible nonempty version. No Phase 11 array, shader, pipeline, or module is allocated or fetched for ALL systems.
+Y uses the original 64-byte stride. Direction-consuming modes use a 76-byte stride. The renderer interleaves into reusable feature-owned staging in logical particle order, applies floating-origin subtraction, and uploads once per visible nonempty version. No Phase 11 array, shader, pipeline, or module is allocated or fetched for ALL systems.
 
 STRETCHED and STRETCHED_LOCAL copy the live post-emit-power direction during billboard synchronization. Non-billboard mode uses three optional `initialDir.*` particle columns. The mode evaluator allocates or reuses those columns and wraps `createEmitPower` once to snapshot the shape-produced direction before emit-power scaling. Mesh-normal emitters preserve Babylon's missing-initial-direction behavior: when `_suppressInitialDirectionCapture` is true, no columns are allocated and synchronization falls back to the live direction. When the System is local and an initial direction exists, synchronization transforms it by the current emitter matrix's upper 3 by 3 before upload, matching Babylon's CPU particle upload. Swap-remove includes the optional columns automatically.
 
@@ -1890,7 +1892,9 @@ NON_BILLBOARD:
     world = anchor + right * rx + forward * ry
 ```
 
-All four paths use `scene.vEyePosition.xyz`, preserve the Phase 10 texture-mask and blend equations, assign the copied rendering group, and retain one logical renderable for MultiplyAdd. They do not mutate simulation positions or directions.
+All four paths use `scene.vEyePosition.xyz`, preserve the Phase 10 texture-mask and blend equations, assign the copied rendering group, and retain one logical renderable for MultiplyAdd. They do not mutate simulation positions or directions. Their vertex and pick shaders restore Y-up corners using `(q - o) * (1, -1)` and recover the particle angle using `-sin(instance.rotation)`, because shared synchronization stores the generic billboard's Y-down angle. UVs continue to use the original top-down `q`.
+
+Babylon's serialized systems do not enable particle depth sorting. Particle renderers therefore retain dense simulation/insertion order, including alpha-blended and MultiplyAdd systems. The ordinary billboard builder's optional internal `sortInstances` argument defaults to `true` for existing sprite callers; every particle registrar passes `false`. The specialized mode renderer likewise uploads logical order without allocating depth/index sorting buffers. Transparent scene-level sorting and rendering-group ordering remain active, and floating-origin uploads still subtract the camera offset.
 
 Picking owns a separate lazy `particle-billboard-modes-pick.ts` contributor. It consumes the same logical instances, direction sidecar, mode, pivot, and camera values and uses the same 64/76-byte layout and vertex equations with the existing integer-id fragment contract. It never approximates a non-camera-facing quad through the stock facing-billboard picker. Pick ids and resolved `{ system, spriteIndex }` identity remain unchanged. GPU pick resources allocate only on the first pick and are destroyed with the scene contributor.
 
@@ -1943,7 +1947,7 @@ The generic `buildBillboardRenderable(engine, system)` API and its ordinary scen
 
 The private descriptor emits no `SpriteFx` UBO declaration, layout entry, allocation, or per-frame write. Its hook intentionally mirrors the public billboard-custom-shader hook instead of importing that optional feature and its core into Multiply-only bundles. The mirror remains behaviorally compatible with the last-writer-wins global hook and uses one module-level empty parameter array rather than allocating per update.
 
-Mode `3` uses the resulting normal billboard renderable unchanged. Mode `4` wraps its draw binding with one stock Add pipeline, a second bind group, and a second system uniform buffer. The two pipelines require distinct bind groups because each pipeline owns its bind-group layout. The base renderable deliberately keeps its GPU buffer private, so the optional mode-4 module owns and dirty-updates its own 32-byte copy rather than exposing GPU internals through the generic billboard contract. It remains one transparent renderable with one logical billboard system, one sorted instance upload, one instance buffer, and one index buffer.
+Mode `3` uses the resulting normal billboard renderable unchanged. Mode `4` wraps its draw binding with one stock Add pipeline, a second bind group, and a second system uniform buffer. The two pipelines require distinct bind groups because each pipeline owns its bind-group layout. The base renderable deliberately keeps its GPU buffer private, so the optional mode-4 module owns and dirty-updates its own 32-byte copy rather than exposing GPU internals through the generic billboard contract. It remains one transparent renderable with one logical billboard system, one logical-order instance upload, one instance buffer, and one index buffer.
 
 Mode `4` draws the normal Multiply binding first. The primary draw leaves its instance and index buffers bound, so the wrapper then binds only the Add pipeline and Add bind group before issuing the second indexed draw over the same instances. It restores the primary Multiply pipeline so the render task's consecutive-pipeline cache remains correct. The draw reports two GPU draw calls when particles are visible and zero when the system is hidden or empty.
 
@@ -1960,7 +1964,7 @@ When System render properties are present, their registrar takes precedence over
     position: [posX[i], posY[i], posZ[i]],
     sizeWorld: [size[i] * scaleX[i], size[i] * scaleY[i]],
     color: [colorR[i], colorG[i], colorB[i], colorA[i]],
-    rotation: angle[i],
+    rotation: -angle[i],
     frame: spriteSheet ? spriteSheet.cellIndex[i] : 0,
 }
 ```
@@ -2214,7 +2218,7 @@ The current unit categories are:
 - Core updates: serialized queue order; direct scale and age writes; lifetime-clamped authoritative F32/F64 position integration; unclamped color-step scaling; alpha-only clamping; disconnected-input behavior; and basic-update family isolation.
 - Camera values: stable CameraPosition identity, absolute world translation under floating origin, missing-camera zero, prepared camera movement, AlignAngle default and explicit alignment, exact view-normal `atan2`, missing-camera angle preservation, one shared allocator-selected F32/F64 view snapshot per system, independent program instantiations, callback composition, unsupported-source diagnostics, and lazy evaluator isolation.
 - Render properties: ordinary default literals retain the base System evaluator; connected and non-default literal pivot/mask routing; nonzero rendering-group routing; connected emit-rate composition; one-time scratch-safe value copies; exact unscaled post-rotation pivot math including zero-size axes; affine texture-mask channels and alpha; ordinary, Multiply, and both MultiplyAdd pass formulas; one feature UBO write per pass; group-before-distance transparent sorting; program-instance isolation; Sprite2D nonapplication; and positive/negative runtime module isolation.
-- Billboard modes: default `(isBillboardBased: true, billBoardMode: 7)` isolation; Y/STRETCHED/STRETCHED_LOCAL/non-billboard routing; connected emit-rate and Phase 10 property composition; unsupported true-billboard diagnostics; exact basis equations and zero/parallel-direction propagation; live-direction updates; birth-time initial-direction snapshots before emit power; contextual InitialDirection wrapper reuse; mesh-normal live fallback; local upper-3x3 transform; swap-remove; 64/76-byte staging layouts; stable depth sorting; floating-origin anchors; MultiplyAdd pass reuse; exact pick geometry and identity; independent instances; and Sprite2D nonapplication.
+- Billboard modes: default `(isBillboardBased: true, billBoardMode: 7)` isolation; Y/STRETCHED/STRETCHED_LOCAL/non-billboard routing; connected emit-rate and Phase 10 property composition; unsupported true-billboard diagnostics; exact basis equations and zero/parallel-direction propagation; live-direction updates; birth-time initial-direction snapshots before emit power; contextual InitialDirection wrapper reuse; mesh-normal live fallback; local upper-3x3 transform; swap-remove; 64/76-byte staging layouts; logical particle order; floating-origin anchors; MultiplyAdd pass reuse; exact pick geometry and identity; independent instances; and Sprite2D nonapplication.
 - Flow maps: projected nearest-neighbor sampling including non-zero row stride, vertical screen mapping, RGBA force decoding, alpha and bounds handling, per-particle strength evaluation, lifetime-clamped step scaling, allocator-selected F32/F64 matrix snapshots, and lazy texture/evaluator isolation.
 - Noise textures: exact three-sample red-channel addressing, six deterministic Float64 random coordinates, coordinate reuse and slot recycling, Vector3 defaults/strength, lifetime-clamped step scaling, extraction failure, parsed graph wiring including ordinary/CPU embedded-texture fan-out, Babylon multi-step state fixtures, and lazy runtime isolation.
 - Topology compilation: trusted parser metadata absence; TeleportIn-only nonactivation; candidate-free and detached-malformed paths; Teleport and Elbow routes for scalar, Vector2, Vector3, Color4, gradient, particle/system flow, and texture roles; Debug value-only routing; two-bit shared-domain revisits; consumer-edge-first diagnostic priority; specialized texture evaluator overrides; endpoint id `0`; malformed endpoints; mixed cycles; compiler copy-on-write without source mutation; all builder families; automatic inline/fetched snippets; no Teleport/Elbow/Debug evaluator body; and topology-runtime chunk/module isolation.
@@ -2345,6 +2349,35 @@ Scene 284 (`scene284-npe-multiply-add-blend`) is the isolated Babylon.js/Lite or
 - Lite builds with `buildNodeParticleSet`, applies `enableNodeParticleBlendModes(set)`, mutates no evaluator state, and registers through `registerNodeParticleSet(..., { autoStart: false })`. This proves the enabler composes with an independently produced set.
 - The parity specification refreshes `reference/lite/scene284-npe-multiply-add-blend/babylon-ref-golden.png`, captures Lite, and requires full-image `MAD <= 0.01`. Initial local MAD is `0.00044`.
 - The production bundle must fetch all four optional blend modules and stay within `45.0 KB` raw.
+
+### 13.7 Frozen feature parity scenes 332–337
+
+All six scenes use `scene332-features-npe.ts` to produce the same serialized JSON on both sides.
+`lite/npe-feature-scene.ts` builds through the public Lite parser/builder; `bjs/npe-feature-scene.ts` uses
+`NodeParticleSystemSet.Parse` followed by `buildAsync`. Each engine installs the same sine-seeded random generator
+after building. `?seekTime=1` selects 60 explicit ratio-1 steps, except Scene 333, whose complete screenshot state
+comes solely from synchronous prewarm at start. Every system is then frozen with `updateSpeed = 0`.
+
+The fixed oblique camera has alpha `-1.15`, beta `1.1`, target `(0, 0.3, 0)`, radius `7` (`10` for Scene 336),
+and far plane `100`. Scene 337 translates camera target and emitter by `(1e6, 0, 1e6)`, enables Lite's high-precision
+matrices/floating origin and Babylon's `useLargeWorldRendering`, and uses near plane `1` instead of `0.1`.
+Its `0.03 * 0.05 = 0.0015` X increment is below the F32 ULP at the emitter's absolute position.
+
+| Scene | Slug | Coverage |
+| --- | --- | --- |
+| 332 | `npe-core-updates` | BasicPositionUpdate, BasicColorUpdate, connected Vector2 UpdateScale, contextual Age multiplied by 0.96 into UpdateAge |
+| 333 | `npe-prewarm` | 90 prewarm cycles with step offset 2, continuous emission and a mature birth/death distribution; no post-start stepping |
+| 334 | `npe-camera-features` | CameraPosition system source 4 multiplied by 0.12 into direction, AlignAngle alignment 0.4, visibly elongated particles |
+| 335 | `npe-render-properties` | Three overlapping alpha-blended fields with distinct texture masks, translation pivots and groups authored in order 2/0/1; no opaque/depth-writing geometry |
+| 336 | `npe-billboard-modes` | Four side-by-side systems: Y, STRETCHED, STRETCHED_LOCAL, non-billboard; scale `(0.5, 2.2)` and angle `0.35` |
+| 337 | `npe-large-world` | F64 authoritative world-position integration and floating-origin particle rendering near million-unit coordinates |
+
+All textures use the same playground `flare.png`. Scene 333 intentionally does not use wall-clock `startDelay`;
+delayed start is covered by deterministic lifecycle unit tests rather than a timing-sensitive screenshot.
+Each `sceneN.ts` entry delegates only shared fixture setup. Each has its own Lite/reference/bundle HTML, golden-only
+parity specification, immutable 1280×720 Babylon golden and quality-78 1280×720 JPG thumbnail. Gallery cards, Vite HTML
+inputs and bundle-size tests discover the new entries through their existing directory/config-driven mechanisms.
+`scene-config-npe-parity.test.ts` checks registrations, assets, golden-only specs and serialized feature contracts.
 
 ## 14. Exact file manifest
 

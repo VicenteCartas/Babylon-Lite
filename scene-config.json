@@ -2811,5 +2811,65 @@
         "description": "SystemBlock onStart and onEnd connections create distinct blue and pink child systems around a stopped parent. The graph, seeded random stream, explicit lifecycle transitions, and frozen frame are shared with the Babylon.js oracle.",
         "tags": ["npe", "particles", "billboards", "system-lifecycle", "sub-emitters"],
         "skipPerf": true
+    },
+    {
+        "id": 332,
+        "slug": "scene332-npe-core-updates",
+        "name": "Scene 332 — NPE Core Updates",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "One shared serialized graph combines UpdateScale, UpdateAge, BasicPositionUpdate and BasicColorUpdate in a seeded frozen particle field.",
+        "tags": ["npe", "particles", "billboards", "core-updates"],
+        "skipPerf": true
+    },
+    {
+        "id": 333,
+        "slug": "scene333-npe-prewarm",
+        "name": "Scene 333 — NPE Prewarm",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "SystemBlock preWarmCycles 90 and preWarmStepOffset 2 produce the entire frozen state synchronously at start, without subsequent manual simulation.",
+        "tags": ["npe", "particles", "billboards", "prewarm"],
+        "skipPerf": true
+    },
+    {
+        "id": 334,
+        "slug": "scene334-npe-camera-features",
+        "name": "Scene 334 — NPE Camera Features",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "System CameraPosition drives particle direction; AlignAngle uses explicit alignment 0.4 under a fixed non-axis-aligned camera.",
+        "tags": ["npe", "particles", "billboards", "camera", "alignment"],
+        "skipPerf": true
+    },
+    {
+        "id": 335,
+        "slug": "scene335-npe-render-properties",
+        "name": "Scene 335 — NPE Render Properties",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "Three colored systems exercise textureMask, translationPivot and renderingGroupId without opaque depth interactions.",
+        "tags": ["npe", "particles", "billboards", "texture-mask", "translation-pivot", "rendering-groups"],
+        "skipPerf": true
+    },
+    {
+        "id": 336,
+        "slug": "scene336-npe-billboard-modes",
+        "name": "Scene 336 — NPE Billboard Modes",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "Y, STRETCHED, STRETCHED_LOCAL and non-billboard particle systems sit side by side with nonuniform scale and a fixed oblique camera.",
+        "tags": ["npe", "particles", "billboards", "billboard-modes"],
+        "skipPerf": true
+    },
+    {
+        "id": 337,
+        "slug": "scene337-npe-large-world",
+        "name": "Scene 337 — NPE Large World",
+        "maxMad": 0.05,
+        "maxRawKB": 65,
+        "description": "BasicPositionUpdate preserves 0.0015 world-coordinate increments at an emitter offset of one million using floating-origin rendering and F64 particle positions.",
+        "tags": ["npe", "particles", "billboards", "hpm", "lwr", "floating-origin", "large-world"],
+        "skipPerf": true
     }
 ]
