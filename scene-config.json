@@ -2793,9 +2793,9 @@
         "skipPerf": true
     },
     {
-        "id": 316,
-        "slug": "scene316-npe-particle-trigger",
-        "name": "Scene 316 — NPE Particle Trigger",
+        "id": 330,
+        "slug": "scene330-npe-particle-trigger",
+        "name": "Scene 330 — NPE Particle Trigger",
         "maxMad": 0.1,
         "maxRawKB": 55,
         "description": "A ParticleTriggerBlock follows an updated parent particle and creates eight independently simulated child systems at its successive positions. The graph, seeded random stream, explicit simulation steps, and frozen frame are shared with the Babylon.js oracle.",
@@ -2803,9 +2803,9 @@
         "skipPerf": true
     },
     {
-        "id": 317,
-        "slug": "scene317-npe-system-lifecycle",
-        "name": "Scene 317 — NPE System Lifecycle",
+        "id": 331,
+        "slug": "scene331-npe-system-lifecycle",
+        "name": "Scene 331 — NPE System Lifecycle",
         "maxMad": 0.15,
         "maxRawKB": 55,
         "description": "SystemBlock onStart and onEnd connections create distinct blue and pink child systems around a stopped parent. The graph, seeded random stream, explicit lifecycle transitions, and frozen frame are shared with the Babylon.js oracle.",

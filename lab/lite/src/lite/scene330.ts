@@ -1,4 +1,4 @@
-// Scene 316: ParticleTriggerBlock creates child systems at the updated parent-particle position.
+// Scene 330: ParticleTriggerBlock creates child systems at the updated parent-particle position.
 
 import {
     animateParticleSystem,
@@ -14,7 +14,7 @@ import {
     type NodeParticleSet,
     type ParticleSystem,
 } from "babylon-lite";
-import { createScene316TriggerGraph } from "../shared/scene316-sub-emitter-npe.js";
+import { createscene330TriggerGraph } from "../shared/scene330-sub-emitter-npe.js";
 
 const STEPS = 14;
 const TEXTURE_URL = "https://playground.babylonjs.com/textures/flare.png";
@@ -22,7 +22,7 @@ const TEXTURE_URL = "https://playground.babylonjs.com/textures/flare.png";
 function rootSystem(set: NodeParticleSet): ParticleSystem {
     const system = set.systems.find((candidate) => !candidate.doNoStart);
     if (!system) {
-        throw new Error("Scene 316 has no root particle system");
+        throw new Error("Scene 330 has no root particle system");
     }
     return system;
 }
@@ -35,7 +35,7 @@ async function main(): Promise<void> {
     scene.clearColor = { r: 0.008, g: 0.012, b: 0.018, a: 1 };
     scene.camera = createArcRotateCamera(-Math.PI / 2, Math.PI / 2, 4.6, { x: 0.05, y: 0.3, z: 0 });
 
-    const graph = parseNodeParticleSource(createScene316TriggerGraph(TEXTURE_URL));
+    const graph = parseNodeParticleSource(createscene330TriggerGraph(TEXTURE_URL));
     const set = await buildNodeParticleSet(engine, scene, graph, { emitter: { x: -0.65, y: -0.45, z: 0 } });
     const root = rootSystem(set);
 

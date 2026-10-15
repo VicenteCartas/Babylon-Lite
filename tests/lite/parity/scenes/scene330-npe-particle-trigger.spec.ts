@@ -2,18 +2,18 @@ import { test, expect } from "../parity-fixtures";
 import * as path from "path";
 import { attachCompareArtifacts, captureGolden, compareImages, getSceneConfig, waitForCanvasReady } from "../compare-utils";
 
-const sceneConfig = getSceneConfig(316);
-const REFERENCE_DIR = path.resolve(__dirname, "../../../../reference/lite/scene316-npe-particle-trigger");
+const sceneConfig = getSceneConfig(330);
+const REFERENCE_DIR = path.resolve(__dirname, "../../../../reference/lite/scene330-npe-particle-trigger");
 const GOLDEN_REF = path.join(REFERENCE_DIR, "babylon-ref-golden.png");
 
-test.skip(!!sceneConfig.skipParity, "Scene 316 skipped via skipParity in scene-config.json");
+test.skip(!!sceneConfig.skipParity, "Scene 330 skipped via skipParity in scene-config.json");
 
-test("Scene 316 — NPE ParticleTriggerBlock matches Babylon.js reference", async ({ page }, testInfo) => {
+test("Scene 330 — NPE ParticleTriggerBlock matches Babylon.js reference", async ({ page }, testInfo) => {
     const browser = page.context().browser()!;
-    await captureGolden(browser, { sceneId: 316 });
+    await captureGolden(browser, { sceneId: 330 });
 
-    await page.goto("/scene316.html");
-    await waitForCanvasReady(page, { timeout: 20_000, label: "Scene 316 Lite" });
+    await page.goto("/scene330.html");
+    await waitForCanvasReady(page, { timeout: 20_000, label: "Scene 330 Lite" });
     await page.waitForTimeout(500);
 
     const screenshotPath = path.join(REFERENCE_DIR, "test-actual.png");

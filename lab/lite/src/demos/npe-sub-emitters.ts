@@ -11,7 +11,7 @@ import {
     type ParticleSystem,
 } from "babylon-lite";
 import { createNpeSprite2DFlareUrl } from "../shared/npe-sprite2d-fixture.js";
-import { createScene316TriggerGraph, createScene317LifecycleGraph } from "../shared/scene316-sub-emitter-npe.js";
+import { createscene330TriggerGraph, createscene331LifecycleGraph } from "../shared/scene330-sub-emitter-npe.js";
 
 async function buildGraph(engine: Parameters<typeof buildNodeParticleSet>[0], scene: Parameters<typeof buildNodeParticleSet>[1], graph: object, x: number) {
     return buildNodeParticleSet(engine, scene, parseNodeParticleSource(graph), { emitter: { x, y: -0.6, z: 0 } });
@@ -35,8 +35,8 @@ async function main(): Promise<void> {
 
     const flareUrl = await createNpeSprite2DFlareUrl();
     const [triggerSet, lifecycleSet] = await Promise.all([
-        buildGraph(engine, scene, createScene316TriggerGraph(flareUrl, 120), -1.15),
-        buildGraph(engine, scene, createScene317LifecycleGraph(flareUrl), 1.15),
+        buildGraph(engine, scene, createscene330TriggerGraph(flareUrl, 120), -1.15),
+        buildGraph(engine, scene, createscene331LifecycleGraph(flareUrl), 1.15),
     ]);
 
     registerNodeParticleSet(scene, triggerSet);

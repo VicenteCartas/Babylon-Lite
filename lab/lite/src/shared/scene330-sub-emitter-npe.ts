@@ -95,7 +95,7 @@ function textureBlock(id: number, url: string): GraphBlock {
 }
 
 /** Serialized graph shared by the Phase 13A Lite scene, Babylon oracle, and manual demo. */
-export function createScene316TriggerGraph(url: string, delay = 0): object {
+export function createscene330TriggerGraph(url: string, delay = 0): object {
     const textureId = 900;
     const child = particleBranch({
         baseId: 100,
@@ -138,7 +138,7 @@ export function createScene316TriggerGraph(url: string, delay = 0): object {
 }
 
 /** Serialized graph shared by the Phase 13B Lite scene, Babylon oracle, and manual demo. */
-export function createScene317LifecycleGraph(url: string, targetStopDuration = 1.7): object {
+export function createscene331LifecycleGraph(url: string, targetStopDuration = 1.7): object {
     const textureId = 900;
     const startChild = particleBranch({
         baseId: 100,

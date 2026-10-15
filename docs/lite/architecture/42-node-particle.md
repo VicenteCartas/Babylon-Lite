@@ -1751,7 +1751,7 @@ clone.
   emitter position, forced child start/dispose behavior, parent/child recursive disposal, and disposal-before-ready.
 - One Phase 13A scene exercises a particle-position trigger; a separate Phase 13B scene exercises start/end systems.
   Both use checked-in serialized graphs shared with their Babylon oracle. Authorized focused parity validation passes
-  at MAD 0.091 for Scene 316 and 0.149 for Scene 317 against their immutable 1280x720 Babylon goldens.
+  at MAD 0.091 for Scene 330 and 0.149 for Scene 331 against their immutable 1280x720 Babylon goldens.
 
 ## 10. Rendering and live registration
 

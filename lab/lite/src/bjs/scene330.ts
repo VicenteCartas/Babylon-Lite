@@ -1,4 +1,4 @@
-// Babylon.js reference for Scene 317. It consumes the same serialized SystemBlock lifecycle graph as Lite.
+// Babylon.js reference for Scene 330. It consumes the same serialized ParticleTriggerBlock graph as Lite.
 
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine";
@@ -10,10 +10,9 @@ import { Scene } from "@babylonjs/core/scene";
 import "@babylonjs/core/Particles/Node/Blocks";
 import "@babylonjs/core/Shaders/particles.fragment";
 import "@babylonjs/core/Shaders/particles.vertex";
-import { createScene317LifecycleGraph } from "../shared/scene316-sub-emitter-npe.js";
+import { createscene330TriggerGraph } from "../shared/scene330-sub-emitter-npe.js";
 
-const START_STEPS = 6;
-const END_STEPS = 9;
+const STEPS = 14;
 const TEXTURE_URL = "https://playground.babylonjs.com/textures/flare.png";
 
 (async function () {
@@ -23,17 +22,17 @@ const TEXTURE_URL = "https://playground.babylonjs.com/textures/flare.png";
     await engine.initAsync();
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0.008, 0.012, 0.018, 1);
-    const camera = new ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2, 4.4, new Vector3(0, -0.05, 0), scene);
+    const camera = new ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2, 4.6, new Vector3(0.05, 0.3, 0), scene);
     camera.minZ = 0.1;
     camera.maxZ = 100;
 
-    const set = NodeParticleSystemSet.Parse(createScene317LifecycleGraph(TEXTURE_URL, 0));
+    const set = NodeParticleSystemSet.Parse(createscene330TriggerGraph(TEXTURE_URL));
     const built = await set.buildAsync(scene);
     const root = built.systems.at(-1) as ParticleSystem | undefined;
     if (!root) {
-        throw new Error("Scene 317 has no root particle system");
+        throw new Error("Scene 330 has no root particle system");
     }
-    root.emitter = new Vector3(0, -0.15, 0);
+    root.emitter = new Vector3(-0.65, -0.45, 0);
 
     let seed = 1;
     Math.random = () => {
@@ -41,19 +40,12 @@ const TEXTURE_URL = "https://playground.babylonjs.com/textures/flare.png";
         return value - Math.floor(value);
     };
 
-    const stepChildren = () => {
+    root.start();
+    for (let step = 0; step < STEPS; step++) {
         root.animate(true);
         for (const child of [...scene.particleSystems].filter((system) => !built.systems.includes(system))) {
             (child as ParticleSystem).animate(true);
         }
-    };
-    root.start();
-    for (let step = 0; step < START_STEPS; step++) {
-        stepChildren();
-    }
-    root.stop();
-    for (let step = 0; step < END_STEPS; step++) {
-        stepChildren();
     }
     await scene.whenReadyAsync();
     for (const system of scene.particleSystems) {
