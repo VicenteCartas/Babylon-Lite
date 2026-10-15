@@ -4,21 +4,8 @@ import type { EngineContext } from "../engine/engine.js";
 import type { Color4, Vec2 } from "../math/types.js";
 import type { Renderable } from "../render/renderable.js";
 import { getSceneBindGroupLayout } from "../render/scene-helpers.js";
-import { createEmptyUniformBuffer } from "../resource/gpu-buffers.js";
 import type { SceneContext } from "../scene/scene-core.js";
-import { SCENE_UBO_WGSL } from "../shader/scene-uniforms.js";
 import type { BillboardCustomShader } from "../sprite/billboard-custom-shader.js";
-import type { buildBillboardRenderable } from "../sprite/billboard-renderable.js";
-import {
-    BILLBOARD_SYSTEM_UBO_BYTES,
-    buildBillboardSystemUbo,
-    createBillboardPipelineCache,
-    createBillboardSystemBindGroup,
-    getOrCreateBillboardPipeline,
-    makeBillboardBasisWgsl,
-    resetBillboardPipelineCache,
-    writeBillboardSystemUboIfDirty,
-} from "../sprite/billboard-pipeline.js";
 import type { BillboardOrientation, BillboardSpriteSystem, BillboardSpriteSystemOptions, FacingBillboardSpriteSystem } from "../sprite/billboard-sprite.js";
 import type { SpriteLayerFx } from "../sprite/custom-shader-core.js";
 import type { BillboardFxHook } from "../sprite/sprite-fx-hook.js";
@@ -27,6 +14,38 @@ import { applyParticleRenderingGroup } from "./particle-rendering-group.js";
 import { addParticleSceneRenderable } from "./particle-scene-renderable.js";
 import { createParticleBlend } from "./particle-blend.js";
 import type { ParticleRenderPropertiesPickSource } from "./particle-billboard-render-properties-pick.js";
+
+/** @internal Resolve only property-renderer dependencies without allowing the lazy namespace to escape. */
+export async function loadParticleRenderPropertyResources() {
+    const {
+        buildBillboardRenderable,
+        BILLBOARD_SYSTEM_UBO_BYTES,
+        buildBillboardSystemUbo,
+        writeBillboardSystemUboIfDirty,
+        makeBillboardBasisWgsl,
+        createBillboardPipelineCache,
+        createBillboardSystemBindGroup,
+        getOrCreateBillboardPipeline,
+        resetBillboardPipelineCache,
+        createEmptyUniformBuffer,
+        SCENE_UBO_WGSL,
+    } = await import("./particle-billboard-renderer.js");
+    return {
+        buildBillboardRenderable,
+        BILLBOARD_SYSTEM_UBO_BYTES,
+        buildBillboardSystemUbo,
+        writeBillboardSystemUboIfDirty,
+        makeBillboardBasisWgsl,
+        createBillboardPipelineCache,
+        createBillboardSystemBindGroup,
+        getOrCreateBillboardPipeline,
+        resetBillboardPipelineCache,
+        createEmptyUniformBuffer,
+        SCENE_UBO_WGSL,
+    };
+}
+
+type ParticleBillboardRenderResources = Awaited<ReturnType<typeof loadParticleRenderPropertyResources>>;
 
 /** @internal Immutable SystemBlock render properties captured at instantiation. */
 export interface ParticleRenderProperties {
@@ -70,8 +89,8 @@ const RENDER_PROPERTIES_SHADER_HOOK: BillboardFxHook = {
     },
 };
 
-function makeRenderPropertiesWgsl(orientation: BillboardOrientation): string {
-    return `${SCENE_UBO_WGSL}
+function makeRenderPropertiesWgsl(orientation: BillboardOrientation, resources: ParticleBillboardRenderResources): string {
+    return `${resources.SCENE_UBO_WGSL}
 struct S {
 opacityMul: vec4f,
 axisAndCutoff: vec4f,
@@ -86,7 +105,7 @@ textureMask: vec4f,
 @group(1) @binding(1) var atlasTex: texture_2d<f32>;
 @group(1) @binding(2) var atlasSamp: sampler;
 @group(1) @binding(3) var<uniform> properties: P;
-${makeBillboardBasisWgsl(orientation)}
+${resources.makeBillboardBasisWgsl(orientation)}
 struct I {
 @builtin(vertex_index) vid: u32,
 @location(0) p: vec3f,
@@ -130,7 +149,7 @@ return baseColor;
 }`;
 }
 
-function getShaderModule(engine: EngineContext, orientation: BillboardOrientation): GPUShaderModule {
+function getShaderModule(engine: EngineContext, orientation: BillboardOrientation, resources: ParticleBillboardRenderResources): GPUShaderModule {
     _shaderModules ??= new WeakMap();
     let modules = _shaderModules.get(engine._device);
     if (!modules) {
@@ -139,14 +158,20 @@ function getShaderModule(engine: EngineContext, orientation: BillboardOrientatio
     }
     let module = modules.get(orientation);
     if (!module) {
-        module = engine._device.createShaderModule({ code: makeRenderPropertiesWgsl(orientation) });
+        module = engine._device.createShaderModule({ code: makeRenderPropertiesWgsl(orientation, resources) });
         modules.set(orientation, module);
     }
     return module;
 }
 
-function createPropertiesFx(engine: EngineContext, label: string, properties: ParticleRenderProperties, multiplyPass: boolean): SpriteLayerFx {
-    const buffer = createEmptyUniformBuffer(engine, PARTICLE_RENDER_PROPERTIES_UBO_BYTES, label);
+function createPropertiesFx(
+    engine: EngineContext,
+    label: string,
+    properties: ParticleRenderProperties,
+    multiplyPass: boolean,
+    resources: ParticleBillboardRenderResources
+): SpriteLayerFx {
+    const buffer = resources.createEmptyUniformBuffer(engine, PARTICLE_RENDER_PROPERTIES_UBO_BYTES, label);
     const values = new F32(PARTICLE_RENDER_PROPERTIES_UBO_BYTES / 4);
     values[0] = properties.translationPivot.x;
     values[1] = properties.translationPivot.y;
@@ -167,21 +192,26 @@ function createPropertiesFx(engine: EngineContext, label: string, properties: Pa
     };
 }
 
-function createRenderPropertiesShader(properties: ParticleRenderProperties, multiplyPass: boolean): BillboardCustomShader {
+function createRenderPropertiesShader(properties: ParticleRenderProperties, multiplyPass: boolean, resources: ParticleBillboardRenderResources): BillboardCustomShader {
     return {
         _entityType: "billboard-custom-shader",
         _extraTextures: [],
         _key: "particle-render-properties",
-        _composeWgsl: (orientation) => makeRenderPropertiesWgsl(orientation),
-        _getShaderModule: (engine, orientation) => getShaderModule(engine, orientation),
+        _composeWgsl: (orientation) => makeRenderPropertiesWgsl(orientation, resources),
+        _getShaderModule: (engine, orientation) => getShaderModule(engine, orientation, resources),
         _layoutEntries: (startBinding) => [{ binding: startBinding, visibility: SS.VERTEX | SS.FRAGMENT, buffer: { type: "uniform" } }],
-        _createLayerFx: (engine, label) => createPropertiesFx(engine, label, properties, multiplyPass),
+        _createLayerFx: (engine, label) => createPropertiesFx(engine, label, properties, multiplyPass, resources),
     };
 }
 
-function attachRenderPropertiesShader(system: BillboardSpriteSystem, properties: ParticleRenderProperties, multiplyPass: boolean): void {
+function attachRenderPropertiesShader(
+    system: BillboardSpriteSystem,
+    properties: ParticleRenderProperties,
+    multiplyPass: boolean,
+    resources: ParticleBillboardRenderResources
+): void {
     _registerBillboardFxHook(RENDER_PROPERTIES_SHADER_HOOK);
-    (system as { _customShader?: BillboardCustomShader })._customShader = createRenderPropertiesShader(properties, multiplyPass);
+    (system as { _customShader?: BillboardCustomShader })._customShader = createRenderPropertiesShader(properties, multiplyPass, resources);
     system.shaderParams = undefined;
 }
 
@@ -190,13 +220,13 @@ export function addFacingBillboardSystemWithParticleRenderProperties(
     scene: SceneContext,
     billboard: FacingBillboardSpriteSystem,
     blendMode: number,
-    properties: ParticleRenderProperties
+    properties: ParticleRenderProperties,
+    resources: ParticleBillboardRenderResources
 ): () => void {
     const blend = createParticleBlend(blendMode);
     (billboard as { blendMode: FacingBillboardSpriteSystem["blendMode"] }).blendMode = blend;
-    attachRenderPropertiesShader(billboard, properties, blendMode === 3 || blendMode === 4);
-    const build = async (engine: EngineContext) =>
-        buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, (await import("../sprite/billboard-renderable.js")).buildBillboardRenderable);
+    attachRenderPropertiesShader(billboard, properties, blendMode === 3 || blendMode === 4, resources);
+    const build = (engine: EngineContext) => buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, resources);
     if (properties.translationPivot.x || properties.translationPivot.y) {
         const pickSource: ParticleRenderPropertiesPickSource = { system: billboard, translationPivot: properties.translationPivot };
         return addParticleSceneRenderable(scene, pickSource, () => import("./particle-billboard-render-properties-pick.js"), build);
@@ -209,10 +239,10 @@ export function buildParticleRenderPropertiesBillboardRenderable(
     engine: EngineContext,
     billboard: FacingBillboardSpriteSystem,
     properties: ParticleRenderProperties,
-    buildBase: typeof buildBillboardRenderable
+    resources: ParticleBillboardRenderResources
 ): { renderable: Renderable; dispose: () => void } {
     const system = billboard as FacingBillboardSpriteSystem;
-    const built = buildBase(engine, system, false);
+    const built = resources.buildBillboardRenderable(engine, system, false);
     applyParticleRenderingGroup(built.renderable, properties.renderingGroupId);
     if (system.blendMode._particlePasses !== 2) {
         return built;
@@ -221,15 +251,15 @@ export function buildParticleRenderPropertiesBillboardRenderable(
     const addSystem = {
         ...system,
         blendMode: createParticleBlend(2),
-        _customShader: createRenderPropertiesShader(properties, false),
+        _customShader: createRenderPropertiesShader(properties, false, resources),
         shaderParams: undefined,
     } as BillboardSpriteSystem;
-    const pipelineCache = createBillboardPipelineCache();
-    const uniformBuffer = createEmptyUniformBuffer(engine, BILLBOARD_SYSTEM_UBO_BYTES, "particle-render-properties-add-system-ubo");
-    const addFx = createPropertiesFx(engine, "particle-render-properties-add-ubo", properties, false);
+    const pipelineCache = resources.createBillboardPipelineCache();
+    const uniformBuffer = resources.createEmptyUniformBuffer(engine, resources.BILLBOARD_SYSTEM_UBO_BYTES, "particle-render-properties-add-system-ubo");
+    const addFx = createPropertiesFx(engine, "particle-render-properties-add-ubo", properties, false, resources);
     const bindGroups = new Map<GPURenderPipeline, GPUBindGroup>();
-    const scratchUbo = new F32(BILLBOARD_SYSTEM_UBO_BYTES / 4);
-    const lastUbo = new F32(BILLBOARD_SYSTEM_UBO_BYTES / 4);
+    const scratchUbo = new F32(resources.BILLBOARD_SYSTEM_UBO_BYTES / 4);
+    const lastUbo = new F32(resources.BILLBOARD_SYSTEM_UBO_BYTES / 4);
     const bindPrimary = built.renderable.bind;
     let uboUploaded = false;
     let disposed = false;
@@ -240,7 +270,7 @@ export function buildParticleRenderPropertiesBillboardRenderable(
         }
         const primary = bindPrimary(bindEngine, target);
         const sampleCount = target._sampleCount === 1 ? 1 : 4;
-        const addPipeline = getOrCreateBillboardPipeline(
+        const addPipeline = resources.getOrCreateBillboardPipeline(
             bindEngine,
             pipelineCache,
             target._colorFormat!,
@@ -251,7 +281,7 @@ export function buildParticleRenderPropertiesBillboardRenderable(
         );
         let addBindGroup = bindGroups.get(addPipeline);
         if (!addBindGroup) {
-            addBindGroup = createBillboardSystemBindGroup(bindEngine, addPipeline, addSystem, uniformBuffer, addFx);
+            addBindGroup = resources.createBillboardSystemBindGroup(bindEngine, addPipeline, addSystem, uniformBuffer, addFx);
             bindGroups.set(addPipeline, addBindGroup);
         }
         return {
@@ -259,8 +289,8 @@ export function buildParticleRenderPropertiesBillboardRenderable(
             pipeline: primary.pipeline,
             update(context) {
                 primary.update?.(context);
-                buildBillboardSystemUbo(system, scratchUbo);
-                writeBillboardSystemUboIfDirty(bindEngine._device, uniformBuffer, scratchUbo, lastUbo, !uboUploaded);
+                resources.buildBillboardSystemUbo(system, scratchUbo);
+                resources.writeBillboardSystemUboIfDirty(bindEngine._device, uniformBuffer, scratchUbo, lastUbo, !uboUploaded);
                 uboUploaded = true;
             },
             draw(pass, drawEngine) {
@@ -288,7 +318,7 @@ export function buildParticleRenderPropertiesBillboardRenderable(
             uniformBuffer.destroy();
             addFx.destroy();
             bindGroups.clear();
-            resetBillboardPipelineCache(pipelineCache);
+            resources.resetBillboardPipelineCache(pipelineCache);
         },
     };
 }

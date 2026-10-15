@@ -1,5 +1,4 @@
 import type { Color4, Vec2 } from "../../math/types.js";
-import { installParticleBillboardMode } from "../particle-billboard-modes.js";
 import type { ParticleBillboardMode } from "../particle-billboard-modes.js";
 import type { ParticleRenderProperties } from "../particle-billboard-render-properties.js";
 import type { NpeBlockEvaluator } from "./npe-build.js";
@@ -17,7 +16,8 @@ function resolveMode(isBillboardBased: unknown, serializedMode: unknown): Partic
     throw new Error(`NodeParticle: unsupported billboard mode ${mode}`);
 }
 
-const systemBillboardModesBlock: NpeBlockEvaluator = {
+/** Optional SystemBlock rendering; selection is performed once by the compiler. */
+export const systemRenderBlock: NpeBlockEvaluator = {
     build(block, ctx) {
         (ctx.isConnected(block, "emitRate") ? systemDynamicEmitRateBlock : systemBlock).build(block, ctx);
         const pivot = (ctx.input(block, "translationPivot", () => ({ x: 0, y: 0 }))(0) as Vec2 | null) || { x: 0, y: 0 };
@@ -27,16 +27,22 @@ const systemBillboardModesBlock: NpeBlockEvaluator = {
             textureMask: { r: mask.r, g: mask.g, b: mask.b, a: mask.a },
             renderingGroupId: typeof block.renderingGroupId === "number" ? block.renderingGroupId : 0,
         };
-        installParticleBillboardMode(ctx.state.system!, resolveMode(block.isBillboardBased, block.billBoardMode), properties, ctx.state.isLocal, ctx.state.emitterWorldMatrix);
+        const { system, isLocal, emitterWorldMatrix } = ctx.state;
+        if (block.isBillboardBased === false || (block.billBoardMode ?? 7) !== 7) {
+            const mode = resolveMode(block.isBillboardBased, block.billBoardMode);
+            ctx.addBuildPromise(
+                import("../particle-billboard-modes.js").then(({ installParticleBillboardMode }) =>
+                    installParticleBillboardMode(system!, mode, properties, isLocal, emitterWorldMatrix)
+                )
+            );
+        } else {
+            ctx.addBuildPromise(
+                import("../particle-billboard-render-properties.js").then(async ({ addFacingBillboardSystemWithParticleRenderProperties, loadParticleRenderPropertyResources }) => {
+                    const resources = await loadParticleRenderPropertyResources();
+                    system!._registerBillboard = (scene, billboard) =>
+                        addFacingBillboardSystemWithParticleRenderProperties(scene, billboard, system!.blendMode, properties, resources);
+                })
+            );
+        }
     },
 };
-
-/** Resolve the optional SystemBlock billboard-mode evaluator. */
-export function loadBillboardModesBlockEvaluator(className: string): NpeBlockEvaluator {
-    if (className === "SystemBlock") {
-        return systemBillboardModesBlock;
-    }
-    throw new Error(`NodeParticle: unsupported billboard-modes block "${className}"`);
-}
-
-export { loadBillboardModesBlockEvaluator as load };

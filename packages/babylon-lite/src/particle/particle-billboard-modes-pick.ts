@@ -3,7 +3,6 @@ import type { EngineContext } from "../engine/engine.js";
 import { F32, U32 } from "../engine/typed-arrays.js";
 import { getPickingSceneBGL } from "../picking/picking-scene-bgl.js";
 import type { PickContributor } from "../picking/pick-contributor.js";
-import { BILLBOARD_INDEX_DATA } from "../sprite/billboard-pipeline.js";
 import {
     makeParticleBillboardModeVertexWgsl,
     packParticleBillboardModeInstances,
@@ -110,14 +109,14 @@ function getPipeline(engine: EngineContext, mode: ParticleBillboardMode, detaile
     return pipeline;
 }
 
-function createResources(engine: EngineContext, source: ParticleBillboardModePickSource): PickResources {
+function createResources(engine: EngineContext, source: ParticleBillboardModePickSource, indexData: Uint16Array): PickResources {
     const system = source.system;
     const strideFloats = particleBillboardModeInstanceFloats(system._particleBillboardMode);
     const instanceCapacity = Math.max(1, system._capacity);
     const ubo = engine._device.createBuffer({ label: "particle-billboard-mode-pick-ubo", size: PICK_UBO_BYTES, usage: BU.UNIFORM | BU.COPY_DST });
     const uboData = new ArrayBuffer(PICK_UBO_BYTES);
-    const indexBuffer = engine._device.createBuffer({ label: "particle-billboard-mode-pick-indices", size: BILLBOARD_INDEX_DATA.byteLength, usage: BU.INDEX | BU.COPY_DST });
-    engine._device.queue.writeBuffer(indexBuffer, 0, BILLBOARD_INDEX_DATA);
+    const indexBuffer = engine._device.createBuffer({ label: "particle-billboard-mode-pick-indices", size: indexData.byteLength, usage: BU.INDEX | BU.COPY_DST });
+    engine._device.queue.writeBuffer(indexBuffer, 0, indexData);
     return {
         ubo,
         uboData,
@@ -143,7 +142,7 @@ function disposeResources(resources: PickResources): void {
 }
 
 /** Build the lazy exact picker for one serialized particle billboard mode. */
-export function createPickContributor(source: ParticleBillboardModePickSource): PickContributor {
+export function createPickContributor(source: ParticleBillboardModePickSource, indexData: Uint16Array): PickContributor {
     const system = source.system;
     let resources: PickResources | null = null;
     return {
@@ -152,7 +151,7 @@ export function createPickContributor(source: ParticleBillboardModePickSource): 
             if (!system.visible || count === 0) {
                 return baseId + count;
             }
-            resources ??= createResources(ctx.engine, source);
+            resources ??= createResources(ctx.engine, source, indexData);
             const strideFloats = particleBillboardModeInstanceFloats(system._particleBillboardMode);
             if (system._capacity > resources.instanceCapacity) {
                 resources.instanceBuffer.destroy();

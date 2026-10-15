@@ -8,10 +8,7 @@ import { applyParticleRenderingGroup } from "./particle-rendering-group.js";
 import { addParticleSceneRenderable } from "./particle-scene-renderable.js";
 import type { DrawBinding, DrawUpdateContext, Renderable } from "../render/renderable.js";
 import { getSceneBindGroupLayout } from "../render/scene-helpers.js";
-import { createEmptyUniformBuffer, createMappedBuffer } from "../resource/gpu-buffers.js";
 import type { SceneContext } from "../scene/scene-core.js";
-import { SCENE_UBO_WGSL } from "../shader/scene-uniforms.js";
-import { BILLBOARD_INDEX_DATA, BILLBOARD_SYSTEM_UBO_BYTES, buildBillboardSystemUbo, writeBillboardSystemUboIfDirty } from "../sprite/billboard-pipeline.js";
 import type { FacingBillboardSpriteSystem } from "../sprite/billboard-sprite.js";
 import { BILLBOARD_INSTANCE_FLOATS_PER_SPRITE } from "../sprite/billboard-sprite.js";
 import { column } from "./particle-buffer.js";
@@ -19,6 +16,30 @@ import { syncParticleBillboard } from "./particle-billboard.js";
 import type { ParticleRenderProperties } from "./particle-billboard-render-properties.js";
 import { createParticleBlend } from "./particle-blend.js";
 import type { ParticleSystem } from "./particle-system.js";
+
+/** @internal Resolve only mode-renderer dependencies without allowing the lazy namespace to escape. */
+export async function loadParticleBillboardModeResources() {
+    const {
+        BILLBOARD_INDEX_DATA,
+        BILLBOARD_SYSTEM_UBO_BYTES,
+        buildBillboardSystemUbo,
+        writeBillboardSystemUboIfDirty,
+        createEmptyUniformBuffer,
+        createMappedBuffer,
+        SCENE_UBO_WGSL,
+    } = await import("./particle-billboard-renderer.js");
+    return {
+        BILLBOARD_INDEX_DATA,
+        BILLBOARD_SYSTEM_UBO_BYTES,
+        buildBillboardSystemUbo,
+        writeBillboardSystemUboIfDirty,
+        createEmptyUniformBuffer,
+        createMappedBuffer,
+        SCENE_UBO_WGSL,
+    };
+}
+
+type ParticleBillboardRenderResources = Awaited<ReturnType<typeof loadParticleBillboardModeResources>>;
 
 /** @internal Specialized serialized particle billboard modes. Zero means non-billboard geometry. */
 export type ParticleBillboardMode = 0 | 2 | 8 | 9;
@@ -204,7 +225,7 @@ return out;
 }`;
 }
 
-function makeModeWgsl(mode: ParticleBillboardMode): string {
+function makeModeWgsl(mode: ParticleBillboardMode, SCENE_UBO_WGSL: string): string {
     return `${SCENE_UBO_WGSL}
 struct S {
 opacityMul: vec4f,
@@ -248,11 +269,11 @@ function getDeviceCache(device: GPUDevice): ModeDeviceCache {
     return cache;
 }
 
-function getShaderModule(engine: EngineContext, mode: ParticleBillboardMode): GPUShaderModule {
+function getShaderModule(engine: EngineContext, mode: ParticleBillboardMode, resources: ParticleBillboardRenderResources): GPUShaderModule {
     const cache = getDeviceCache(engine._device);
     let module = cache.modules.get(mode);
     if (!module) {
-        module = engine._device.createShaderModule({ code: makeModeWgsl(mode) });
+        module = engine._device.createShaderModule({ code: makeModeWgsl(mode, resources.SCENE_UBO_WGSL) });
         cache.modules.set(mode, module);
     }
     return module;
@@ -280,7 +301,8 @@ function getPipeline(
     engine: EngineContext,
     target: RenderTargetSignature,
     system: ParticleBillboardModeSystem,
-    blendMode: FacingBillboardSpriteSystem["blendMode"]
+    blendMode: FacingBillboardSpriteSystem["blendMode"],
+    resources: ParticleBillboardRenderResources
 ): GPURenderPipeline {
     if (!target._depthStencilFormat) {
         throw new Error("BillboardSpriteSystem requires a depth-stencil render target.");
@@ -301,7 +323,7 @@ function getPipeline(
             { binding: 3, visibility: SS.VERTEX | SS.FRAGMENT, buffer: { type: "uniform" } },
         ],
     });
-    const module = getShaderModule(engine, system._particleBillboardMode);
+    const module = getShaderModule(engine, system._particleBillboardMode, resources);
     pipeline = device.createRenderPipeline({
         label: "particle-billboard-mode-pipeline",
         layout: device.createPipelineLayout({ bindGroupLayouts: [getSceneBindGroupLayout(engine), layout] }),
@@ -321,8 +343,14 @@ function getPipeline(
     return pipeline;
 }
 
-function createPropertiesBuffer(engine: EngineContext, properties: ParticleRenderProperties, multiplyPass: boolean, label: string): GPUBuffer {
-    const buffer = createEmptyUniformBuffer(engine, MODE_PROPERTIES_UBO_BYTES, label);
+function createPropertiesBuffer(
+    engine: EngineContext,
+    properties: ParticleRenderProperties,
+    multiplyPass: boolean,
+    label: string,
+    resources: ParticleBillboardRenderResources
+): GPUBuffer {
+    const buffer = resources.createEmptyUniformBuffer(engine, MODE_PROPERTIES_UBO_BYTES, label);
     const values = new F32(MODE_PROPERTIES_UBO_BYTES / 4);
     values[0] = properties.translationPivot.x;
     values[1] = properties.translationPivot.y;
@@ -384,7 +412,8 @@ export function packParticleBillboardModeInstances(system: ParticleBillboardMode
 export function buildParticleBillboardModeRenderable(
     engine: EngineContext,
     system: ParticleBillboardModeSystem,
-    properties: ParticleRenderProperties
+    properties: ParticleRenderProperties,
+    resources: ParticleBillboardRenderResources
 ): { renderable: Renderable; dispose: () => void } {
     const device = engine._device;
     const strideFloats = particleBillboardModeInstanceFloats(system._particleBillboardMode);
@@ -392,20 +421,21 @@ export function buildParticleBillboardModeRenderable(
     let instanceCapacity = system._capacity;
     let instanceBuffer = device.createBuffer({ label: "particle-billboard-mode-instances", size: instanceCapacity * strideBytes, usage: BU.VERTEX | BU.COPY_DST });
     let staging = new F32(instanceCapacity * strideFloats);
-    const indexBuffer = createMappedBuffer(engine, BILLBOARD_INDEX_DATA, BU.INDEX);
-    const uniformBuffer = createEmptyUniformBuffer(engine, BILLBOARD_SYSTEM_UBO_BYTES, "particle-billboard-mode-system-ubo");
+    const indexBuffer = resources.createMappedBuffer(engine, resources.BILLBOARD_INDEX_DATA, BU.INDEX);
+    const uniformBuffer = resources.createEmptyUniformBuffer(engine, resources.BILLBOARD_SYSTEM_UBO_BYTES, "particle-billboard-mode-system-ubo");
     const primaryProperties = createPropertiesBuffer(
         engine,
         properties,
         system.blendMode._particlePasses === 1 || system.blendMode._particlePasses === 2,
-        "particle-billboard-mode-properties"
+        "particle-billboard-mode-properties",
+        resources
     );
-    const addProperties = system.blendMode._particlePasses === 2 ? createPropertiesBuffer(engine, properties, false, "particle-billboard-mode-add-properties") : null;
+    const addProperties = system.blendMode._particlePasses === 2 ? createPropertiesBuffer(engine, properties, false, "particle-billboard-mode-add-properties", resources) : null;
     const addBlend = addProperties ? createParticleBlend(2) : null;
     const primaryBindGroups = new Map<GPURenderPipeline, GPUBindGroup>();
     const addBindGroups = new Map<GPURenderPipeline, GPUBindGroup>();
-    const scratchUbo = new F32(BILLBOARD_SYSTEM_UBO_BYTES / 4);
-    const lastUbo = new F32(BILLBOARD_SYSTEM_UBO_BYTES / 4);
+    const scratchUbo = new F32(resources.BILLBOARD_SYSTEM_UBO_BYTES / 4);
+    const lastUbo = new F32(resources.BILLBOARD_SYSTEM_UBO_BYTES / 4);
     let uploadedVersion = -1;
     let uploadedCamera: Camera | null = null;
     let uploadedCameraViewVersion = -1;
@@ -419,13 +449,13 @@ export function buildParticleBillboardModeRenderable(
         _direct: true,
         _worldCenter: [0, 0, 0],
         bind(bindEngine, target): DrawBinding {
-            const primaryPipeline = getPipeline(bindEngine, target, system, system.blendMode);
+            const primaryPipeline = getPipeline(bindEngine, target, system, system.blendMode, resources);
             let primaryBindGroup = primaryBindGroups.get(primaryPipeline);
             if (!primaryBindGroup) {
                 primaryBindGroup = createModeBindGroup(bindEngine, primaryPipeline, system, uniformBuffer, primaryProperties);
                 primaryBindGroups.set(primaryPipeline, primaryBindGroup);
             }
-            const addPipeline = addBlend ? getPipeline(bindEngine, target, system, addBlend) : null;
+            const addPipeline = addBlend ? getPipeline(bindEngine, target, system, addBlend, resources) : null;
             let addBindGroup = addPipeline ? addBindGroups.get(addPipeline) : undefined;
             if (addPipeline && !addBindGroup) {
                 addBindGroup = createModeBindGroup(bindEngine, addPipeline, system, uniformBuffer, addProperties!);
@@ -500,8 +530,8 @@ export function buildParticleBillboardModeRenderable(
             uploadedCameraViewVersion = camera?.worldMatrixVersion ?? -1;
             refreshWorldCenter();
         }
-        buildBillboardSystemUbo(system, scratchUbo);
-        writeBillboardSystemUboIfDirty(device, uniformBuffer, scratchUbo, lastUbo, !uboUploaded);
+        resources.buildBillboardSystemUbo(system, scratchUbo);
+        resources.writeBillboardSystemUboIfDirty(device, uniformBuffer, scratchUbo, lastUbo, !uboUploaded);
         uboUploaded = true;
     }
 
@@ -570,7 +600,11 @@ export function addParticleBillboardModeSystem(scene: SceneContext, system: Part
     return addParticleSceneRenderable(
         scene,
         pickSource,
-        () => import("./particle-billboard-modes-pick.js"),
-        (engine) => buildParticleBillboardModeRenderable(engine, system, properties)
+        async () => {
+            const { createPickContributor } = await import("./particle-billboard-modes-pick.js");
+            const { BILLBOARD_INDEX_DATA } = await import("./particle-billboard-renderer.js");
+            return { createPickContributor: (source: ParticleBillboardModePickSource) => createPickContributor(source, BILLBOARD_INDEX_DATA) };
+        },
+        async (engine) => buildParticleBillboardModeRenderable(engine, system, properties, await loadParticleBillboardModeResources())
     );
 }

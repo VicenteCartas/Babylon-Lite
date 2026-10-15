@@ -6,13 +6,14 @@ gpuGlobals.GPUBufferUsage ??= { UNIFORM: 0x40, COPY_DST: 0x8 } as unknown as GPU
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { loadRenderPropertiesBlockEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-pack-render-properties";
+import { systemRenderBlock } from "../../../packages/babylon-lite/src/particle/node/npe-pack-system-render";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import { createParticleBillboard } from "../../../packages/babylon-lite/src/particle/particle-billboard";
 import {
     addFacingBillboardSystemWithParticleRenderProperties,
     buildParticleRenderPropertiesBillboardRenderable,
+    loadParticleRenderPropertyResources,
     PARTICLE_RENDER_PROPERTIES_UBO_BYTES,
 } from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties";
 import { createParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
@@ -52,13 +53,14 @@ function texture(): Texture2D {
 }
 
 describe("NPE SystemBlock render properties", () => {
-    it("preserves the wrapped primary binding renderable in MultiplyAdd mode", () => {
+    it("preserves the wrapped primary binding renderable in MultiplyAdd mode", async () => {
+        const resources = await loadParticleRenderPropertyResources();
         const system = createParticleSystem(1);
         system.texture = texture();
         const billboard = createParticleBillboard(system);
         const properties = { translationPivot: { x: 0, y: 0 }, textureMask: { r: 1, g: 1, b: 1, a: 1 }, renderingGroupId: 0 };
         const scene = { _disposables: [], _pickSources: [], _deferredBuilders: [] } as unknown as SceneContext;
-        addFacingBillboardSystemWithParticleRenderProperties(scene, billboard, 4, properties);
+        addFacingBillboardSystemWithParticleRenderProperties(scene, billboard, 4, properties, resources);
         const engine = {
             _device: {
                 createBuffer: vi.fn(() => ({ destroy: vi.fn() })),
@@ -74,7 +76,7 @@ describe("NPE SystemBlock render properties", () => {
         const primaryBind = vi.fn(() => ({ renderable: view, pipeline: {} as GPURenderPipeline, draw: () => 1 }));
         const renderable = { order: 200, isTransparent: true, bind: primaryBind } satisfies Renderable;
         const buildBase = vi.fn(() => ({ renderable, dispose: vi.fn() }));
-        const built = buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, buildBase);
+        const built = buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, { ...resources, buildBillboardRenderable: buildBase });
 
         const binding = built.renderable.bind(engine, { _colorFormat: "bgra8unorm", _depthStencilFormat: "depth32float", _sampleCount: 1 });
 
@@ -86,20 +88,20 @@ describe("NPE SystemBlock render properties", () => {
     });
 
     it.each([
-        { name: "empty mask", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [] }, properties: {}, direct: false, dynamic: true },
-        { name: "short white mask", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [1, 1, 1] }, properties: {}, direct: false, dynamic: false },
-        { name: "extra mask component", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [1, 1, 1, 1, 0] }, properties: {}, direct: false, dynamic: false },
-        { name: "partial nonwhite mask", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [0.5] }, properties: {}, direct: true, dynamic: true },
+        { name: "empty mask", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [] }, properties: {}, selected: false },
+        { name: "short white mask", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [1, 1, 1] }, properties: {}, selected: false },
+        { name: "extra mask component", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [1, 1, 1, 1, 0] }, properties: {}, selected: true },
+        { name: "partial nonwhite mask", input: { name: "textureMask", valueType: "BABYLON.Color4", value: [0.5] }, properties: {}, selected: true },
         {
             name: "mistyped group",
             input: { name: "translationPivot", valueType: "BABYLON.Vector2", value: [0, 0] },
             properties: { renderingGroupId: "2" },
-            direct: false,
-            dynamic: false,
+            selected: true,
         },
-        { name: "non-finite pivot", input: { name: "translationPivot", valueType: "BABYLON.Vector2", value: [NaN, 0] }, properties: {}, direct: false, dynamic: true },
-        { name: "trimmed input name", input: { name: " translationPivot ", valueType: "BABYLON.Vector2", value: [0.25, 0] }, properties: {}, direct: true, dynamic: true },
-    ])("preserves routing and selection for $name", async ({ input, properties, direct, dynamic }) => {
+        { name: "non-finite pivot", input: { name: "translationPivot", valueType: "BABYLON.Vector2", value: [NaN, 0] }, properties: {}, selected: true },
+        { name: "trimmed input name", input: { name: " translationPivot ", valueType: "BABYLON.Vector2", value: [0.25, 0] }, properties: {}, selected: true },
+        { name: "untyped pivot", input: { name: "translationPivot", value: [0.25, 0] }, properties: {}, selected: true },
+    ])("classifies $name consistently with or without connected emit rate", async ({ input, properties, selected }) => {
         for (const connectedRate of [false, true]) {
             const source = systemSource([input], properties, connectedRate ? [{ customType: "BABYLON.ParticleInputBlock", id: 1, type: 0x0002, value: 17, inputs: [] }] : []) as {
                 blocks: Array<{ customType: string; inputs: Array<Record<string, unknown>> }>;
@@ -112,7 +114,7 @@ describe("NPE SystemBlock render properties", () => {
                 };
             }
             const { system } = await build(source);
-            expect(typeof system._registerBillboard === "function").toBe(connectedRate ? dynamic : direct);
+            expect(typeof system._registerBillboard === "function").toBe(selected);
             if (connectedRate) {
                 expect(system._emitRateGetter?.()).toBe(17);
             }
@@ -168,7 +170,8 @@ describe("NPE SystemBlock render properties", () => {
         expect(system._registerBillboard).toBeTypeOf("function");
     });
 
-    it("evaluates and snapshots scratch-backed pivot and mask values once", () => {
+    it("evaluates and snapshots scratch-backed pivot and mask values once", async () => {
+        const pending: Promise<void>[] = [];
         const system = createParticleSystem(1);
         const scratch = { x: 0.25, y: -0.5, r: 0.2, g: 0.4, b: 0.6, a: 0.8 };
         const pivotGetter = vi.fn(() => scratch);
@@ -176,6 +179,7 @@ describe("NPE SystemBlock render properties", () => {
         const block = { id: 1, customType: "BABYLON.SystemBlock", inputs: [] } as ParsedParticleBlock;
         const ctx = {
             state: { system },
+            addBuildPromise: (promise: Promise<void>) => pending.push(promise),
             input(_block: ParsedParticleBlock, name: string, fallback?: () => unknown) {
                 return name === "translationPivot" ? pivotGetter : name === "textureMask" ? maskGetter : fallback!;
             },
@@ -184,8 +188,9 @@ describe("NPE SystemBlock render properties", () => {
             },
         } as unknown as NpeBuildContext;
 
-        loadRenderPropertiesBlockEvaluator("SystemBlock").build(block, ctx);
+        systemRenderBlock.build(block, ctx);
         Object.assign(scratch, { x: 9, y: 9, r: 9, g: 9, b: 9, a: 9 });
+        await Promise.all(pending);
         system.texture = texture();
         const billboard = createParticleBillboard(system);
         const scene = { _disposables: [], _pickSources: [], _deferredBuilders: [] } as unknown as SceneContext;
@@ -205,11 +210,13 @@ describe("NPE SystemBlock render properties", () => {
         fx.destroy();
     });
 
-    it("uses Babylon's zero-pivot and white-mask fallbacks for connected null values", () => {
+    it("uses Babylon's zero-pivot and white-mask fallbacks for connected null values", async () => {
+        const pending: Promise<void>[] = [];
         const system = createParticleSystem(1);
         const block = { id: 1, customType: "BABYLON.SystemBlock", inputs: [] } as ParsedParticleBlock;
         const ctx = {
             state: { system },
+            addBuildPromise: (promise: Promise<void>) => pending.push(promise),
             input(_block: ParsedParticleBlock, name: string, fallback?: () => unknown) {
                 return name === "translationPivot" || name === "textureMask" ? () => null : fallback!;
             },
@@ -218,7 +225,8 @@ describe("NPE SystemBlock render properties", () => {
             },
         } as unknown as NpeBuildContext;
 
-        loadRenderPropertiesBlockEvaluator("SystemBlock").build(block, ctx);
+        systemRenderBlock.build(block, ctx);
+        await Promise.all(pending);
         system.texture = texture();
         const billboard = createParticleBillboard(system);
         const scene = { _disposables: [], _pickSources: [], _deferredBuilders: [] } as unknown as SceneContext;

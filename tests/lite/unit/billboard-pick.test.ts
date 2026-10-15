@@ -163,23 +163,37 @@ describe("particle render-property picking", () => {
         expect(Array.from(system._instanceData.slice(0, 3))).toEqual([1, 2, 3]);
     });
 
-    it("registers the specialized lazy pick source only for a nonzero translation pivot", () => {
+    it("registers the specialized lazy pick source only for a nonzero translation pivot", async () => {
+        const resources = await loadParticleRenderPropertyResources();
         const translatedScene = makeStubScene();
         const translated = createFacingBillboardSystem(makeMockAtlas());
-        addFacingBillboardSystemWithParticleRenderProperties(translatedScene, translated, 2, {
-            translationPivot: { x: 0.25, y: 0 },
-            textureMask: { r: 1, g: 1, b: 1, a: 1 },
-            renderingGroupId: 0,
-        });
+        addFacingBillboardSystemWithParticleRenderProperties(
+            translatedScene,
+            translated,
+            2,
+            {
+                translationPivot: { x: 0.25, y: 0 },
+                textureMask: { r: 1, g: 1, b: 1, a: 1 },
+                renderingGroupId: 0,
+            },
+            resources
+        );
         const ordinaryScene = makeStubScene();
         const ordinary = createFacingBillboardSystem(makeMockAtlas());
-        addFacingBillboardSystemWithParticleRenderProperties(ordinaryScene, ordinary, 2, {
-            translationPivot: { x: 0, y: 0 },
-            textureMask: { r: 0.5, g: 1, b: 1, a: 1 },
-            renderingGroupId: 1,
-        });
+        addFacingBillboardSystemWithParticleRenderProperties(
+            ordinaryScene,
+            ordinary,
+            2,
+            {
+                translationPivot: { x: 0, y: 0 },
+                textureMask: { r: 0.5, g: 1, b: 1, a: 1 },
+                renderingGroupId: 1,
+            },
+            resources
+        );
 
         expect(translatedScene._pickSources[0]!.entity).toMatchObject({ system: translated, translationPivot: { x: 0.25, y: 0 } });
         expect(ordinaryScene._pickSources[0]!.entity).toBe(ordinary);
     });
 });
+import { loadParticleRenderPropertyResources } from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties";

@@ -687,11 +687,17 @@ describe("addFacingBillboardSystemWithParticleRenderProperties", () => {
         const multiplyAdd = createParticleBlend(4);
         const system = createFacingBillboardSystem(makeMockAtlas(), { capacity: 1, blendMode: multiplyAdd });
         addBillboardSpriteIndex(system, { position: [0, 0, 0], sizeWorld: [1, 1] });
-        addFacingBillboardSystemWithParticleRenderProperties(scene, system, 4, {
-            translationPivot: { x: 0.25, y: -0.5 },
-            textureMask: { r: 0.2, g: 0.4, b: 0.6, a: 0.8 },
-            renderingGroupId: 3,
-        });
+        addFacingBillboardSystemWithParticleRenderProperties(
+            scene,
+            system,
+            4,
+            {
+                translationPivot: { x: 0.25, y: -0.5 },
+                textureMask: { r: 0.2, g: 0.4, b: 0.6, a: 0.8 },
+                renderingGroupId: 3,
+            },
+            await loadParticleRenderPropertyResources()
+        );
         await registerScene(scene);
 
         expect(system._customShader?._key).toBe("particle-render-properties");
@@ -945,3 +951,4 @@ return vec4<f32>(base.rgb * (0.5 + 0.5 * sin(fx.time + fx.params.x)), base.a);`;
         expect(SPRITE_FX_UBO_BYTES).toBe(32);
     });
 });
+import { loadParticleRenderPropertyResources } from "../../../packages/babylon-lite/src/particle/particle-billboard-render-properties";

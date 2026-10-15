@@ -53,22 +53,16 @@ function findInput(block: ParsedParticleBlock, name: string): ParsedParticleInpu
     return block.inputs.find((input) => input.name.trim() === name);
 }
 
-function usesSystemRenderProperties(block: CompiledParticleBlock): boolean {
-    const pivot = findInput(block, "translationPivot");
-    const mask = findInput(block, "textureMask");
-    const pivotValue = pivot?.value;
-    const maskValue = mask?.value;
+function usesSystemRenderFeatures(block: CompiledParticleBlock): boolean {
+    const hasNonDefaultValue = (input: ParsedParticleInput | undefined, defaultComponent: number) =>
+        isInputConnected(input) || (Array.isArray(input?.value) && input.value.some((component) => component !== defaultComponent));
     return (
-        isInputConnected(pivot) ||
-        isInputConnected(mask) ||
-        (pivot?.valueType === "BABYLON.Vector2" && Array.isArray(pivotValue) && Boolean(pivotValue[0] || pivotValue[1])) ||
-        (mask?.valueType === "BABYLON.Color4" && Array.isArray(maskValue) && maskValue.some((value) => value !== 1)) ||
-        Boolean(block.renderingGroupId)
+        hasNonDefaultValue(findInput(block, "translationPivot"), 0) ||
+        hasNonDefaultValue(findInput(block, "textureMask"), 1) ||
+        !!block.renderingGroupId ||
+        block.isBillboardBased === false ||
+        (block.billBoardMode ?? 7) !== 7
     );
-}
-
-function usesSystemBillboardMode(block: CompiledParticleBlock): boolean {
-    return block.isBillboardBased === false || (block.billBoardMode != null && block.billBoardMode !== 7);
 }
 
 /** Build state shared with every block evaluator during the walk. */
@@ -139,10 +133,15 @@ async function resolveEvaluator(
         const left = findInput(block, "left");
         variant = left?.targetBlockId != null && left.targetBlockId === findInput(block, "right")?.targetBlockId;
     } else if (className === "SystemBlock") {
-        variant = isInputConnected(findInput(block, "emitRate")) || usesSystemRenderProperties(block) || usesSystemBillboardMode(block);
+        variant = isInputConnected(findInput(block, "emitRate"));
     }
 
-    let evaluator = variant ? await (await loadVariants()).load(block) : ((await loadCompiledEvaluator?.(block)) ?? (await loadNpeBlockEvaluator(className)));
+    let evaluator =
+        className === "SystemBlock" && usesSystemRenderFeatures(block)
+            ? (await import("./npe-pack-system-render.js")).systemRenderBlock
+            : variant
+              ? await (await loadVariants()).load(block)
+              : ((await loadCompiledEvaluator?.(block)) ?? (await loadNpeBlockEvaluator(className)));
     if (className !== "SystemBlock") {
         return evaluator;
     }

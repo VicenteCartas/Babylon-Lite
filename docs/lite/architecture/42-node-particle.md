@@ -307,8 +307,8 @@ node/npe-flow-map.ts, node/npe-noise.ts, node/npe-texture-updates.ts
 node/npe-contextual*.ts  contextual source getters and optional columns
 node/npe-local-position.ts
                          local birth seeding and world-position conversion
-node/npe-pack-render-properties.ts
-                         lazy SystemBlock render-property evaluator and scene-registration installation
+node/npe-pack-system-render.ts
+                         direct lazy SystemBlock render evaluator, shared property capture, and renderer selection
 node/npe-registry*.ts    side-effect-free dynamic evaluator dispatch
 node/npe-registry-variants.ts
                          sprite-cell Int reachability detection and first-stage variant routing
@@ -786,7 +786,7 @@ Variant selection uses serialized data and connection identity:
 - Random lock mode `3` uses the scalar evaluator when the `min` or `max` value type selected by first availability is `number` or `int`; all vector and color tags use the typed evaluator.
 - Math uses the alias-safe evaluator when left and right have equal target ids and equal target connection names, including two absent or equivalently unconnected targets.
 - System uses the dynamic variant when `emitRate` is connected.
-- System uses the render-property variant before the dynamic-emit-rate variant when `translationPivot` or `textureMask` is connected, when either input has a non-default serialized literal, or when numeric `renderingGroupId !== 0`. The render-property evaluator delegates first to the dynamic or ordinary System evaluator as appropriate, so render properties and connected emit rate compose in one operation.
+- The compiler's single `usesSystemRenderFeatures` predicate selects `npe-pack-system-render.ts` directly when pivot/mask inputs are connected or non-default, renderingGroupId is truthy, billboarding is disabled, or `(billBoardMode ?? 7) !== 7`. The pack applies the dynamic or ordinary System evaluator, captures pivot/mask/group once, and loads only the selected geometry renderer. The variant router contains no System render classification; connected emit rate alone retains its ordinary variant route. Lifecycle and sub-emitter wrapping still follow evaluator selection.
 - SetupSpriteSheet uses the random variant only when `randomStartCell === true`.
 
 ### 7.6 Asynchronous texture work
@@ -962,7 +962,7 @@ The builder has created the system before this evaluator runs. The evaluator:
 - For a connected `emitRate`, the dynamic evaluator installs `_emitRateGetter`. Each call evaluates the graph at particle index `0` and returns its number result, or the system's constant `emitRate` when the result is not numeric. It is not evaluated during build.
 - Evaluates `targetStopDuration` once at build with fallback `0` and assigns a numeric result.
 
-The render-property variant first applies every rule above, including the connected emit-rate variant when needed, then resolves:
+The optional system-render evaluator first applies every rule above, including connected emit-rate behavior when needed, then resolves:
 
 ```ts
 translationPivot = ctx.input(block, "translationPivot", () => ({ x: 0, y: 0 }))(0);
@@ -1755,7 +1755,7 @@ clone.
 
 ### 10.0 Render-property ownership and ordering
 
-`translationPivot`, `textureMask`, and `renderingGroupId` are one coherent optional billboard feature. The generic billboard system, public billboard custom-shader API, Sprite2D bridge, particle instance layout, and base particle system remain unchanged. Only a graph selected by the System render-property variant imports `particle-billboard-render-properties.ts` and installs its registrar.
+`translationPivot`, `textureMask`, and `renderingGroupId` are one coherent optional billboard feature. The generic billboard system, public billboard custom-shader API, Sprite2D bridge, particle instance layout, and base particle system remain unchanged. Only a graph selected by the direct System render pack imports `particle-billboard-render-properties.ts` and installs its registrar. The particle-owned `particle-billboard-renderer.ts` is the single lazy entry for default particle registration, exact blends, and optional geometry renderers. It statically imports the base billboard builder and shared helpers; optional mode/property renderers destructure only their named dependencies from its dynamic import and never pass the module namespace as a value. They do not statically import pipeline, buffer, or scene-uniform modules. This keeps the shared pipeline with the particle renderer without retaining helper exports in unrelated sprite scenes. The mode picker receives index data as a parameter. No sprite module is changed.
 
 The feature object is immutable after System evaluation:
 
@@ -1835,7 +1835,7 @@ The Sprite2D bridges do not consume these three world-billboard properties. `tra
 |   `9` | STRETCHED_LOCAL | current `dirX/Y/Z`                       |
 |   any | non-billboard   | initial direction, then current fallback |
 
-The last row is selected only when `isBillboardBased === false`; its numeric mode is ignored. A true billboard with an unsupported numeric mode throws `NodeParticle: unsupported billboard mode <value>` during instantiation. Missing and explicit `(true, 7)` values retain the ordinary System evaluator and existing ALL renderer. Y, STRETCHED, STRETCHED_LOCAL, and non-billboard values route to `npe-pack-billboard-modes.ts` before the render-property and dynamic-emit-rate variants. That pack applies the same base/dynamic System behavior and captures the Phase 10 pivot, mask, and rendering-group values, so any combination is represented by one registrar and one renderable.
+The last row is selected only when `isBillboardBased === false`; its numeric mode is ignored. A true billboard with an unsupported numeric mode throws `NodeParticle: unsupported billboard mode <value>` during instantiation. Missing and explicit `(true, 7)` values retain the ordinary System evaluator and existing ALL renderer unless render properties select the optional pack. Y, STRETCHED, STRETCHED_LOCAL, and non-billboard values select the mode renderer inside `npe-pack-system-render.ts`. The same pack applies base/dynamic System behavior and captures the Phase 10 pivot, mask, and rendering-group values once, so any combination is represented by one registrar and one renderable.
 
 The generic billboard system, its fixed 16-float instance layout, and public custom-shader hook remain unchanged. The mode attachment owns a sidecar direction array only for direction-consuming modes and a specialized renderable. Its GPU staging layout is:
 
@@ -2297,7 +2297,7 @@ Local `*-npe.ts` graph payload modules are excluded from engine runtime-byte acc
 
 The compiler orchestrator is expected in every NPE program path. Its optional passes remain isolated: graphs without topology candidates do not fetch `npe-graph-plumbing-runtime.ts`; graphs without typed value-math candidates do not fetch `npe-value-compilation.ts`, `npe-registry-value-math.ts`, or value-math evaluator bodies; graphs without Loop LocalVariable candidates install no frame effect; graphs without CameraPosition or `AlignAngleBlock` do not fetch `npe-pack-camera.ts`; graphs without UpdateFlowMap candidates install no flow-map frame binding. Optional columns remain evaluator-owned and require no resource compiler. Unrelated scenes must not fetch Stage 5 evaluator chunks; byte movement from the broader compiler redesign is measured separately against master.
 
-Graphs with explicit default `(true, 7)` billboard settings reject `npe-pack-billboard-modes.ts`, `particle-billboard-modes.ts`, and `particle-billboard-modes-pick.ts`. Each Phase 11 positive fixture fetches the mode pack and renderer but not the pick body before a pick occurs. Phase 10-only pivot/mask/group graphs reject all Phase 11 modules. Mode graphs with default pivot/mask/group values reject the ALL-only `particle-billboard-render-properties.ts` body; combined graphs fetch one geometry renderer rather than both.
+Graphs with default render properties and explicit default `(true, 7)` billboard settings reject `npe-pack-system-render.ts`, `particle-billboard-modes.ts`, and `particle-billboard-modes-pick.ts`. Each Phase 11 positive fixture fetches the shared render pack and mode renderer but not the pick body before a pick occurs. Phase 10-only pivot/mask/group graphs reject the mode renderer and picker. Mode graphs reject the ALL-only `particle-billboard-render-properties.ts` body; combined graphs fetch one geometry renderer rather than both.
 
 The final measurements use CI baseline `d89a13c8a424b4227feaa0e9a927922f49239799`, which is equivalent for these particle scenes to current master `7889f8720fe2c36029899b4991b3e2b891697844`; the sole intervening commit changes only PLY loader parsing. Scene 276 is the positive Stage 5 fixture. Its Stage 5 path fetches the `523 B` first-stage variants router, `particle-input-sprite-cell-block.ts`, and `update-sprite-cell-index-block.ts`; it does not fetch `npe-registry-variants-extra.ts`, and direct sprite-cell use avoids general value compilation. It measures 44,286 raw bytes and 26.5 KB gzip, versus master's 43,241 raw bytes and 25.0 KB gzip: `+1,045` raw bytes and `+1.5 KB` gzip. Scene 302 fetches neither Stage 5 evaluator and measures 54,087 raw bytes, `132` bytes above master. Across all thirteen representative scenes, the largest raw increase is Scene 276 at `+1,045` bytes, followed by Scene 305 at `+1,044` bytes; no scene has a 3 KB regression and no non-Stage scene fetches a Stage 5 evaluator body.
 
@@ -2357,14 +2357,14 @@ and far plane `100`. Scene 337 translates camera target and emitter by `(1e6, 0,
 matrices/floating origin and Babylon's `useLargeWorldRendering`, and uses near plane `1` instead of `0.1`.
 Its `0.03 * 0.05 = 0.0015` X increment is below the F32 ULP at the emitter's absolute position.
 
-| Scene | Slug | Coverage |
-| --- | --- | --- |
-| 332 | `npe-core-updates` | BasicPositionUpdate, BasicColorUpdate, connected Vector2 UpdateScale, contextual Age multiplied by 0.96 into UpdateAge |
-| 333 | `npe-prewarm` | 90 prewarm cycles with step offset 2, continuous emission and a mature birth/death distribution; no post-start stepping |
-| 334 | `npe-camera-features` | CameraPosition system source 4 multiplied by 0.12 into direction, AlignAngle alignment 0.4, visibly elongated particles |
-| 335 | `npe-render-properties` | Three overlapping alpha-blended fields with distinct texture masks, translation pivots and groups authored in order 2/0/1; no opaque/depth-writing geometry |
-| 336 | `npe-billboard-modes` | Four side-by-side systems: Y, STRETCHED, STRETCHED_LOCAL, non-billboard; scale `(0.5, 2.2)` and angle `0.35` |
-| 337 | `npe-large-world` | F64 authoritative world-position integration and floating-origin particle rendering near million-unit coordinates |
+| Scene | Slug                    | Coverage                                                                                                                                                    |
+| ----- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 332   | `npe-core-updates`      | BasicPositionUpdate, BasicColorUpdate, connected Vector2 UpdateScale, contextual Age multiplied by 0.96 into UpdateAge                                      |
+| 333   | `npe-prewarm`           | 90 prewarm cycles with step offset 2, continuous emission and a mature birth/death distribution; no post-start stepping                                     |
+| 334   | `npe-camera-features`   | CameraPosition system source 4 multiplied by 0.12 into direction, AlignAngle alignment 0.4, visibly elongated particles                                     |
+| 335   | `npe-render-properties` | Three overlapping alpha-blended fields with distinct texture masks, translation pivots and groups authored in order 2/0/1; no opaque/depth-writing geometry |
+| 336   | `npe-billboard-modes`   | Four side-by-side systems: Y, STRETCHED, STRETCHED_LOCAL, non-billboard; scale `(0.5, 2.2)` and angle `0.35`                                                |
+| 337   | `npe-large-world`       | F64 authoritative world-position integration and floating-origin particle rendering near million-unit coordinates                                           |
 
 All textures use the same playground `flare.png`. Scene 333 intentionally does not use wall-clock `startDelay`;
 delayed start is covered by deterministic lifecycle unit tests rather than a timing-sensitive screenshot.
@@ -2413,8 +2413,8 @@ packages/babylon-lite/src/particle/node/npe-graph-plumbing-runtime.ts
 packages/babylon-lite/src/particle/node/npe-input.ts
 packages/babylon-lite/src/particle/node/npe-noise.ts
 packages/babylon-lite/src/particle/node/npe-pack-camera.ts
-packages/babylon-lite/src/particle/node/npe-pack-billboard-modes.ts
-packages/babylon-lite/src/particle/node/npe-pack-render-properties.ts
+packages/babylon-lite/src/particle/node/npe-pack-system-render.ts
+packages/babylon-lite/src/particle/particle-billboard-renderer.ts
 packages/babylon-lite/src/particle/node/npe-contextual-extra.ts
 packages/babylon-lite/src/particle/node/npe-contextual.ts
 packages/babylon-lite/src/particle/node/npe-local-position.ts

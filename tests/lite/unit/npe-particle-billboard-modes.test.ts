@@ -13,6 +13,7 @@ import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/part
 import { createParticleBillboard, syncParticleBillboard } from "../../../packages/babylon-lite/src/particle/particle-billboard";
 import {
     buildParticleBillboardModeRenderable,
+    loadParticleBillboardModeResources,
     installParticleBillboardMode,
     makeParticleBillboardModeVertexWgsl,
     packParticleBillboardModeInstances,
@@ -312,11 +313,11 @@ describe("particle billboard mode GPU contracts", () => {
         expect(Array.from(target.slice(35, 38))).toEqual([1, 2, 3]);
     });
 
-    it("preserves mask, translated pivot, rendering group, and ordered MultiplyAdd passes", () => {
+    it("preserves mask, translated pivot, rendering group, and ordered MultiplyAdd passes", async () => {
         const targetEngine = engine();
         const system = modeSystem(8, new Float32Array([0, 1, 0, 0, 0, 0]));
         (system as { blendMode: ReturnType<typeof createParticleBlend> }).blendMode = createParticleBlend(4);
-        const built = buildParticleBillboardModeRenderable(targetEngine, system, PROPERTIES);
+        const built = buildParticleBillboardModeRenderable(targetEngine, system, PROPERTIES, await loadParticleBillboardModeResources());
         const binding = built.renderable.bind(targetEngine, { _colorFormat: "bgra8unorm", _depthStencilFormat: "depth32float", _sampleCount: 1 });
         const device = targetEngine._device as unknown as {
             createRenderPipeline: ReturnType<typeof vi.fn>;
@@ -346,12 +347,12 @@ describe("particle billboard mode GPU contracts", () => {
         built.dispose();
     });
 
-    it("allocates picking resources lazily and resolves the original system and logical index", () => {
+    it("allocates picking resources lazily and resolves the original system and logical index", async () => {
         const targetEngine = engine();
         targetEngine.useFloatingOrigin = true;
         const system = modeSystem(9, new Float32Array([0, 1, 0, 0, 0, 0]));
         const source = { system, properties: PROPERTIES };
-        const contributor = createPickContributor(source);
+        const contributor = createPickContributor(source, (await loadParticleBillboardModeResources()).BILLBOARD_INDEX_DATA);
         const device = targetEngine._device as unknown as {
             createBuffer: ReturnType<typeof vi.fn>;
             createShaderModule: ReturnType<typeof vi.fn>;
