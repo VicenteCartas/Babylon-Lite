@@ -6,6 +6,8 @@ export const NPE_FEATURE_GENERAL = 1;
 export const NPE_FEATURE_FLOW_MAP = 2;
 /** Noise updates require their optional evaluator. */
 export const NPE_FEATURE_NOISE = 4;
+/** System connections require reusable sub-emitter plans. */
+export const NPE_FEATURE_SUB_EMITTERS = 8;
 /** Contextual Int inputs need sprite-cell reachability detection before value-type compilation. */
 export const NPE_FEATURE_CONTEXTUAL_INT = 0x10;
 /** Sprite-cell Int values reaching math require propagated value types. */
@@ -65,13 +67,22 @@ export interface CompilableNodeParticleGraph {
 export interface CompiledParticleBlock extends ParsedParticleBlock {
     /** @internal Evaluator implementation selected independently of the serialized class name. */
     readonly _evaluatorClassName?: string;
+    /** @internal Reusable system plans keyed by the consuming input name. */
+    readonly _systemPlans?: Readonly<Record<string, NodeParticleSystemPlan>>;
 }
 
 /** @internal Reusable executable operations for one system. */
 export type NodeParticleSystemPlan = readonly (CompiledParticleBlock | NpeBlockEvaluator)[];
 
+/** @internal Immutable metadata for one reachable named constant input. */
+export type NodeParticleInputPlan = ParsedParticleBlock;
+
 /** Opaque executable node-particle program produced by {@link compileNodeParticleGraph}. */
 export interface NodeParticleProgram {
     /** @internal Per-system alternating block/evaluator entries in post-order. */
     readonly _systems: readonly NodeParticleSystemPlan[];
+    /** @internal Reachable named constant inputs after serialized-order name collision resolution. */
+    readonly _inputs: readonly NodeParticleInputPlan[];
+    /** @internal True only when the executable plans contain Phase 13 system flow. */
+    readonly _subEmitters?: true;
 }

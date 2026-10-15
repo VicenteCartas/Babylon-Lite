@@ -59,6 +59,7 @@ function registerSystem(scene: SceneContext, system: ParticleSystem): void {
  */
 export function registerNodeParticleSet(scene: SceneContext, set: NodeParticleSet, options: RegisterNodeParticleOptions = {}): void {
     const autoStart = options.autoStart ?? true;
+    const unregisterChildren = set._registerChildren?.((system) => registerSystem(scene, system));
     for (const system of set.systems) {
         registerSystem(scene, system);
     }
@@ -72,5 +73,6 @@ export function registerNodeParticleSet(scene: SceneContext, set: NodeParticleSe
         for (const system of set.systems) {
             disposeParticleSystem(system);
         }
+        unregisterChildren?.();
     });
 }

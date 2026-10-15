@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        <title>Babylon Lite - Demo: NPE Sub-Emitters</title>
+        <style>
+            :root {
+                color-scheme: dark;
+                --ink: #f5f2e9;
+                --muted: #a8b6bc;
+                --panel: #101820;
+                --line: #34434b;
+                --warm: #ffab46;
+                --cool: #53d8cc;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                margin: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #03080b;
+            }
+            body {
+                color: var(--ink);
+                font:
+                    15px Georgia,
+                    "Times New Roman",
+                    serif;
+                letter-spacing: 0;
+            }
+            canvas {
+                display: block;
+                width: 100%;
+                height: 100%;
+                touch-action: none;
+            }
+            .labels {
+                position: fixed;
+                top: 18px;
+                right: 18px;
+                left: 18px;
+                z-index: 1;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 22px;
+                pointer-events: none;
+            }
+            .label {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                min-width: 0;
+                padding: 11px 13px;
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                background: color-mix(in srgb, var(--panel) 88%, transparent);
+                backdrop-filter: blur(10px);
+            }
+            .label strong {
+                color: var(--warm);
+                font-size: 16px;
+            }
+            .label:last-child strong {
+                color: var(--cool);
+            }
+            button {
+                min-height: 32px;
+                padding: 0 12px;
+                border: 1px solid #54717a;
+                border-radius: 5px;
+                color: var(--ink);
+                background: #1a2930;
+                font: inherit;
+                cursor: pointer;
+                pointer-events: auto;
+            }
+            button:hover {
+                background: #243940;
+            }
+            button:focus-visible {
+                outline: 2px solid var(--cool);
+                outline-offset: 2px;
+            }
+            .loading {
+                position: fixed;
+                inset: 0;
+                display: grid;
+                place-items: center;
+                background: #03080b;
+                font-weight: 700;
+                transition: opacity 0.3s ease;
+            }
+            .loading.is-hidden {
+                opacity: 0;
+                pointer-events: none;
+            }
+            @media (max-width: 620px) {
+                .labels {
+                    top: 12px;
+                    right: 12px;
+                    left: 12px;
+                    grid-template-columns: 1fr;
+                    gap: 8px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="renderCanvas"></canvas>
+        <div class="labels">
+            <div class="label"><strong>Particle trigger</strong><span>Position bursts</span></div>
+            <div class="label"><strong>Lifecycle</strong><button id="restartLifecycle" type="button">Restart</button></div>
+        </div>
+        <div id="loading" class="loading" role="status">Compiling sub-emitters...</div>
+        <script type="module" src="/lite/src/demos/npe-sub-emitters.ts"></script>
+    </body>
+</html>

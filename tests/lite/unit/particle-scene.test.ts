@@ -15,7 +15,7 @@ describe("particle scene registration", () => {
         first._prepareFrame = vi.fn(() => disposeParticleSystem(first));
         second._prepareFrame = vi.fn();
         const scene = { _beforeRender: [], _disposables: [] } as unknown as SceneContext;
-        registerNodeParticleSet(scene, { systems: [first, second] });
+        registerNodeParticleSet(scene, { systems: [first, second], inputs: {} });
         const [disposedTick, remainingTick] = scene._beforeRender;
 
         for (const tick of scene._beforeRender) {

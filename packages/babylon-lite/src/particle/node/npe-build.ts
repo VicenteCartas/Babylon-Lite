@@ -24,12 +24,14 @@ import { createParticleBuffer, type ParticleBuffer } from "../particle-buffer.js
 import { createParticleSystem, type ParticleEmitterInverse, type ParticleSystem } from "../particle-system.js";
 import type { NpeGetter, NpeValue } from "./npe-value.js";
 import { loadNpeBlockEvaluator } from "./npe-registry.js";
-import { parseParticleInputValue } from "./npe-input.js";
+import { createParticleInputHandles, parseParticleInputValue, type NpeInputCell, type ParticleInputHandle } from "./npe-input.js";
+import type { NodeParticleChildHost } from "./npe-sub-emitter-runtime.js";
 import {
     NODE_PARTICLE_CLASS_PREFIX_LENGTH,
     NPE_FEATURE_GENERAL,
     NPE_FEATURE_FLOW_MAP,
     NPE_FEATURE_NOISE,
+    NPE_FEATURE_SUB_EMITTERS,
     NPE_FEATURE_CONTEXTUAL_INT,
     NPE_TYPE_INT,
     NPE_CONTEXTUAL_DIRECTION,
@@ -88,6 +90,10 @@ export interface NpeBuildContext {
     isConnected(block: ParsedParticleBlock, name: string): boolean;
     setOutput(blockId: number, name: string, getter: NpeGetter): void;
     addBuildPromise(promise: Promise<void>): void;
+    /** @internal Resolves one exposed constant input to its set-local mutable cell. */
+    _inputValue?(blockId: number): NpeGetter | undefined;
+    /** @internal Creates one event-owned child from a precompiled system plan. */
+    _spawnSystem?(plan: NodeParticleSystemPlan, emitter: Vec3, onDispose?: () => void): ParticleSystem | null;
 }
 
 /** An NPE block evaluator: wires a parsed block into the runtime during the build walk. */
@@ -176,6 +182,30 @@ async function compileOperations(
     await visit(systemBlockId);
 }
 
+function collectInputPlans(blocks: Iterable<CompiledParticleBlock>, systems: readonly NodeParticleSystemPlan[]): ParsedParticleBlock[] {
+    const reachable = new Set<number>();
+    for (const operations of systems) {
+        for (let index = 0; index < operations.length; index += 2) {
+            reachable.add((operations[index] as CompiledParticleBlock).id);
+        }
+    }
+
+    const named = new Map<string, ParsedParticleBlock>();
+    for (const block of blocks) {
+        if (
+            reachable.has(block.id) &&
+            block.customType === "BABYLON.ParticleInputBlock" &&
+            typeof block.name === "string" &&
+            Boolean(block.name) &&
+            !block.contextualValue &&
+            !block.systemSource
+        ) {
+            named.set(block.name, block);
+        }
+    }
+    return [...named.values()];
+}
+
 /** @internal Compile immutable parsed NPE data into a reusable executable program. */
 export async function compileNodeParticleGraph(parsed: ParsedNodeParticleGraph): Promise<NodeParticleProgram> {
     const blocks = new Map<number, CompiledParticleBlock>();
@@ -186,7 +216,7 @@ export async function compileNodeParticleGraph(parsed: ParsedNodeParticleGraph):
         blocks.set(block.id, block);
         const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
         for (const input of block.inputs) {
-            featureBits |= input.valueType === "int" ? NPE_FEATURE_GENERAL : 0;
+            featureBits |= (input.valueType === "int" ? NPE_FEATURE_GENERAL : 0) | (input.targetConnectionName === "system" ? NPE_FEATURE_SUB_EMITTERS : 0);
         }
         if (className === "ParticleInputBlock" && block.type === NPE_TYPE_INT) {
             featureBits |= block.contextualValue ? NPE_FEATURE_CONTEXTUAL_INT : NPE_FEATURE_GENERAL;
@@ -221,12 +251,18 @@ export async function compileNodeParticleGraph(parsed: ParsedNodeParticleGraph):
         }
     }
 
-    return { _systems: systems };
+    const inputs = collectInputPlans(blocks.values(), systems);
+    return featureBits & NPE_FEATURE_SUB_EMITTERS ? { _systems: systems, _inputs: inputs, _subEmitters: true } : { _systems: systems, _inputs: inputs };
 }
 
 /** A built data-oriented particle set. */
 export interface NodeParticleSet {
     readonly systems: ParticleSystem[];
+    readonly inputs: Readonly<Record<string, ParticleInputHandle>>;
+    /** @internal Event-created descendants currently owned by this set. */
+    readonly _children?: readonly ParticleSystem[];
+    /** @internal Register existing and future event-created systems, returning their teardown. */
+    readonly _registerChildren?: (register: (system: ParticleSystem) => void) => () => void;
 }
 
 /** Options for building a node-particle set. */
@@ -249,7 +285,9 @@ function instantiateNodeParticlePlan(
     scene: SceneContext,
     operations: NodeParticleSystemPlan,
     options: BuildNodeParticleOptions,
-    buildPromises: Promise<void>[]
+    cells: ReadonlyMap<number, NpeInputCell>,
+    buildPromises: Promise<void>[],
+    host?: NodeParticleChildHost
 ): ParticleSystem {
     const systemBlock = operations[operations.length - 2] as ParsedParticleBlock;
 
@@ -312,7 +350,13 @@ function instantiateNodeParticlePlan(
         addBuildPromise(promise) {
             buildPromises.push(promise);
         },
+        _inputValue(blockId) {
+            return cells.get(blockId);
+        },
     };
+    if (host) {
+        ctx._spawnSystem = (plan, childEmitter, onDispose) => host.spawn(system, plan, childEmitter, onDispose);
+    }
 
     for (let index = 0; index < operations.length; index += 2) {
         (operations[index + 1] as NpeBlockEvaluator).build(operations[index] as ParsedParticleBlock, ctx);
@@ -345,13 +389,21 @@ export async function instantiateNodeParticleProgram(
     program: NodeParticleProgram,
     options: BuildNodeParticleOptions = {}
 ): Promise<NodeParticleSet> {
+    const { inputs, cells } = createParticleInputHandles(program._inputs);
+
+    if (program._subEmitters) {
+        return (await import("./npe-sub-emitter-runtime.js")).buildNodeParticleSetWithSubEmitters(program, options, inputs, (plan, childOptions, buildPromises, host) =>
+            instantiateNodeParticlePlan(engine, scene, plan, childOptions, cells, buildPromises, host)
+        );
+    }
+
     const systems: ParticleSystem[] = [];
     const buildPromises: Promise<void>[] = [];
     for (const operations of program._systems) {
-        systems.push(instantiateNodeParticlePlan(engine, scene, operations, options, buildPromises));
+        systems.push(instantiateNodeParticlePlan(engine, scene, operations, options, cells, buildPromises));
     }
     await Promise.all(buildPromises);
-    return { systems };
+    return { systems, inputs };
 }
 
 /** @internal Instantiate one reusable executable system plan. */
@@ -361,6 +413,10 @@ export async function instantiateNodeParticleSystem(
     plan: NodeParticleSystemPlan,
     options: BuildNodeParticleOptions = {}
 ): Promise<ParticleSystem> {
-    const program: NodeParticleProgram = { _systems: [plan] };
+    const blocks = plan.filter((_operation, index): _operation is CompiledParticleBlock => index % 2 === 0);
+    const usesSubEmitters = blocks.some((block) => block.customType === "BABYLON.ParticleTriggerBlock" || !!block._systemPlans);
+    const program: NodeParticleProgram = usesSubEmitters
+        ? { _systems: [plan], _inputs: collectInputPlans(blocks, [plan]), _subEmitters: true }
+        : { _systems: [plan], _inputs: collectInputPlans(blocks, [plan]) };
     return (await instantiateNodeParticleProgram(engine, scene, program, options)).systems[0]!;
 }

@@ -37,7 +37,7 @@ export const particleInputBlock: NpeBlockEvaluator = {
         } else {
             const type = typeof block.type === "number" ? block.type : TYPE_FLOAT;
             const constant = parseParticleInputValue(type, block.value);
-            getter = () => constant;
+            getter = ctx._inputValue?.(block.id) ?? (() => constant);
         }
 
         ctx.setOutput(block.id, "output", getter);

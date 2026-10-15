@@ -978,6 +978,28 @@ void [current, ready];
         expect(dts).not.toContain("_localVariableLoopEpoch");
     });
 
+    it("exposes live particle input handles without mutable compiler internals", () => {
+        const dts = readFileSync(DTS_PATH, "utf-8");
+
+        expect(dts).toContain("interface ParticleInputHandle");
+        expect(dts).toMatch(/readonly inputs: Readonly<Record<string, ParticleInputHandle>>/);
+        expect(dts).toContain('readonly type: "i32" | "f32" | "vec2f" | "vec3f" | "vec4f"');
+        expect(dts).toContain("readonly groupInInspector: string");
+        expect(dts).toContain("readonly displayInInspector: boolean");
+        expect(dts).not.toContain("NpeInputCell");
+        expect(dts).not.toContain("_inputs");
+        expect(dts).not.toContain("createParticleInputHandles");
+    });
+
+    it("exposes explicit particle disposal without child-host internals", () => {
+        const dts = readFileSync(DTS_PATH, "utf-8");
+
+        expect(dts).toMatch(/disposeParticleSystem\(system: ParticleSystem\): void/);
+        expect(dts).not.toMatch(/\b_children\b|\b_childInstances\b|\b_setChildRegistrar\b|\b_disposeChildren\b/);
+        expect(dts).not.toContain("NodeParticleChildHost");
+        expect(dts).not.toContain("NodeParticleSystemInstance");
+    });
+
     it("exposes rigid-body rotation axis locks", () => {
         const dts = readFileSync(DTS_PATH, "utf-8");
 

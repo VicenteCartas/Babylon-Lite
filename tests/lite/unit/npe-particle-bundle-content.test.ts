@@ -111,6 +111,7 @@ describe("Particle bundle feature isolation", () => {
         }
         expect(build).toContain("evaluator._inputEvaluators?.[input.name.trim()]");
         expect(featureCompiler).toContain('import("./npe-general-feature-compilation.js")');
+        expect(featureCompiler).toContain('import("./npe-system-plan-compilation.js")');
         expect(build).not.toContain('import("./npe-system-plan-compilation.js")');
         expect(featureCompiler).toContain('import("./blocks/update-flow-map-block.js")');
         expect(featureCompiler).toContain('import("./blocks/update-noise-block.js")');
@@ -237,6 +238,57 @@ describe("Particle bundle feature isolation", () => {
         const spriteRenderer = readFileSync(resolve(NPE_SOURCE_DIR, "../../sprite/billboard-renderable.ts"), "utf8");
         expect(spriteRenderer).not.toContain("particle-billboard-renderer");
         expect(spriteRenderer).not.toContain("withBillboardRenderResources");
+    });
+
+    it("keeps sub-emitter evaluation and ownership behind system-flow compilation", () => {
+        const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+        const featureCompiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-feature-compilation.ts"), "utf8");
+        const systemPlanCompiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-system-plan-compilation.ts"), "utf8");
+        const pack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-sub-emitters.ts"), "utf8");
+
+        expect(build).not.toContain("npe-pack-sub-emitters");
+        expect(build).toContain('import("./npe-sub-emitter-runtime.js")');
+        expect(build).toContain('import type { NodeParticleChildHost } from "./npe-sub-emitter-runtime.js"');
+        expect(featureCompiler).toContain('import("./npe-system-plan-compilation.js")');
+        expect(systemPlanCompiler).toContain('from "./npe-pack-sub-emitters.js"');
+        expect(pack).toContain('from "./blocks/particle-trigger-block.js"');
+        expect(pack).not.toContain('from "./blocks/system-block.js"');
+    });
+
+    it.skipIf(!hasManifests([262]))("keeps sub-emitter runtime out of scene262", () => {
+        const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene262.json"), "utf8")) as SceneManifest;
+        const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
+        expect([...runtimeChunks].filter((chunk) => /npe-(pack-sub-emitters|sub-emitter-runtime)|particle-trigger-block/.test(chunk))).toEqual([]);
+
+        const bundleInfo = JSON.parse(readFileSync(resolve(BUNDLE_INFO_DIR, "scene262.json"), "utf8")) as BundleInfo;
+        const modules = (bundleInfo.chunks ?? [])
+            .filter((chunk) => chunk.file && runtimeChunks.has(chunk.file))
+            .flatMap((chunk) => chunk.modules ?? [])
+            .map((module) => (module.id ?? "").replace(/\\/g, "/"))
+            .filter((id) => /\/particle\/node\/(?:npe-(?:pack-sub-emitters|sub-emitter-runtime)|blocks\/particle-trigger-block)\.[jt]s$/.test(id));
+        expect(modules).toEqual([]);
+    });
+
+    it.skipIf(!hasManifests([330, 331]))("fetches sub-emitter compilation, evaluation, and ownership only for Phase 13 scenes", () => {
+        for (const sceneId of [330, 331]) {
+            const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, `scene${sceneId}.json`), "utf8")) as SceneManifest;
+            const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
+            expect(runtimeChunks.size, `scene${sceneId} has no runtime chunks recorded`).toBeGreaterThan(0);
+
+            const bundleInfo = JSON.parse(readFileSync(resolve(BUNDLE_INFO_DIR, `scene${sceneId}.json`), "utf8")) as BundleInfo;
+            const modules = (bundleInfo.chunks ?? [])
+                .filter((chunk) => chunk.file && runtimeChunks.has(chunk.file))
+                .flatMap((chunk) => chunk.modules ?? [])
+                .map((module) => (module.id ?? "").replace(/\\/g, "/"));
+
+            for (const moduleName of ["npe-feature-compilation", "npe-system-plan-compilation", "npe-pack-sub-emitters", "npe-sub-emitter-runtime"]) {
+                expect(
+                    modules.some((id) => new RegExp(`/particle/node/${moduleName}\\.[jt]s$`).test(id)),
+                    `scene${sceneId} must fetch ${moduleName}`
+                ).toBe(true);
+            }
+            expect(modules.some((id) => /\/particle\/node\/blocks\/particle-trigger-block\.[jt]s$/.test(id))).toBe(true);
+        }
     });
 
     it.skipIf(!hasManifests([276]))("fetches no duplicate resource compiler for the sprite fixture", () => {

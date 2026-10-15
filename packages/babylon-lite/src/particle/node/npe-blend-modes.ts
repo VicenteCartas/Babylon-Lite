@@ -11,10 +11,14 @@ function enableBlendMode(system: ParticleSystem): ParticleSystem {
     return system;
 }
 
-/** Enable exact Babylon.js particle blend rendering on any built NPE set. */
+/** Enable exact Babylon.js particle blend rendering on any built NPE set, including its event-created child systems. */
 export function enableNodeParticleBlendModes(set: NodeParticleSet): NodeParticleSet {
     for (const system of set.systems) {
         enableBlendMode(system);
+    }
+    const registerChildren = set._registerChildren;
+    if (registerChildren) {
+        (set as { _registerChildren?: NodeParticleSet["_registerChildren"] })._registerChildren = (register) => registerChildren((system) => register(enableBlendMode(system)));
     }
     return set;
 }

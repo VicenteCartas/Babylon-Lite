@@ -1,6 +1,6 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
 import type { CompilableNodeParticleGraph, CompiledParticleBlock, NodeParticleSystemPlan } from "./npe-types.js";
-import { NPE_FEATURE_GENERAL, NPE_FEATURE_FLOW_MAP, NPE_FEATURE_NOISE, NODE_PARTICLE_UPDATE_KIND_INDEX } from "./npe-types.js";
+import { NPE_FEATURE_GENERAL, NPE_FEATURE_FLOW_MAP, NPE_FEATURE_NOISE, NPE_FEATURE_SUB_EMITTERS, NODE_PARTICLE_UPDATE_KIND_INDEX } from "./npe-types.js";
 
 /** Compile graph features that are absent from ordinary NPE programs. */
 export async function compileNodeParticleFeatures(
@@ -37,6 +37,11 @@ export async function compileNodeParticleFeatures(
         systemBlockIds = general.systemBlockIds;
         loadEvaluator = general.loadEvaluator;
     }
+    if (parsed._features & NPE_FEATURE_SUB_EMITTERS) {
+        const systems = await (await import("./npe-system-plan-compilation.js")).compileNodeParticleSystemPlans(blocks, systemBlockIds, compileOperations, loadEvaluator);
+        return { blocks, systems };
+    }
+
     const systems: Array<Array<CompiledParticleBlock | NpeBlockEvaluator>> = [];
     for (const systemBlockId of systemBlockIds) {
         const operations: Array<CompiledParticleBlock | NpeBlockEvaluator> = [];

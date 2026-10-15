@@ -4,7 +4,12 @@ import { createIdentityMat4 } from "../../../packages/babylon-lite/src/math/crea
 import { buildNodeParticleSetWithBlendModes } from "../../../packages/babylon-lite/src/particle/node/npe-blend-modes";
 import { buildNodeParticleSetWithEmitterProvider } from "../../../packages/babylon-lite/src/particle/node/npe-emitter-provider";
 import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map";
-import { buildNodeParticleSet, compileNodeParticleGraph, instantiateNodeParticleProgram } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import {
+    buildNodeParticleSet,
+    compileNodeParticleGraph,
+    instantiateNodeParticleProgram,
+    instantiateNodeParticleSystem,
+} from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { buildNodeParticleSetWithNoiseTextures } from "../../../packages/babylon-lite/src/particle/node/npe-noise";
 import { parseNodeParticleSetFromSnippet } from "../../../packages/babylon-lite/src/particle/node/node-particle";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
@@ -201,6 +206,41 @@ describe("NPE graph compilation", () => {
         const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
 
         expect(program._systems).toHaveLength(1);
+    });
+
+    it("compiles connected systems as reusable child plans without inlining them", async () => {
+        const program = await compileNodeParticleGraph(
+            parseNodeParticleSource({
+                blocks: [
+                    { customType: "BABYLON.CreateParticleBlock", id: 1, inputs: [] },
+                    { customType: "BABYLON.SystemBlock", id: 2, capacity: 3, inputs: [{ name: "particle", targetBlockId: 1, targetConnectionName: "particle" }] },
+                    { customType: "BABYLON.CreateParticleBlock", id: 3, inputs: [] },
+                    { customType: "BABYLON.ParticleElbowBlock", id: 5, inputs: [{ name: "input", targetBlockId: 2, targetConnectionName: "system" }] },
+                    {
+                        customType: "BABYLON.SystemBlock",
+                        id: 4,
+                        capacity: 5,
+                        inputs: [
+                            { name: "particle", targetBlockId: 3, targetConnectionName: "particle" },
+                            { name: "onStart", targetBlockId: 2, targetConnectionName: "system" },
+                            { name: "onEnd", targetBlockId: 5, targetConnectionName: "output" },
+                        ],
+                    },
+                ],
+            })
+        );
+        const childPlan = program._systems.find((operations) => (operations[operations.length - 2] as { id: number }).id === 2)!;
+        const parentPlan = program._systems.find((operations) => (operations[operations.length - 2] as { id: number }).id === 4)!;
+        const parentBlock = parentPlan[parentPlan.length - 2] as { _systemPlans?: Record<string, unknown> };
+
+        expect(parentBlock._systemPlans?.onStart).toBe(childPlan);
+        expect(parentBlock._systemPlans?.onEnd).toBe(childPlan);
+        expect(parentPlan.filter((operation) => "id" in operation).map((operation) => operation.id)).toEqual([3, 4]);
+
+        const first = await instantiateNodeParticleSystem({} as EngineContext, {} as SceneContext, childPlan);
+        const second = await instantiateNodeParticleSystem({} as EngineContext, {} as SceneContext, childPlan);
+        expect(first.buffer.capacity).toBe(3);
+        expect(second.buffer).not.toBe(first.buffer);
     });
 
     it.each([
