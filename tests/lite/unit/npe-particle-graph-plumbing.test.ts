@@ -547,7 +547,7 @@ describe("NPE graph plumbing", () => {
 
     it("keeps graph recognition out of the parser and all owning builders", () => {
         const nodeDirectory = resolve(__dirname, "../../../packages/babylon-lite/src/particle/node");
-        for (const file of ["npe-parser.ts", "npe-build.ts", "npe-flow-map-runtime.ts"]) {
+        for (const file of ["npe-parser.ts", "npe-build.ts", "npe-flow-map.ts", "npe-noise.ts", "npe-texture-updates.ts"]) {
             const source = readFileSync(resolve(nodeDirectory, file), "utf8");
             expect(source, file).not.toContain("_hasGraphPlumbing");
             expect(source, file).not.toContain("compileNodeParticleTopology");

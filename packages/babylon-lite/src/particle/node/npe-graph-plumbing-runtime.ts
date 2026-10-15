@@ -17,7 +17,7 @@ function cyclePath(stack: readonly number[], repeatedId: number): string {
 function connectionRole(block: ParsedParticleBlock, input: ParsedParticleInput): ConnectionRole {
     const className = block.customType.slice(8);
     const inputName = input.name.trim();
-    if (inputName === "particle") {
+    if (inputName === "particle" || (className === "ParticleTriggerBlock" && inputName === "input")) {
         return "particle flow";
     }
     if (/^(system|on(Start|End))$/.test(inputName)) {
@@ -136,6 +136,7 @@ export function compileNodeParticleTopology(graph: CompilableNodeParticleGraph):
         }
 
         let inputs: ParsedParticleInput[] | undefined;
+        const isParticleInput = (input: ParsedParticleInput) => input.name.trim() === "particle" || (className === "ParticleTriggerBlock" && input.name.trim() === "input");
         const visitInput = (input: ParsedParticleInput, index: number): void => {
             if (!isConnected(input)) {
                 return;
@@ -146,17 +147,17 @@ export function compileNodeParticleTopology(graph: CompilableNodeParticleGraph):
                 inputs ??= block.inputs.slice();
                 inputs[index] = { ...input, targetBlockId: resolvedBlockId, targetConnectionName: resolvedConnectionName };
             }
-            const childDomain = className === "SystemBlock" ? (input.name.trim() === "particle" ? PARTICLE_DOMAIN : SYSTEM_DOMAIN) : domain;
+            const childDomain = className === "SystemBlock" ? (isParticleInput(input) ? PARTICLE_DOMAIN : SYSTEM_DOMAIN) : role === "system flow" ? SYSTEM_DOMAIN : domain;
             visitBlock(resolvedBlockId, childDomain);
         };
 
         for (let index = 0; index < block.inputs.length; index++) {
-            if (block.inputs[index]!.name.trim() === "particle") {
+            if (isParticleInput(block.inputs[index]!)) {
                 visitInput(block.inputs[index]!, index);
             }
         }
         for (let index = 0; index < block.inputs.length; index++) {
-            if (block.inputs[index]!.name.trim() !== "particle") {
+            if (!isParticleInput(block.inputs[index]!)) {
                 visitInput(block.inputs[index]!, index);
             }
         }

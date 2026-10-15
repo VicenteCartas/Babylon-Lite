@@ -2654,5 +2654,25 @@
         "description": "Scene 262's deterministic NPE particle field with Teleport fan-out plus Elbow, Debug, and a Particle-scope LocalVariable around its per-particle size. Lite normalizes the graph before evaluator traversal and must preserve Babylon.js pixels.",
         "tags": ["npe", "particles", "billboards", "teleport", "local-variable", "graph-plumbing"],
         "skipPerf": true
+    },
+    {
+        "id": 306,
+        "slug": "scene306-npe-particle-trigger",
+        "name": "Scene 306 — NPE Particle Trigger",
+        "maxMad": 0.1,
+        "maxRawKB": 55,
+        "description": "A ParticleTriggerBlock follows an updated parent particle and creates eight independently simulated child systems at its successive positions. The graph, seeded random stream, explicit simulation steps, and frozen frame are shared with the Babylon.js oracle.",
+        "tags": ["npe", "particles", "billboards", "particle-trigger", "sub-emitters"],
+        "skipPerf": true
+    },
+    {
+        "id": 307,
+        "slug": "scene307-npe-system-lifecycle",
+        "name": "Scene 307 — NPE System Lifecycle",
+        "maxMad": 0.15,
+        "maxRawKB": 55,
+        "description": "SystemBlock onStart and onEnd connections create distinct blue and pink child systems around a stopped parent. The graph, seeded random stream, explicit lifecycle transitions, and frozen frame are shared with the Babylon.js oracle.",
+        "tags": ["npe", "particles", "billboards", "system-lifecycle", "sub-emitters"],
+        "skipPerf": true
     }
 ]

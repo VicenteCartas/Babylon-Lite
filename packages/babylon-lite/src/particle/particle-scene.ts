@@ -1,4 +1,4 @@
-import { animateParticleSystem, startParticleSystem } from "./particle-system.js";
+import { animateParticleSystem, disposeParticleSystem, startParticleSystem, type ParticleSystem } from "./particle-system.js";
 import { createParticleBillboard, syncParticleBillboard } from "./particle-billboard.js";
 import { addFacingBillboardSystem } from "../sprite/billboard-scene.js";
 import type { SceneContext } from "../scene/scene.js";
@@ -13,6 +13,27 @@ export interface RegisterNodeParticleOptions {
     autoStart?: boolean;
 }
 
+function registerSystem(scene: SceneContext, system: ParticleSystem): void {
+    if (system._disposed || system._unregister) {
+        return;
+    }
+    const billboard = createParticleBillboard(system);
+    const unregisterBillboard = (system._registerBillboard ?? addFacingBillboardSystem)(scene, billboard);
+    const tick = (deltaMs: number) => {
+        const ratio = deltaMs > 0 ? deltaMs / FRAME_MS : 1;
+        animateParticleSystem(system, ratio);
+        (system._syncBillboard ?? syncParticleBillboard)(system, billboard);
+    };
+    scene._beforeRender.push(tick);
+    system._unregister = () => {
+        const index = scene._beforeRender.indexOf(tick);
+        if (index !== -1) {
+            scene._beforeRender.splice(index, 1);
+        }
+        unregisterBillboard?.();
+    };
+}
+
 /**
  * Register a built node particle set with the scene: each system is rendered as a camera-facing billboard
  * system and advanced once per frame (scaled by the real frame delta). Use this for live/interactive scenes.
@@ -20,19 +41,20 @@ export interface RegisterNodeParticleOptions {
  */
 export function registerNodeParticleSet(scene: SceneContext, set: NodeParticleSet, options: RegisterNodeParticleOptions = {}): void {
     const autoStart = options.autoStart ?? true;
-
+    const unregisterChildren = set._registerChildren?.((system) => registerSystem(scene, system));
     for (const system of set.systems) {
-        const billboard = createParticleBillboard(system);
-        (system._registerBillboard ?? addFacingBillboardSystem)(scene, billboard);
-
-        if (autoStart) {
+        registerSystem(scene, system);
+    }
+    if (autoStart) {
+        for (const system of set.systems) {
             startParticleSystem(system);
         }
-
-        scene._beforeRender.push((deltaMs) => {
-            const ratio = deltaMs > 0 ? deltaMs / FRAME_MS : 1;
-            animateParticleSystem(system, ratio);
-            syncParticleBillboard(system, billboard);
-        });
     }
+
+    scene._disposables.push(() => {
+        for (const system of set.systems) {
+            disposeParticleSystem(system);
+        }
+        unregisterChildren?.();
+    });
 }

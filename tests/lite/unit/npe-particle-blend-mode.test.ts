@@ -102,6 +102,16 @@ describe("NPE particle blend modes", () => {
         expect(set.systems[0]!._registerBillboard).toBeTypeOf("function");
     });
 
+    it("preserves a richer registrar already installed by an optional SystemBlock pack", () => {
+        const set = { systems: [createParticleSystem(1)] } as NodeParticleSet;
+        const registrar = () => undefined;
+        set.systems[0]!._registerBillboard = registrar;
+
+        enableNodeParticleBlendModes(set);
+
+        expect(set.systems[0]!._registerBillboard).toBe(registrar);
+    });
+
     it("matches Babylon.js color and alpha blend factors", () => {
         expect(createParticleBlend(0)._descriptor).toEqual({
             color: { srcFactor: "one", dstFactor: "one", operation: "add" },

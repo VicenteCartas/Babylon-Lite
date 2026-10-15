@@ -1,5 +1,19 @@
 [
     {
+        "slug": "npe-live-inputs",
+        "name": "NPE Live Inputs",
+        "description": "A compiled Node Particle Editor graph whose exposed Float input is edited after build. The slider and animation write one stable handle, and already-live particles consume the new value on their next update without rebuilding or restarting the graph.",
+        "tags": ["effect", "particles", "showcase"],
+        "mobile": true
+    },
+    {
+        "slug": "npe-sub-emitters",
+        "name": "NPE Sub-Emitters",
+        "description": "Two compiled Node Particle Editor graphs exercise live sub-emitter ownership: particle-position triggers create moving bursts, while start and end lifecycle connections create independent child systems that can be restarted without rebuilding the graphs.",
+        "tags": ["effect", "particles", "showcase"],
+        "mobile": true
+    },
+    {
         "slug": "npe-sprite2d",
         "name": "NPE on Sprite2D",
         "description": "An authored Node Particle Editor graph rendered through Lite's scene-less pure-2D SpriteRenderer. The NPE simulation stays world-space while the native bridge maps its live particle columns to one allocation-free Sprite2D layer.",

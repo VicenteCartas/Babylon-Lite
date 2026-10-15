@@ -32,8 +32,10 @@ const HAS_MANIFEST = hasManifests(CANONICAL_PARTICLE_SCENES);
 const HAS_MOVING_EMITTER_MANIFEST = hasManifests(PROVIDER_ISOLATION_SCENES);
 const HAS_SPRITE_2D_MANIFEST = hasManifests(SPRITE_2D_BLEND_SCENES);
 const UNUSED_FEATURE_CHUNK =
-    /particle-(blend|billboard-renderable|billboard-scene)|registry-(variants|extra-basic|extra-emitters|extra-remaining|extra-values|input-extra|local-shapes|phase4b|value-math)|update-(attractor|flow-map|noise|direction|angle|scale|age|sprite-cell-index)-block|basic-(position|color)-update-block|npe-(blend-modes|emitter-provider|feature-compilation|flow-map-runtime|general-feature-compilation|graph-plumbing-runtime|live-emitter|noise-runtime|pack-core-updates|sprite-cell-compilation|system-plan-compilation|value-compilation|texture-update-evaluator|texture-content)|cpu-texture-source|random-once-typed|random-composed-typed|setup-sprite-sheet-random|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|nlerp|number-math|smooth-step|step|trigonometry|value-type|vector-length|vector-math)|particle-input-(local|sprite-cell)|local-position|box-shape-local|sphere-shape-local|point-shape|cone-shape|cylinder-shape|mesh-shape/;
+    /particle-(blend|billboard-modes|billboard-render-properties|billboard-renderable|billboard-scene|trigger-block)|registry-(variants|extra-basic|extra-emitters|extra-remaining|extra-values|input-extra|local-shapes|phase4b|value-math)|update-(attractor|flow-map|noise|direction|angle|scale|age|sprite-cell-index)-block|basic-(position|color)-update-block|npe-(blend-modes|emitter-provider|feature-compilation|flow-map-runtime|general-feature-compilation|graph-plumbing-runtime|live-emitter|noise-runtime|pack-billboard-modes|pack-camera|pack-core-updates|pack-render-properties|pack-sub-emitters|sprite-cell-compilation|sub-emitter-runtime|system-plan-compilation|value-compilation|texture-update-evaluator|texture-content)|cpu-texture-source|random-once-typed|random-composed-typed|setup-sprite-sheet-random|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|local-variable|math-int|nlerp|number-math|smooth-step|step|trigonometry|value-type|vector-length|vector-math)|particle-input-(local|sprite-cell)|local-position|box-shape-local|sphere-shape-local|point-shape|cone-shape|cylinder-shape|mesh-shape/;
 const OPTIONAL_BLEND_MODULE = /particle\/(particle-(blend|billboard-renderable|billboard-scene)|node\/npe-blend-modes)/;
+const OPTIONAL_RENDER_PROPERTIES_MODULE = /particle\/(particle-billboard-render-properties|node\/npe-pack-render-properties)/;
+const OPTIONAL_BILLBOARD_MODES_MODULE = /particle\/(particle-billboard-modes(?:-pick)?|node\/npe-pack-billboard-modes)/;
 
 function findUnusedFeatureChunks(sceneId: number, chunks: string[]): string[] {
     return chunks.filter(
@@ -66,14 +68,16 @@ describe("Particle bundle feature isolation", () => {
         const extraRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-extra.ts"), "utf8");
         const phase4BRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-phase4b.ts"), "utf8");
         const variantRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants.ts"), "utf8");
+        const variantRuntimeRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants-runtime.ts"), "utf8");
         const variantExtraRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants-extra.ts"), "utf8");
         const inputRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-input-extra.ts"), "utf8");
         const lifecyclePack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-lifecycle.ts"), "utf8");
         const standardValuePack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-standard-values.ts"), "utf8");
         const spritePack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-sprite.ts"), "utf8");
+        const spriteCellFeatures = readFileSync(resolve(NPE_SOURCE_DIR, "npe-sprite-cell-features.ts"), "utf8");
         expect(build).toContain('import("./npe-feature-compilation.js")');
         expect(build.match(/import\("\.\/npe-registry-variants\.js"\)/g)).toHaveLength(1);
-        expect(build).toContain("await (await loadVariants()).c(blocks)");
+        expect(build).toContain("variants.c(blocks)");
         expect(baseRegistry.match(/import\("\.\/npe-registry-extra\.js"\)/g)).toHaveLength(1);
         expect(baseRegistry.match(/import\("\.\/npe-pack-lifecycle\.js"\)/g)).toHaveLength(1);
         expect(baseRegistry.match(/import\("\.\/npe-pack-standard-values\.js"\)/g)).toHaveLength(1);
@@ -113,7 +117,8 @@ describe("Particle bundle feature isolation", () => {
         expect(generalCompiler).toContain('import("./npe-value-compilation.js")');
         expect(valueCompilation).toContain('from "./blocks/particle-value-type.js"');
         expect(valueCompilation).toContain('from "./npe-registry-value-math.js"');
-        expect(variantRegistry).toContain('import("./npe-registry-variants-extra.js")');
+        expect(variantRegistry).toContain('import("./npe-registry-variants-runtime.js")');
+        expect(variantRuntimeRegistry).toContain('import("./npe-registry-variants-extra.js")');
         expect(variantExtraRegistry).toContain('import("./npe-registry-input-extra.js")');
         expect(variantExtraRegistry).not.toContain("particle-input-sprite-cell-block");
         expect(variantRegistry.match(/import\("\.\/npe-pack-sprite\.js"\)/g)).toHaveLength(1);
@@ -124,7 +129,9 @@ describe("Particle bundle feature isolation", () => {
         expect(spritePack).toContain('from "./blocks/particle-input-sprite-cell-block.js"');
         expect(spritePack).toContain('from "./blocks/update-sprite-cell-index-block.js"');
         expect(spritePack).toContain('import("./blocks/setup-sprite-sheet-random-block.js")');
-        expect(spritePack).toContain("detectSpriteCellFeatures as detect");
+        expect(variantRegistry).toContain('from "./npe-sprite-cell-features.js"');
+        expect(spriteCellFeatures).toContain("detectSpriteCellFeatures");
+        expect(spritePack).not.toContain("npe-sprite-cell-features");
         expect(inputRegistry).not.toContain("particle-input-sprite-cell-block");
         expect(inputRegistry).toContain('import("./blocks/particle-input-extra-block.js")');
         expect(existsSync(resolve(NPE_SOURCE_DIR, "npe-texture-update-evaluator.ts"))).toBe(false);
@@ -178,6 +185,87 @@ describe("Particle bundle feature isolation", () => {
         }
     });
 
+    it("keeps SystemBlock render-property meaning in one optional evaluator and renderer", () => {
+        const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+        const variants = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants.ts"), "utf8");
+        const variantsRuntime = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants-runtime.ts"), "utf8");
+        const pack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-render-properties.ts"), "utf8");
+        const renderTask = readFileSync(resolve(NPE_SOURCE_DIR, "../../frame-graph/render-task.ts"), "utf8");
+
+        expect(variants).toContain('import("./npe-registry-variants-runtime.js")');
+        expect(variantsRuntime.match(/import\("\.\/npe-pack-render-properties\.js"\)/g)).toHaveLength(1);
+        expect(pack).toContain('from "../particle-billboard-render-properties.js"');
+        expect(build).not.toContain("particle-billboard-render-properties");
+        expect(renderTask).not.toContain("_renderingGroupId");
+        expect(renderTask).toContain("_getTransparentSortCompare");
+    });
+
+    it("keeps non-ALL particle geometry in one optional evaluator, renderer, and lazy picker", () => {
+        const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+        const variants = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants.ts"), "utf8");
+        const variantsRuntime = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-variants-runtime.ts"), "utf8");
+        const pack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-billboard-modes.ts"), "utf8");
+        const scene = readFileSync(resolve(NPE_SOURCE_DIR, "../particle-scene.ts"), "utf8");
+        const renderer = readFileSync(resolve(NPE_SOURCE_DIR, "../particle-billboard-modes.ts"), "utf8");
+
+        expect(variants).toContain('import("./npe-registry-variants-runtime.js")');
+        expect(variantsRuntime.match(/import\("\.\/npe-pack-billboard-modes\.js"\)/g)).toHaveLength(1);
+        expect(variantsRuntime.indexOf('import("./npe-pack-billboard-modes.js")')).toBeLessThan(variantsRuntime.indexOf('import("./npe-pack-render-properties.js")'));
+        expect(pack).toContain('from "../particle-billboard-modes.js"');
+        expect(renderer).toContain('import("./particle-billboard-modes-pick.js")');
+        expect(scene).toContain("system._syncBillboard ?? syncParticleBillboard");
+        expect(build).not.toContain("particle-billboard-modes");
+    });
+
+    it("keeps sub-emitter evaluation and ownership behind system-flow compilation", () => {
+        const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
+        const featureCompiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-feature-compilation.ts"), "utf8");
+        const pack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-sub-emitters.ts"), "utf8");
+
+        expect(build).toContain('import("./npe-pack-sub-emitters.js")');
+        expect(build).toContain('import("./npe-sub-emitter-runtime.js")');
+        expect(build).toContain('import type { NodeParticleChildHost } from "./npe-sub-emitter-runtime.js"');
+        expect(featureCompiler).toContain('import("./npe-system-plan-compilation.js")');
+        expect(pack).toContain('from "./blocks/particle-trigger-block.js"');
+        expect(pack).not.toContain('from "./blocks/system-block.js"');
+    });
+
+    it.skipIf(!hasManifests([262]))("keeps sub-emitter runtime out of scene262", () => {
+        const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene262.json"), "utf8")) as SceneManifest;
+        const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
+        expect([...runtimeChunks].filter((chunk) => /npe-(pack-sub-emitters|sub-emitter-runtime)|particle-trigger-block/.test(chunk))).toEqual([]);
+
+        const bundleInfo = JSON.parse(readFileSync(resolve(BUNDLE_INFO_DIR, "scene262.json"), "utf8")) as BundleInfo;
+        const modules = (bundleInfo.chunks ?? [])
+            .filter((chunk) => chunk.file && runtimeChunks.has(chunk.file))
+            .flatMap((chunk) => chunk.modules ?? [])
+            .map((module) => (module.id ?? "").replace(/\\/g, "/"))
+            .filter((id) => /\/particle\/node\/(?:npe-(?:pack-sub-emitters|sub-emitter-runtime)|blocks\/particle-trigger-block)\.[jt]s$/.test(id));
+        expect(modules).toEqual([]);
+    });
+
+    it.skipIf(!hasManifests([306, 307]))("fetches sub-emitter compilation, evaluation, and ownership only for Phase 13 scenes", () => {
+        for (const sceneId of [306, 307]) {
+            const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, `scene${sceneId}.json`), "utf8")) as SceneManifest;
+            const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
+            expect(runtimeChunks.size, `scene${sceneId} has no runtime chunks recorded`).toBeGreaterThan(0);
+
+            const bundleInfo = JSON.parse(readFileSync(resolve(BUNDLE_INFO_DIR, `scene${sceneId}.json`), "utf8")) as BundleInfo;
+            const modules = (bundleInfo.chunks ?? [])
+                .filter((chunk) => chunk.file && runtimeChunks.has(chunk.file))
+                .flatMap((chunk) => chunk.modules ?? [])
+                .map((module) => (module.id ?? "").replace(/\\/g, "/"));
+
+            for (const moduleName of ["npe-feature-compilation", "npe-system-plan-compilation", "npe-pack-sub-emitters", "npe-sub-emitter-runtime"]) {
+                expect(
+                    modules.some((id) => new RegExp(`/particle/node/${moduleName}\\.[jt]s$`).test(id)),
+                    `scene${sceneId} must fetch ${moduleName}`
+                ).toBe(true);
+            }
+            expect(modules.some((id) => /\/particle\/node\/blocks\/particle-trigger-block\.[jt]s$/.test(id))).toBe(true);
+        }
+    });
+
     it.skipIf(!hasManifests([276]))("fetches no duplicate resource compiler for the sprite fixture", () => {
         const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene276.json"), "utf8")) as SceneManifest;
         const chunks = manifest.runtimeChunks ?? [];
@@ -196,6 +284,34 @@ describe("Particle bundle feature isolation", () => {
         expect(controlChunks.filter((chunk) => /npe-pack-standard-values/.test(chunk))).toEqual([]);
     });
 
+    it.skipIf(!hasManifests([262]))("keeps serialized-default render properties out of scene262", () => {
+        const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene262.json"), "utf8")) as SceneManifest;
+        const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
+        expect([...runtimeChunks].filter((chunk) => /npe-pack-render-properties|particle-billboard-render-properties/.test(chunk))).toEqual([]);
+
+        const bundleInfo = JSON.parse(readFileSync(resolve(BUNDLE_INFO_DIR, "scene262.json"), "utf8")) as BundleInfo;
+        const modules = (bundleInfo.chunks ?? [])
+            .filter((chunk) => chunk.file && runtimeChunks.has(chunk.file))
+            .flatMap((chunk) => chunk.modules ?? [])
+            .map((module) => module.id ?? "")
+            .filter((id) => OPTIONAL_RENDER_PROPERTIES_MODULE.test(id));
+        expect(modules).toEqual([]);
+    });
+
+    it.skipIf(!hasManifests([262]))("keeps serialized-default ALL geometry out of scene262", () => {
+        const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, "scene262.json"), "utf8")) as SceneManifest;
+        const runtimeChunks = new Set(manifest.runtimeChunks ?? []);
+        expect([...runtimeChunks].filter((chunk) => /npe-pack-billboard-modes|particle-billboard-modes/.test(chunk))).toEqual([]);
+
+        const bundleInfo = JSON.parse(readFileSync(resolve(BUNDLE_INFO_DIR, "scene262.json"), "utf8")) as BundleInfo;
+        const modules = (bundleInfo.chunks ?? [])
+            .filter((chunk) => chunk.file && runtimeChunks.has(chunk.file))
+            .flatMap((chunk) => chunk.modules ?? [])
+            .map((module) => module.id ?? "")
+            .filter((id) => OPTIONAL_BILLBOARD_MODES_MODULE.test(id));
+        expect(modules).toEqual([]);
+    });
+
     it("keeps the frozen scene305 fixture free of camera controls", () => {
         expect(readFileSync(SCENE_305_SOURCE, "utf8")).not.toMatch(/\battachControl\b|arc-rotate-controls/);
     });
@@ -205,6 +321,7 @@ describe("Particle bundle feature isolation", () => {
             const manifest = JSON.parse(readFileSync(resolve(MANIFEST_DIR, `scene${sceneId}.json`), "utf8")) as SceneManifest;
             const chunks = manifest.runtimeChunks ?? [];
             expect(chunks.length, `scene${sceneId} has no runtime chunks recorded`).toBeGreaterThan(0);
+            expect(chunks.filter((chunk) => /npe-(flow-map|noise|texture-updates)-runtime/.test(chunk))).toEqual([]);
             const offenders = findUnusedFeatureChunks(sceneId, chunks);
             expect(offenders, `scene${sceneId} fetches unused particle feature chunks`).toEqual([]);
             if (sceneId === 277) {
@@ -219,8 +336,8 @@ describe("Particle bundle feature isolation", () => {
             }
             if (sceneId === 280) {
                 expect(
-                    chunks.some((chunk) => chunk.includes("npe-flow-map-runtime")),
-                    "scene280 must fetch the specialized flow-map runtime"
+                    chunks.some((chunk) => chunk.includes("update-flow-map-block")),
+                    "scene280 must fetch the compiled flow-map evaluator"
                 ).toBe(true);
                 expect(chunks.some((chunk) => chunk.includes("npe-feature-compilation"))).toBe(true);
                 expect(chunks.some((chunk) => chunk.includes("npe-general-feature-compilation"))).toBe(false);
@@ -228,8 +345,8 @@ describe("Particle bundle feature isolation", () => {
             }
             if (sceneId === 281) {
                 expect(
-                    chunks.some((chunk) => chunk.includes("npe-noise-runtime")),
-                    "scene281 must fetch the specialized noise-texture runtime"
+                    chunks.some((chunk) => chunk.includes("update-noise-block")),
+                    "scene281 must fetch the compiled noise evaluator"
                 ).toBe(true);
                 expect(chunks.some((chunk) => chunk.includes("npe-feature-compilation"))).toBe(true);
                 expect(chunks.some((chunk) => chunk.includes("npe-general-feature-compilation"))).toBe(false);
@@ -246,6 +363,7 @@ describe("Particle bundle feature isolation", () => {
                 .filter((chunk) => chunk.file && runtimeChunks.has(chunk.file))
                 .flatMap((chunk) => chunk.modules ?? [])
                 .map((module) => module.id ?? "");
+            expect(runtimeModuleIds.filter((id) => /npe-(flow-map|noise|texture-updates)-runtime/.test(id))).toEqual([]);
             if (sceneId === 283 || sceneId === 284) {
                 expect(runtimeModuleIds.filter((id) => OPTIONAL_BLEND_MODULE.test(id))).toEqual(
                     expect.arrayContaining([
@@ -263,7 +381,7 @@ describe("Particle bundle feature isolation", () => {
             }
             const moduleOffenders = runtimeModuleIds.filter(
                 (id) =>
-                    /particle\/(particle-billboard-renderable|node\/(npe-(emitter-provider|feature-compilation|flow-map-runtime|general-feature-compilation|live-emitter|noise-runtime|system-plan-compilation|value-compilation|texture-update-evaluator|local-position|texture-content)|npe-registry-(extra-remaining|extra-values|input-extra|local-shapes|phase4b|value-math)|blocks\/(cpu-texture-source-block|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|input-sprite-cell|local-variable|math-int|nlerp|number-math|smooth-step|step|trigonometry|value-type|vector-length|vector-math)|update-(attractor|flow-map|noise|sprite-cell-index)-block|(box|point|sphere|cone|cylinder|mesh)-shape-local)))|math\/mat4-invert/.test(
+                    /particle\/(particle-(billboard-modes(?:-pick)?|billboard-render-properties|billboard-renderable)|node\/(npe-(emitter-provider|feature-compilation|flow-map-runtime|general-feature-compilation|live-emitter|noise-runtime|pack-billboard-modes|pack-camera|pack-render-properties|pack-sub-emitters|sub-emitter-runtime|system-plan-compilation|value-compilation|texture-update-evaluator|local-position|texture-content)|npe-registry-(extra-remaining|extra-values|input-extra|local-shapes|phase4b|value-math)|blocks\/(cpu-texture-source-block|system-dynamic-emit-rate|particle-(clamp|condition|float-to-int|input-sprite-cell|local-variable|math-int|nlerp|number-math|smooth-step|step|trigonometry|trigger-block|value-type|vector-length|vector-math)|update-(attractor|flow-map|noise|sprite-cell-index)-block|(box|point|sphere|cone|cylinder|mesh)-shape-local)))|math\/mat4-invert/.test(
                         id
                     ) &&
                     !(sceneId === 276 && /npe-registry-input-extra|blocks\/(particle-input-sprite-cell|update-sprite-cell-index)-block/.test(id)) &&

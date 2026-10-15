@@ -1,5 +1,5 @@
 import { basicSpriteUpdateBlock } from "./blocks/basic-sprite-update-block.js";
-import { detectSpriteCellFeatures, particleInputSpriteCellBlock } from "./blocks/particle-input-sprite-cell-block.js";
+import { particleInputSpriteCellBlock } from "./blocks/particle-input-sprite-cell-block.js";
 import { setupSpriteSheetBlock } from "./blocks/setup-sprite-sheet-block.js";
 import { updateSpriteCellIndexBlock } from "./blocks/update-sprite-cell-index-block.js";
 import type { NpeBlockEvaluator } from "./npe-build.js";
@@ -25,4 +25,4 @@ export async function loadRandomStartSpriteBlockEvaluator(): Promise<NpeBlockEva
     return (await import("./blocks/setup-sprite-sheet-random-block.js")).setupSpriteSheetRandomBlock;
 }
 
-export { detectSpriteCellFeatures as detect, loadSpriteBlockEvaluator as load };
+export { loadSpriteBlockEvaluator as load };

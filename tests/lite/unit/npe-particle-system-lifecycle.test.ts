@@ -112,6 +112,20 @@ describe("NPE SystemBlock lifecycle properties", () => {
         expect(random).toHaveBeenCalledTimes(12);
     });
 
+    it("notifies start only after synchronous prewarm completes", async () => {
+        const system = await buildSystem({ manualEmitCount: 1, preWarmCycles: 1, preWarmStepOffset: 1 });
+        const onStart = vi.fn(() => expect(system.buffer.alive).toBe(1));
+        const started = system._lifecycle!._started;
+        system._lifecycle!._started = () => {
+            started?.();
+            onStart();
+        };
+
+        startParticleSystem(system);
+
+        expect(onStart).toHaveBeenCalledOnce();
+    });
+
     it("blocks starts while doNoStart is set", async () => {
         vi.useFakeTimers();
         const system = await buildSystem({ doNoStart: true, startDelay: 10, preWarmCycles: 1, preWarmStepOffset: 1 });
@@ -131,7 +145,11 @@ describe("NPE SystemBlock lifecycle properties", () => {
         const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
         const dispose = vi.fn();
         const system = await buildSystem({ manualEmitCount: 3, disposeOnStop: true }, true);
-        system._dispose = dispose;
+        const lifecycleDispose = system._lifecycle!._dispose;
+        system._lifecycle!._dispose = () => {
+            lifecycleDispose?.();
+            dispose();
+        };
 
         startParticleSystem(system);
         animateParticleSystem(system, 1);

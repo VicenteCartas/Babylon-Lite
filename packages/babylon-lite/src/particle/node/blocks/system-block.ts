@@ -17,13 +17,6 @@ export const systemBlock: NpeBlockEvaluator = {
         if (typeof serialized.blendMode === "number") {
             system.blendMode = serialized.blendMode;
         }
-        system.manualEmitCount = typeof serialized.manualEmitCount === "number" ? serialized.manualEmitCount : -1;
-        system.preWarmCycles = typeof serialized.preWarmCycles === "number" ? serialized.preWarmCycles : 0;
-        system.preWarmStepOffset = typeof serialized.preWarmStepOffset === "number" ? serialized.preWarmStepOffset : 0;
-        system.startDelay = typeof serialized.startDelay === "number" ? serialized.startDelay : 0;
-        system.disposeOnStop = serialized.disposeOnStop === true;
-        system.doNoStart = !!serialized.doNoStart;
-
         if (!ctx.isConnected(block, "emitRate")) {
             const emitRate = ctx.input(block, "emitRate", () => 10)(0);
             if (typeof emitRate === "number") {

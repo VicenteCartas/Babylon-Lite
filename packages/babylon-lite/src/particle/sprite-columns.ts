@@ -9,14 +9,6 @@
  */
 import { column, type ParticleBuffer } from "./particle-buffer.js";
 
-/** Sprite-sheet configuration used by the indexed birth and update steps. */
-export interface SpriteSheetConfig {
-    startCellID: number;
-    endCellID: number;
-    loop: boolean;
-    changeSpeed: number;
-}
-
 /** Handle returned by {@link useSpriteSheet}: the render column plus the per-particle birth/update steps. */
 export interface SpriteSheet {
     /** Render frame per particle (read by the billboard). */
@@ -35,12 +27,11 @@ function clamp01(value: number): number {
  * Attach the sprite-sheet feature to a buffer: allocate its columns (only now, on this buffer) and return
  * birth/update steps closing over them. Columns are keyed `sprite.*`, shared if attached more than once.
  */
-export function useSpriteSheet(buffer: ParticleBuffer, config: SpriteSheetConfig): SpriteSheet {
+export function useSpriteSheet(buffer: ParticleBuffer, start: number, end: number, loop: boolean, changeSpeed: number): SpriteSheet {
     const cellIndex = column(buffer, "sprite.cellIndex", Uint16Array);
     const age = buffer.age;
     const lifeTime = buffer.lifeTime;
-    const start = config.startCellID;
-    const distance = config.endCellID - start + 1;
+    const distance = end - start + 1;
 
     return {
         cellIndex,
@@ -49,8 +40,8 @@ export function useSpriteSheet(buffer: ParticleBuffer, config: SpriteSheetConfig
         },
         update(i: number): void {
             const life = lifeTime[i]!;
-            const progress = age[i]! * config.changeSpeed;
-            const ratio = config.loop ? clamp01((progress % life) / life) : clamp01(progress / life);
+            const progress = age[i]! * changeSpeed;
+            const ratio = loop ? clamp01((progress % life) / life) : clamp01(progress / life);
             cellIndex[i] = (start + ratio * distance) | 0;
         },
     };

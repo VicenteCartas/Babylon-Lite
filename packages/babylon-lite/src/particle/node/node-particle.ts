@@ -4,9 +4,10 @@ import { parseNodeParticleSource } from "./npe-parser.js";
 import { buildNodeParticleSet } from "./npe-build.js";
 import { compileNodeParticleGraph } from "./npe-compiler.js";
 import type { BuildNodeParticleOptions, NodeParticleSet } from "./npe-build.js";
+import type { ParticleInputHandle } from "./npe-input.js";
 
 export { buildNodeParticleSet };
-export type { NodeParticleSet };
+export type { NodeParticleSet, ParticleInputHandle };
 export type { BuildNodeParticleOptions } from "./npe-build.js";
 
 /** Options for {@link parseNodeParticleSetFromSnippet}. */

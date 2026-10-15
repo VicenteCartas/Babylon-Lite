@@ -10,37 +10,20 @@ export function lerpGetters(left: NpeGetter, right: NpeGetter, i: number, amount
         const endNumber = typeof end === "number" ? end : 0;
         return start + (endNumber - start) * amount;
     }
-    if ("r" in start) {
-        const startR = start.r;
-        const startG = start.g;
-        const startB = start.b;
-        const startA = start.a;
-        const end = right(i);
-        const endColor = typeof end !== "number" && "r" in end ? end : null;
-        color4.r = startR + ((endColor?.r ?? 0) - startR) * amount;
-        color4.g = startG + ((endColor?.g ?? 0) - startG) * amount;
-        color4.b = startB + ((endColor?.b ?? 0) - startB) * amount;
-        color4.a = startA + ((endColor?.a ?? 0) - startA) * amount;
-        return color4;
+    const result = "r" in start ? color4 : "z" in start ? vector3 : vector2;
+    const from = start as unknown as Record<string, number>;
+    const output = result as unknown as Record<string, number>;
+    for (const key in output) {
+        output[key] = from[key]!;
     }
-    if ("z" in start) {
-        const startX = start.x;
-        const startY = start.y;
-        const startZ = start.z;
-        const end = right(i);
-        const endVector = typeof end !== "number" && "z" in end ? end : null;
-        vector3.x = startX + ((endVector?.x ?? 0) - startX) * amount;
-        vector3.y = startY + ((endVector?.y ?? 0) - startY) * amount;
-        vector3.z = startZ + ((endVector?.z ?? 0) - startZ) * amount;
-        return vector3;
-    }
-    const startX = start.x;
-    const startY = start.y;
     const end = right(i);
-    const endVector = typeof end !== "number" && !("r" in end) && !("z" in end) ? end : null;
-    vector2.x = startX + ((endVector?.x ?? 0) - startX) * amount;
-    vector2.y = startY + ((endVector?.y ?? 0) - startY) * amount;
-    return vector2;
+    const sameShape = typeof end !== "number" && ("r" in result ? "r" in end : "z" in result ? "z" in end : !("r" in end) && !("z" in end));
+    const to = sameShape ? (end as unknown as Record<string, number>) : null;
+    for (const key in output) {
+        const value = output[key]!;
+        output[key] = value + ((to?.[key] ?? 0) - value) * amount;
+    }
+    return result;
 }
 
 /** `ParticleLerpBlock` — component-wise linear interpolation `left + (right - left) * gradient`, into scratch. */

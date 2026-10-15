@@ -8,7 +8,7 @@ import type { NodeParticleProgram } from "./npe-types.js";
 /** Enable exact Babylon.js particle blend rendering on any built NPE set. */
 export function enableNodeParticleBlendModes(set: NodeParticleSet): NodeParticleSet {
     for (const system of set.systems) {
-        system._registerBillboard = (scene, billboard) => addFacingBillboardSystemWithParticleBlend(scene, billboard, system.blendMode);
+        system._registerBillboard ??= (scene, billboard) => addFacingBillboardSystemWithParticleBlend(scene, billboard, system.blendMode);
     }
     return set;
 }

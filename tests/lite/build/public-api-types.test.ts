@@ -144,12 +144,10 @@ describe("build/index.d.ts", () => {
         expect(dts).toMatch(/buildNodeParticleSet\(engine: EngineContext, scene: SceneContext, program: NodeParticleProgram/);
         expect(dts).toContain("interface ParsedNodeParticleGraph");
         expect(dts).toContain("interface NodeParticleProgram");
-        expect(dts).toContain('type NodeParticlePrepareFrameEffect = "localVariableLoopEpoch"');
-        expect(dts).toContain("interface NodeParticleSystemEffectManifest");
-        expect(dts).toMatch(/readonly effects\?: NodeParticleSystemEffectManifest/);
-        expect(dts).toContain('readonly kind: "flowMapViewProjection"');
-        expect(dts).toContain("interface NodeParticleBindingManifest");
-        expect(dts).toMatch(/readonly bindings\?: NodeParticleBindingManifest/);
+        expect(dts).toMatch(/interface NodeParticleProgram \{\s*\}/);
+        expect(dts).not.toContain("NodeParticlePrepareFrameEffect");
+        expect(dts).not.toContain("NodeParticleSystemEffectManifest");
+        expect(dts).not.toContain("NodeParticleBindingManifest");
         expect(dts).not.toContain("normalizeNodeParticleGraph");
         expect(dts).not.toContain("compileNodeParticleTopology");
         expect(dts).not.toContain("compileNodeParticleValueTypes");
@@ -162,6 +160,28 @@ describe("build/index.d.ts", () => {
         expect(dts).not.toContain("_isGraphPlumbingNormalized");
         expect(dts).not.toContain("_compiled");
         expect(dts).not.toContain("_localVariableLoopEpoch");
+    });
+
+    it("exposes live particle input handles without mutable compiler internals", () => {
+        const dts = readFileSync(DTS_PATH, "utf-8");
+
+        expect(dts).toContain("interface ParticleInputHandle");
+        expect(dts).toMatch(/readonly inputs: Readonly<Record<string, ParticleInputHandle>>/);
+        expect(dts).toContain('readonly type: "i32" | "f32" | "vec2f" | "vec3f" | "vec4f"');
+        expect(dts).toContain("readonly groupInInspector: string");
+        expect(dts).toContain("readonly displayInInspector: boolean");
+        expect(dts).not.toContain("NpeInputCell");
+        expect(dts).not.toContain("_inputs");
+        expect(dts).not.toContain("createParticleInputHandles");
+    });
+
+    it("exposes explicit particle disposal without child-host internals", () => {
+        const dts = readFileSync(DTS_PATH, "utf-8");
+
+        expect(dts).toMatch(/disposeParticleSystem\(system: ParticleSystem\): void/);
+        expect(dts).not.toMatch(/\b_children\b|\b_childInstances\b|\b_setChildRegistrar\b|\b_disposeChildren\b/);
+        expect(dts).not.toContain("NodeParticleChildHost");
+        expect(dts).not.toContain("NodeParticleSystemInstance");
     });
 
     it("exposes rigid-body rotation axis locks", () => {

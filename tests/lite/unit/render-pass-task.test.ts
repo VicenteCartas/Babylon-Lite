@@ -15,6 +15,7 @@ import { transferMeshBetweenTasks } from "../../../packages/babylon-lite/src/sha
 import { enableRenderTaskTransmission, enableSceneTransmission } from "../../../packages/babylon-lite/src/frame-graph/transmission";
 import { getComputeDispatchBatch } from "../../../packages/babylon-lite/src/mesh/thin-instance-gpu-culling";
 import { invalidateRenderBundles } from "../../../packages/babylon-lite/src/mesh/mesh-factories";
+import { _registerTransparentSortCompare } from "../../../packages/babylon-lite/src/render/transparent-sort-hook";
 
 const gpuGlobals = globalThis as Omit<typeof globalThis, "GPUBufferUsage" | "GPUShaderStage" | "GPUTextureUsage"> & {
     GPUBufferUsage?: { UNIFORM: number; COPY_DST: number };
@@ -544,6 +545,27 @@ describe("RenderPassTask transparent sorting", () => {
         scene._record();
 
         expect(drawOrder).toEqual(["far-in-view", "near-but-wide"]);
+    });
+
+    it("runs an optional transparent prefix comparator before camera-space depth", async () => {
+        const engine = makeMockEngine();
+        const scene = createSceneContext(engine);
+        scene.camera = makeCamera();
+        const drawOrder: string[] = [];
+        const nearGroupZero = makeTransparentRenderable("near-group-0", [0, 0, 0], [0, 0, 2], drawOrder);
+        const farGroupOne = makeTransparentRenderable("far-group-1", [0, 0, 0], [0, 0, 10], drawOrder);
+        farGroupOne._renderingGroupId = 1;
+        scene._renderables.push(farGroupOne, nearGroupZero);
+        _registerTransparentSortCompare((left, right) => (left.renderable._renderingGroupId ?? 0) - (right.renderable._renderingGroupId ?? 0));
+
+        try {
+            await registerScene(scene);
+            scene._record();
+        } finally {
+            _registerTransparentSortCompare(null);
+        }
+
+        expect(drawOrder).toEqual(["near-group-0", "far-group-1"]);
     });
 
     it("direct-draws dynamic depth-write renderables without marking them transmissive", async () => {

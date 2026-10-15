@@ -44,8 +44,15 @@ export interface CompiledParticleBlock extends ParsedParticleBlock {
 /** @internal Reusable executable operations for one system. */
 export type NodeParticleSystemPlan = readonly (CompiledParticleBlock | NpeBlockEvaluator)[];
 
+/** @internal Immutable metadata for one reachable named constant input. */
+export type NodeParticleInputPlan = ParsedParticleBlock;
+
 /** Opaque executable node-particle program produced by {@link compileNodeParticleGraph}. */
 export interface NodeParticleProgram {
     /** @internal Per-system alternating block/evaluator entries in post-order. */
     readonly _systems: readonly NodeParticleSystemPlan[];
+    /** @internal Reachable named constant inputs after serialized-order name collision resolution. */
+    readonly _inputs: readonly NodeParticleInputPlan[];
+    /** @internal True only when the executable plans contain Phase 13 system flow. */
+    readonly _subEmitters?: true;
 }

@@ -1,34 +1,13 @@
-import type { Vec2, Vec3, Color4 } from "../../../math/types.js";
 import type { NpeBlockEvaluator } from "../npe-build.js";
-import type { NpeGetter, NpeValue } from "../npe-value.js";
+import type { NpeGetter } from "../npe-value.js";
 import { makeContextualGetter } from "../npe-contextual.js";
+import { parseParticleInputValue } from "../npe-input.js";
 
-const TYPE_INT = 0x0001;
 const TYPE_FLOAT = 0x0002;
-const TYPE_VECTOR2 = 0x0004;
-const TYPE_VECTOR3 = 0x0008;
-const TYPE_COLOR4 = 0x0080;
 
 const SYS_TIME = 1;
 const SYS_DELTA = 2;
 const SYS_EMITTER = 3;
-
-function parseConstant(type: number, value: unknown): NpeValue {
-    const array = Array.isArray(value) ? (value as number[]) : null;
-    switch (type) {
-        case TYPE_INT:
-        case TYPE_FLOAT:
-            return typeof value === "number" ? value : 0;
-        case TYPE_VECTOR2:
-            return { x: array?.[0] ?? 0, y: array?.[1] ?? 0 } as Vec2;
-        case TYPE_VECTOR3:
-            return { x: array?.[0] ?? 0, y: array?.[1] ?? 0, z: array?.[2] ?? 0 } as Vec3;
-        case TYPE_COLOR4:
-            return { r: array?.[0] ?? 0, g: array?.[1] ?? 0, b: array?.[2] ?? 0, a: array?.[3] ?? 1 } as Color4;
-        default:
-            return typeof value === "number" ? value : 0;
-    }
-}
 
 /** `ParticleInputBlock` — a constant, a contextual source, or a system source. */
 export const particleInputBlock: NpeBlockEvaluator = {
@@ -57,8 +36,8 @@ export const particleInputBlock: NpeBlockEvaluator = {
             }
         } else {
             const type = typeof block.type === "number" ? block.type : TYPE_FLOAT;
-            const constant = parseConstant(type, block.value);
-            getter = () => constant;
+            const constant = parseParticleInputValue(type, block.value);
+            getter = ctx._inputValue?.(block.id) ?? (() => constant);
         }
 
         ctx.setOutput(block.id, "output", getter);

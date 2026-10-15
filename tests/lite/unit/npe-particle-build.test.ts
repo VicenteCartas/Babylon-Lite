@@ -5,6 +5,9 @@ import changeEmitRateTruth from "./fixtures/change-emit-rate-states.json";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { parseNodeParticleSetFromSnippet } from "../../../packages/babylon-lite/src/particle/node/node-particle";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map";
+import { buildNodeParticleSetWithNoiseTextures } from "../../../packages/babylon-lite/src/particle/node/npe-noise";
+import { buildNodeParticleSetWithTextureUpdates } from "../../../packages/babylon-lite/src/particle/node/npe-texture-updates";
 import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { animateParticleSystem, startParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
@@ -28,6 +31,14 @@ afterEach(() => {
 });
 
 describe("NPE build reachability", () => {
+    it.each([
+        ["flow maps", buildNodeParticleSetWithFlowMaps],
+        ["noise textures", buildNodeParticleSetWithNoiseTextures],
+        ["combined texture updates", buildNodeParticleSetWithTextureUpdates],
+    ])("uses the compiled-program builder directly for %s", (_name, builder) => {
+        expect(builder).toBe(buildNodeParticleSet);
+    });
+
     it("builds typed-array systems through the canonical inline-JSON API", async () => {
         const set = await parseNodeParticleSetFromSnippet({} as EngineContext, {} as SceneContext, "", {
             json: SCENE262_NPE_JSON,

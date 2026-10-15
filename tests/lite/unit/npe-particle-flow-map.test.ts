@@ -216,6 +216,7 @@ describe("NPE UpdateFlowMapBlock", () => {
 
         const system = createParticleSystem(1);
         system.texture = { width: 1, height: 1 } as Texture2D;
+        system._registerBillboard = () => undefined;
         system.emitRate = 0;
         system.buffer.alive = 1;
         system.buffer.lifeTime[0] = 10;
@@ -236,7 +237,7 @@ describe("NPE UpdateFlowMapBlock", () => {
         }
 
         expect(cameraWasUpdatedAtSimulation).toBe(true);
-        expect(scene._deferredBuilders).toHaveLength(1);
+        expect(scene._deferredBuilders).toHaveLength(0);
     });
 
     it("builds registry and texture wiring through a parsed graph", async () => {

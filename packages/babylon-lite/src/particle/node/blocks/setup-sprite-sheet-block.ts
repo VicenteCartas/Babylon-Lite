@@ -1,4 +1,4 @@
-import { useSpriteSheet, type SpriteSheetConfig } from "../../sprite-columns.js";
+import { useSpriteSheet } from "../../sprite-columns.js";
 import type { NpeBlockEvaluator } from "../npe-build.js";
 
 /**
@@ -13,18 +13,14 @@ export const setupSpriteSheetBlock: NpeBlockEvaluator = {
         const system = ctx.state.system!;
         const buffer = ctx.state.buffer!;
         const s = block;
-        const config: SpriteSheetConfig = {
-            startCellID: typeof s.start === "number" ? s.start : 0,
-            endCellID: typeof s.end === "number" ? s.end : 0,
-            loop: typeof s.loop === "boolean" ? s.loop : true,
-            changeSpeed: typeof s.spriteCellChangeSpeed === "number" ? s.spriteCellChangeSpeed : 1,
-        };
-        const sheet = useSpriteSheet(buffer, config);
+        const start = typeof s.start === "number" ? s.start : 0;
+        const end = typeof s.end === "number" ? s.end : 0;
+        const sheet = useSpriteSheet(buffer, start, end, typeof s.loop === "boolean" ? s.loop : true, typeof s.spriteCellChangeSpeed === "number" ? s.spriteCellChangeSpeed : 1);
         system._spriteSheet = {
             cellWidth: typeof s.width === "number" ? s.width : 0,
             cellHeight: typeof s.height === "number" ? s.height : 0,
-            startCellID: config.startCellID,
-            endCellID: config.endCellID,
+            startCellID: start,
+            endCellID: end,
             cellIndex: sheet.cellIndex,
             update: sheet.update,
         };

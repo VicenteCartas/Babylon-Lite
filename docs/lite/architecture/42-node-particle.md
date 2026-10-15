@@ -105,8 +105,18 @@ interface ParseNodeParticleOptions extends BuildNodeParticleOptions {
 
 type NodeParticleEmitterProvider = () => Mat4;
 
+interface ParticleInputHandle {
+    readonly type: "i32" | "f32" | "vec2f" | "vec3f" | "vec4f";
+    value: number | number[];
+    readonly min: number;
+    readonly max: number;
+    readonly groupInInspector: string;
+    readonly displayInInspector: boolean;
+}
+
 interface NodeParticleSet {
     readonly systems: ParticleSystem[];
+    readonly inputs: Readonly<Record<string, ParticleInputHandle>>;
 }
 
 interface RegisterNodeParticleOptions {
@@ -164,7 +174,7 @@ interface NodeParticleSet2DBlendModesBinding {
 }
 ```
 
-`ParsedParticleBlock`, `ParsedParticleInput`, `CompiledParticleBlock`, and `NodeParticleSystemPlan` are internal declaration details; they are not named package-root exports. `NodeParticleProgram` is intentionally opaque after `@internal` trimming. `ParticleSystem` is specified in section 5. `NodeParticleEmitterProvider` is a pure state source: it accepts no runtime objects and returns only a matrix value. `NodeParticleSet.systems` is a mutable array behind a readonly property, and each system and its typed arrays are mutable. Both bridge families expose readonly system/layer references while keeping `pixelsPerUnit`, `originPx`, and `invertY` mutable. Both binding families expose a readonly bridge list and mutable `active` state. Every public type is pure state; behavior remains in standalone functions.
+`ParsedParticleBlock`, `ParsedParticleInput`, `CompiledParticleBlock`, `NodeParticleInputPlan`, and `NodeParticleSystemPlan` are internal declaration details; they are not named package-root exports. `NodeParticleProgram` is intentionally opaque after `@internal` trimming. `ParticleSystem` is specified in section 5. `NodeParticleEmitterProvider` is a pure state source: it accepts no runtime objects and returns only a matrix value. `NodeParticleSet.systems` is a mutable array behind a readonly property, and each system and its typed arrays are mutable. `NodeParticleSet.inputs` is a stable readonly name map whose handles have stable identity for the set lifetime; only each handle's `value` property is mutable. Both bridge families expose readonly system/layer references while keeping `pixelsPerUnit`, `originPx`, and `invertY` mutable. Both binding families expose a readonly bridge list and mutable `active` state. Every public type is pure state; behavior remains in standalone functions.
 
 ### 2.3 Breaking migration
 
@@ -221,9 +231,7 @@ serialized value
     -> NodeParticleProgram
      -> buildNodeParticleSet
          or buildNodeParticleSetWithBlendModes for exact billboard Multiply/MultiplyAdd rendering
-         or buildNodeParticleSetWithFlowMaps for UpdateFlowMapBlock graphs
-         or buildNodeParticleSetWithNoiseTextures for UpdateNoiseBlock graphs
-         or buildNodeParticleSetWithTextureUpdates for graphs containing both
+         aliases: buildNodeParticleSetWithFlowMaps / buildNodeParticleSetWithNoiseTextures / buildNodeParticleSetWithTextureUpdates
          with options from withNodeParticleEmitterProvider for a live emitter matrix on any builder
          or buildNodeParticleSetWithEmitterProvider as the default-builder convenience form
      -> optional enableNodeParticleBlendModes for exact billboard blending on a set from any builder
@@ -239,6 +247,8 @@ serialized value
                  createParticleSprite2DBridgeWithBlendModes + syncParticleSprite2DBridgeWithBlendModes
                  -> registerNodeParticleSet2DWithBlendModes
 ```
+
+The three texture-update builder names are direct exports of `buildNodeParticleSet`. Compilation selects flow-map and noise evaluators automatically; instantiation adds no feature-specific forwarding module or dynamic import. All names accept the same compiled program and options, including omitted options.
 
 The snippet convenience flow is:
 
@@ -264,6 +274,10 @@ particle-billboard-scene.ts
                          ordinary/advanced scene registration boundary
 particle-billboard-renderable.ts
                          lazy Multiply shader and MultiplyAdd second pass
+particle-billboard-render-properties.ts
+                         optional translation-pivot/texture-mask shader, exact blend passes, and rendering-group registration
+particle-billboard-render-properties-pick.ts
+                         lazy translated-pivot picking over transient transformed instances
 particle-scene.ts        scene registration and per-frame callback wiring
 particle-sprite-2d.ts    packed Sprite2D bridge and renderer binding lifecycle
 particle-sprite-2d-blend-modes.ts
@@ -278,11 +292,13 @@ node/npe-emitter-provider.ts
 node/npe-value.ts        indexed getter and step contracts
 node/npe-texture-content.ts
                          pay-for-use CPU RGBA texture decoding
-node/npe-texture-updates-runtime.ts
-                         shared lazy build path for CPU texture update families
+node/npe-flow-map.ts, node/npe-noise.ts, node/npe-texture-updates.ts
+                         direct aliases of the compiled-program builder
 node/npe-contextual*.ts  contextual source getters and optional columns
 node/npe-local-position.ts
                          local birth seeding and world-position conversion
+node/npe-pack-render-properties.ts
+                         lazy SystemBlock render-property evaluator and scene-registration installation
 node/npe-registry*.ts    side-effect-free dynamic evaluator dispatch
 node/npe-registry-variants.ts
                          sprite-cell Int reachability detection and first-stage variant routing
@@ -503,9 +519,11 @@ Starting a stopped, non-disposed system resets simulated time and permits emissi
 
 ### 5.3 Compiled frame preparation
 
-`_prepareFrame` is one optional zero-argument callback. A normal static system leaves it absent. `animateParticleSystem` invokes it after the `_started` guard and before scaled-speed, dynamic emit-rate, existing-particle, or birth work. The public animation signature remains exactly `(system, scaledRatio)`; camera and target dimensions are not simulation inputs.
+`_prepareFrame` is one optional zero-argument callback. A normal static system leaves it absent. `animateParticleSystem` invokes it after the `_started` guard and before scaled-speed, dynamic emit-rate, existing-particle, or birth work. Feature evaluators compose callbacks in graph-build order by invoking the captured callback before their own preparation. The public animation signature remains exactly `(system, scaledRatio)`; camera and target dimensions are not simulation inputs.
 
-The base particle system has no camera or target-size preparation API. Camera-dependent optional features own their preparation in their selected evaluator. Each reachable UpdateFlowMap evaluator creates one per-instance view-projection binding during plan instantiation and appends its refresh callback to `scene._beforeRender`. The binding snapshots the current view-projection matrix after camera-control callbacks and before live particle simulation. Manual simulation can use the build-time snapshot when the camera is static, or invoke the registered scene callback after changing the camera or target size.
+The base particle system has no camera or target-size preparation API. Camera-dependent optional features own their preparation in their selected evaluator pack. The first reachable CameraPosition or `AlignAngleBlock` evaluator creates one per-system camera binding and composes its refresh into `_prepareFrame`; later camera evaluators reuse that binding and callback. Registered simulation therefore observes camera controls that ran earlier in `scene._beforeRender`, and manual simulation automatically refreshes after camera changes. Each reachable UpdateFlowMap evaluator retains its separate per-instance view-projection binding and scene callback because its snapshot also depends on render-target dimensions. Manual flow-map simulation can use the build-time snapshot when the camera and target are static, or invoke the registered scene callback after changing either value.
+
+System render properties are build-time values rather than frame preparation. A selected render-property evaluator resolves `translationPivot` and `textureMask` once at particle index `0`, copies their components into one system-owned feature object, and installs the feature's billboard registrar. It adds no simulation callback or particle column.
 
 `withNodeParticleEmitterProvider(provider, options)` is the build-time opt-in. It samples and validates the provider immediately, returns a shallow copy of the supplied options with one internal `_setupEmitter` callback, and preserves extension-specific option fields through its generic intersection return type. The result can be passed to every node-particle builder or to `parseNodeParticleSetFromSnippet`. Each builder calls the callback with its temporary `NpeBuildState` immediately after constructing that state and before evaluator traversal. The callback replaces any caller-owned static matrix reference with a fresh provider-owned stable matrix, copies the initial matrix and translation into stable evaluator references, assigns a fresh provider-owned inverse list, and installs frame preparation on that system. Provider setup does not mutate the original options or their `emitterWorldMatrix`.
 
@@ -639,6 +657,8 @@ Malformed JSON and malformed response shapes produce native `JSON.parse`, proper
 
 `buildNodeParticleSet` creates one fresh runtime system for every executable plan in `program._systems`. The final block/evaluator pair in each plan is its `SystemBlock` root.
 
+Before creating systems, the builder instantiates `program._inputs` into one set-local value cell and one stable public handle per surviving name. A cell is keyed by serialized block id and shared by every system plan in that set that references the block. It is never retained by the immutable program. Building the same program again creates a new input map, handles, cells, systems, and evaluator closures.
+
 For each root:
 
 - Capacity is `systemBlock.capacity` when it is a number, otherwise `1000`.
@@ -652,19 +672,19 @@ For each root:
 - Every implicit Cylinder evaluator computes its static inverse normally and optionally appends its stable `{ inverse }` state through `state.emitterInverseWorldMatrices?.push(...)`. Explicit-direction cylinders append nothing. A static build leaves the field absent and allocates no collection array. Provider setup installs the fresh list before traversal, so it collects every reachable implicit cylinder in one system without evaluator imports or provider-specific branching.
 - `scene` and `textureBaseUrl` are carried only during the graph walk in `NpeBuildState`.
 - Every builder delegates to the single `buildNodeParticleSet` traversal and therefore makes the same pre-traversal optional setup call. Feature runtimes install only build-local evaluator hooks; they do not copy traversal, literal parsing, variant routing, registry fallback, or build-state setup. No builder allocates a containing emitter-state object, imports provider code, branches on provider behavior, or retains `NpeBuildState` after the walk.
-- Each root gets its own output map and built-key set. Every standard `ParticleTextureSourceBlock` stays on the base registry; its existing evaluator prefers a nonempty string `url` and otherwise accepts a string `textureDataUrl`, without importing an optional evaluator. The flow-map, noise-texture, and combined texture-update builders dynamically import feature adapters only through their explicit public functions. Input evaluator overrides use the parsed block object as their built key, allowing one texture source to be evaluated once for billboard upload and once for CPU decoding.
+- Each root gets its own output map and built-key set. Its build context can resolve an exposed constant input by serialized block id to the set-local cell; unnamed, unreachable, contextual, system, or duplicate-name-losing inputs have no public cell and retain ordinary constant/source behavior. Every standard `ParticleTextureSourceBlock` stays on the base registry; its existing evaluator prefers a nonempty string `url` and otherwise accepts a string `textureDataUrl`, without importing an optional evaluator. The flow-map, noise-texture, and combined texture-update builders dynamically import feature adapters only through their explicit public functions. Input evaluator overrides use the parsed block object as their built key, allowing one texture source to be evaluated once for billboard upload and once for CPU decoding.
 - `enableNodeParticleBlendModes(set)` installs an `_registerBillboard` callback on every system in any already-built set and returns that same set. The callback reads the system's current mutable `blendMode` when registration occurs, applies the exact Babylon.js descriptor, attaches the private Multiply shader for modes `3` and `4`, and selects one or two passes. `buildNodeParticleSetWithBlendModes` accepts provider-wrapped options, so both opt-ins compose without changing the evaluator walk.
 - `buildNodeParticleSetWithBlendModes` is the convenience form `enableNodeParticleBlendModes(await buildNodeParticleSet(...))`. Importing either public enabler is the opt-in boundary for exact particle blend state and advanced rendering; ordinary builders have no runtime import edge to the optional modules.
 - `withNodeParticleEmitterProvider(provider, options)` is synchronous and validates its initial provider sample before building. It returns options carrying the provider-owned setup callback. `buildNodeParticleSetWithEmitterProvider` is the default-builder convenience form `buildNodeParticleSet(engine, scene, program, withNodeParticleEmitterProvider(provider, options))`. Snippet, flow-map, noise-texture, combined texture-update, and exact blend-mode composition pass the wrapped options to their existing builder entry points. There is no post-build enabler or replacement path.
 - Build promises are accumulated for the whole set and awaited together after all roots have been traversed.
 
-`CreateParticleBlock` does not create the system. `SystemBlock` does not set capacity or locality; the builder consumes those serialized fields before DFS.
+`CreateParticleBlock` does not create the system. `SystemBlock` does not set capacity or locality; the builder consumes those serialized fields before executing the compiled plan.
 
 ### 7.2 Reachability and traversal
 
-Only blocks reachable by following input connections from a root enter an operation plan. Detached blocks load no evaluator and allocate no columns.
+Only blocks reachable by following input connections from a root enter an operation plan. Detached blocks load no evaluator, allocate no columns, and expose no input handle.
 
-Every caller reaches instantiation through a `NodeParticleProgram`. `compileNodeParticleGraph` conditionally compiles topology routes, propagates value types, selects evaluator variants, and records alternating block/evaluator entries in post-order. Instantiation runs those entries directly and performs no registry lookup or graph traversal.
+Every caller reaches instantiation through a `NodeParticleProgram`. `compileNodeParticleGraph` conditionally compiles topology routes, propagates value types, selects evaluator variants, and records alternating block/evaluator entries in post-order. After every system plan is final, compilation forms `program._inputs` by filtering the original serialized block order to reachable constant `ParticleInputBlock` instances with a truthy string name. Contextual and system-source blocks never enter this plan. The immutable input plan retains block identity, initial serialized value, type, and inspector metadata but no mutable cell or handle. Instantiation runs operation entries directly and performs no registry lookup or graph traversal.
 
 The standard asynchronous `buildBlock(id)` algorithm is exact:
 
@@ -675,7 +695,7 @@ The standard asynchronous `buildBlock(id)` algorithm is exact:
 5. Select and dynamically import one evaluator.
 6. Run `evaluator.build(block, ctx)`.
 
-Opt-in feature adapters call this same walk with block and input evaluator hooks. Each thin texture-update runtime supplies one class, one texture input name, its update evaluator, and `cpuTextureSourceBlock`. Flow maps select `UpdateFlowMapBlock.flowMap`; noise selects `UpdateNoiseBlock.noiseTexture`. Feature block overrides have precedence, followed by scalar Random, local shapes, serialized variants, graph-local optional resolvers, and the standard registry. Every non-feature block therefore follows exactly the same routing in every builder. The shared registries remain unchanged for scenes that do not call an opt-in texture-update builder.
+Opt-in feature adapters call this same walk with block and input evaluator hooks. Each thin texture-update runtime supplies one class, one texture input name, its update evaluator, and `cpuTextureSourceBlock`. Flow maps select `UpdateFlowMapBlock.flowMap`; noise selects `UpdateNoiseBlock.noiseTexture`. Feature block overrides have precedence, followed by scalar Random, local shapes, serialized variants, graph-local optional resolvers, and the standard registry. System source `4` is a serialized `ParticleInputBlock` variant; `AlignAngleBlock` follows the existing Basic Properties registry. Both routes dynamically import the same camera evaluator pack, without adding a compiler feature bit, public builder, or instantiation hook. Every non-feature block therefore follows exactly the same routing in every builder. The shared registries remain unchanged for scenes that do not call an opt-in texture-update builder.
 
 Marking before recursion terminates cycles. A cycle can still fail when an evaluator asks for an output that has not been installed.
 
@@ -706,7 +726,35 @@ Literal parsing is:
 - `BABYLON.Color4` arrays become `{ r: value[0] ?? 0, g: value[1] ?? 0, b: value[2] ?? 0, a: value[3] ?? 1 }`.
 - Other literal forms are ignored.
 
-### 7.4 Evaluator packs and loading granularity
+### 7.4 Live input handles
+
+The public `inputs` map mirrors the Lite Node Material handle model without exposing Babylon.js block classes. Every reachable, named `ParticleInputBlock` whose contextual and system source ids are both zero participates, including a block whose `displayInInspector` is false. The display flag is presentation metadata for callers building an inspector; it is not an API-exposure filter. Empty or absent names, contextual sources, system sources, detached blocks, and `ParticleTextureSourceBlock` never produce handles.
+
+The record key is the authored block name without trimming or sanitizing. Compilation preserves serialized block order. When multiple eligible blocks have the same name, the later serialized block replaces the earlier record entry, matching Lite NME's named-input map. No values or metadata are merged. The losing block executes as an ordinary constant and has no public cell. Repeated reads of one record property return the same handle object. A block reachable from multiple System roots has one handle and one cell shared by those systems within the set; two builds of one program share neither handles nor cells.
+
+Type and metadata mapping is exact:
+
+| Serialized field     | Public value                                          |
+| -------------------- | ----------------------------------------------------- |
+| `type: 0x0001`       | `type: "i32"`, scalar numeric `value`                 |
+| `type: 0x0002`       | `type: "f32"`, scalar numeric `value`                 |
+| `type: 0x0004`       | `type: "vec2f"`, two-component array `value`          |
+| `type: 0x0008`       | `type: "vec3f"`, three-component array `value`        |
+| `type: 0x0080`       | `type: "vec4f"`, four-component RGBA array `value`    |
+| other/missing        | Float fallback: `type: "f32"`, scalar numeric `value` |
+| `min` / `max`        | the numeric serialized value, otherwise `0`           |
+| `groupInInspector`   | the serialized string, otherwise `""`                 |
+| `displayInInspector` | the serialized boolean, otherwise `true`              |
+
+Initial values use the constant parsing rules in section 8.5 and are not range-clamped, matching Babylon.js deserialization. Scalar handle reads return the current number. Vector/color reads return a fresh number array, so mutating a returned array cannot bypass the handle setter or mutate evaluator state. A valid scalar write supplies a number; a valid vector/color write supplies a matching-length number array. Vector/color writes copy components into the stable internal value object. Extra, missing, or shape-mismatched values are outside the typed contract and receive no compatibility coercion guarantee.
+
+Writing an `f32` handle applies Babylon.js `ParticleInputBlock.value` range behavior: when `min !== max`, first `Math.max(min, value)` and then `Math.min(max, value)` are stored. Equal bounds disable clamping. `i32`, vector, and color writes are not clamped or integer-coerced. Metadata is immutable after build.
+
+Every constant input evaluator reads its set-local cell on each getter call when one exists. A mutation is therefore visible to the next emit-rate evaluation, particle creation, or update that reaches that getter, without parsing, compiling, rebuilding, restarting, or reallocating particle storage. Values already copied into particle columns remain unchanged unless an update graph reads the input again. Handles do not create frame callbacks, dirty flags, GPU resources, or optional-module imports.
+
+All builder families return the `NodeParticleSet` produced by the one base instantiation path and therefore preserve the same `inputs` record and handle identities. Set enablers mutate only system rendering hooks and return the original set; scene and Sprite2D registration retain but do not clone or replace handles.
+
+### 7.5 Evaluator packs and loading granularity
 
 Pay-for-use is enforced at coherent pack boundaries, not at individual evaluator boundaries. A pack is one dynamically imported module with static imports of its evaluator bodies. Compilation loads each pack required by the reachable graph at most once, and evaluators from the same pack share one compressed response. Detached blocks select no pack. The compiled program retains evaluator references, so instantiation performs no registry lookup or dynamic import.
 
@@ -721,7 +769,8 @@ The initial pack topology is:
 - **Advanced values:** Condition, FloatToInt, VectorLength, NumberMath, Clamp, Step, Trigonometry, VectorMath, SmoothStep, NLerp, and their shared value-type propagation. Small value evaluators do not receive individual chunks.
 - **Topology and variables:** Teleport normalization, Elbow, Debug, LocalVariable, and reusable nested system-plan compilation. Future `ParticleTriggerBlock` and System `onStart`/`onEnd` support join this family.
 - **Texture simulation:** shared CPU texture decoding plus flow-map and noise update support. Flow and noise may remain separate large leaves only when the measured total is smaller than one combined pack.
-- **Camera-dependent particles:** reserved for the future CameraPosition system source and `AlignAngleBlock`, sharing one camera-state binding.
+- **Camera-dependent particles:** CameraPosition and `AlignAngleBlock`, sharing one camera-state binding.
+- **Render properties:** the SystemBlock variant for a non-default `translationPivot`, non-default `textureMask`, or nonzero `renderingGroupId`. The pack owns build-time value capture plus the specialized billboard registrar and shader. Default serialized values select the ordinary System evaluator and fetch no render-property module.
 
 World and local emitter implementations remain individually lazy while they are large and mutually exclusive. `CustomShapeBlock` remains outside serialized-runtime support because its JavaScript generator functions are not present in Babylon.js JSON.
 
@@ -733,9 +782,10 @@ Variant selection uses serialized data and connection identity:
 - Random lock mode `3` uses the scalar evaluator when the `min` or `max` value type selected by first availability is `number` or `int`; all vector and color tags use the typed evaluator.
 - Math uses the alias-safe evaluator when left and right have equal target ids and equal target connection names, including two absent or equivalently unconnected targets.
 - System uses the dynamic variant when `emitRate` is connected.
+- System uses the render-property variant before the dynamic-emit-rate variant when `translationPivot` or `textureMask` is connected, when either input has a non-default serialized literal, or when numeric `renderingGroupId !== 0`. The render-property evaluator delegates first to the dynamic or ordinary System evaluator as appropriate, so render properties and connected emit rate compose in one operation.
 - SetupSpriteSheet uses the random variant only when `randomStartCell === true`.
 
-### 7.5 Asynchronous texture work
+### 7.6 Asynchronous texture work
 
 Texture evaluators add promises to the build-promise array. A builder traverses every root, then awaits `Promise.all(buildPromises)`, and returns the set. It does not run a texture-resolution pass. The ordinary GPU-upload-only texture evaluator schedules that upload. A CPU texture-update builder separately publishes a CPU-readable value for its connected source, and the update evaluator schedules decoding. Both settle before the specialized set is returned.
 
@@ -816,11 +866,12 @@ For a valid read, `step = 0` when `age[i] === 0`; otherwise `step = system._scal
 
 ### 8.4 System sources and timing
 
-| Id  | Name    | Return                                                                                                         |
-| --- | ------- | -------------------------------------------------------------------------------------------------------------- |
-| `1` | Time    | `system._actualFrame`                                                                                          |
-| `2` | Delta   | `system._scaledUpdateSpeed`                                                                                    |
-| `3` | Emitter | the stable build-state emitter `Vec3`, refreshed in provider-backed builds before each started simulation call |
+| Id  | Name           | Return                                                                                                         |
+| --- | -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `1` | Time           | `system._actualFrame`                                                                                          |
+| `2` | Delta          | `system._scaledUpdateSpeed`                                                                                    |
+| `3` | Emitter        | the stable build-state emitter `Vec3`, refreshed in provider-backed builds before each started simulation call |
+| `4` | CameraPosition | reused scratch `Vec3` from the active camera world-matrix translation, or zero when no camera is active        |
 
 Other ids throw `NodeParticle: unsupported system source <decimal id>` during build.
 
@@ -828,9 +879,11 @@ Time has three observable phases in an animation call. A dynamic emit-rate gette
 
 Emitter is stable by reference. Static builds retain their build-time value. A provider-backed frame mutates its components before emit-rate evaluation, existing-particle updates, and births, so every contextual read in one simulation call observes that system's committed snapshot.
 
+CameraPosition returns the camera binding's stable `position` vector. Binding refresh copies world-matrix indices 12, 13, and 14, preserving absolute world position under floating-origin rendering. A missing camera writes all three components to zero and clears view readiness. The getter allocates and copies nothing per evaluation. A camera-position-only graph allocates no matrix. One reusable program instantiated for multiple scenes creates independent bindings and preparation callbacks.
+
 Delta is assigned before emit-rate evaluation and remains the full `updateSpeed * scaledRatio` throughout the call. DirectionScale is assigned immediately before each live particle's `updateSteps`; it can be shortened on that particle's death boundary. Outside an existing-particle update, it retains its initialized value or the value from the most recently processed particle.
 
-### 8.5 ParticleInputBlock constants
+### 8.5 ParticleInputBlock constants and cells
 
 When both contextual and system source ids are zero, the block reads `serialized.type`, defaulting to Float `0x0002`:
 
@@ -843,11 +896,11 @@ When both contextual and system source ids are zero, the block reads `serialized
 | `0x0080` Color4  | array RGB with missing entries `0`, alpha with missing entry `1` |
 | any other id     | numeric serialized value or `0`                                  |
 
-Contextual source has precedence over system source, and system source has precedence over a constant. The block installs `output`.
+Contextual source has precedence over system source, and system source has precedence over a constant. A constant block with a set-local live-input cell installs a getter that reads the cell on every call; every other constant installs a getter over its parsed value. The block installs `output`.
 
 ## 9. Supported blocks
 
-Compiled programs support exactly 46 of Babylon.js's 49 registered block class names. The parser can represent arbitrary serialized class names; compilation owns topology validation, value typing, evaluator specialization, and operation planning before any builder runs.
+Compiled programs support exactly 47 of Babylon.js's 49 registered block class names. The parser can represent arbitrary serialized class names; compilation owns topology validation, value typing, evaluator specialization, and operation planning before any builder runs.
 
 ```text
 SystemBlock                         CreateParticleBlock
@@ -870,7 +923,8 @@ UpdateAngleBlock                    UpdateSizeBlock
 UpdateScaleBlock                    UpdateAgeBlock
 BasicPositionUpdateBlock            BasicColorUpdateBlock
 UpdateSpriteCellIndexBlock
-UpdateAttractorBlock                UpdateFlowMapBlock
+UpdateAttractorBlock                AlignAngleBlock
+UpdateFlowMapBlock
 UpdateNoiseBlock                    ParticleTeleportInBlock
 ParticleTeleportOutBlock            ParticleLocalVariableBlock
 ParticleElbowBlock                   ParticleDebugBlock
@@ -904,7 +958,21 @@ The builder has created the system before this evaluator runs. The evaluator:
 - For a connected `emitRate`, the dynamic evaluator installs `_emitRateGetter`. Each call evaluates the graph at particle index `0` and returns its number result, or the system's constant `emitRate` when the result is not numeric. It is not evaluated during build.
 - Evaluates `targetStopDuration` once at build with fallback `0` and assigns a numeric result.
 
-`capacity` and `isLocal` are builder fields. `billBoardMode` and `isBillboardBased` are ignored. The evaluator installs no output getter.
+The render-property variant first applies every rule above, including the connected emit-rate variant when needed, then resolves:
+
+```ts
+translationPivot = ctx.input(block, "translationPivot", () => ({ x: 0, y: 0 }))(0);
+textureMask = ctx.input(block, "textureMask", () => ({ r: 1, g: 1, b: 1, a: 1 }))(0);
+renderingGroupId = typeof serialized.renderingGroupId === "number" ? serialized.renderingGroupId : 0;
+```
+
+After evaluation, a falsey pivot falls back to zero and a nullish mask falls back to white, matching Babylon.js's `||` and `??` creation semantics for these inputs.
+
+It copies the two and four components into feature-owned values; no upstream scratch object is retained. These inputs are evaluated once while the system is instantiated, matching Babylon.js `SystemBlock.createSystem`. They are not reevaluated per particle or frame. The evaluator installs one `_registerBillboard` callback that closes over only the copied values and rendering group. The callback is the complete exact-rendering owner for that system, including modes 0 through 4 and the default Add fallback. `enableNodeParticleBlendModes` preserves an already installed registrar, so the specialized builder and this automatic render path compose without last-writer loss.
+
+Variant detection treats the ordinary Babylon.js serialization as free: unconnected literal pivot `[0, 0]`, mask `[1, 1, 1, 1]`, and group `0` select the ordinary evaluator. Missing inputs have the same defaults. Any connected pivot or mask selects the variant even when its current result equals the default because the connected graph must be evaluated. A non-default literal compares missing Vector2 components with `0`, missing Color4 RGB components with `0`, and missing Color4 alpha with `1`, exactly as input-literal parsing does.
+
+`capacity` and `isLocal` are builder fields. `billBoardMode` and `isBillboardBased` are ignored. Neither System evaluator installs an output getter.
 
 ### 9.2 CreateParticleBlock
 
@@ -1064,7 +1132,7 @@ The serialized mesh `worldSpace` field is not read. Only `emitterWorldMatrix` tr
 
 ### 9.10 ParticleInputBlock
 
-The block selects a contextual source when `serialized.contextualValue` is a nonzero number. Otherwise it selects a system source when `serialized.systemSource` is a nonzero number. Otherwise it creates the constant specified in section 8.5. Unsupported source ids fail during build as specified in section 8. It installs `output`.
+The block selects a contextual source when `serialized.contextualValue` is a nonzero number. Otherwise it selects a system source when `serialized.systemSource` is a nonzero number. Otherwise it creates or resolves the constant cell specified in sections 7.4 and 8.5. Unsupported source ids fail during build as specified in section 8. It installs `output`.
 
 ### 9.11 ParticleRandomBlock
 
@@ -1248,7 +1316,22 @@ direction.z += (data[index + 2] / 255 * 2 - 1) * alphaStrength
 
 The block uses one reused screen-position scratch and allocates nothing per particle. It observes position and direction from earlier update steps; later steps observe its direction change. It does not integrate position. Local systems use the same evaluator and current stored position; there is no separate local flow-map variant. Camera controls append their update callback before flow-map build; flow preparation appends next; live particle registration appends simulation last, producing controls → matrix preparation → simulation even when the set is built after scene registration.
 
-### 9.25 UpdateNoiseBlock
+### 9.25 AlignAngleBlock
+
+The block has only the `particle` input and appends one angle-writing update step. Numeric `serialized.alignment` is used directly; every other value defaults to `pi / 2`, matching Babylon.js's sprite-`+Y` alignment default. It installs no output getter and allocates no particle columns.
+
+Each evaluator owns one transformed-direction scratch `Vec3`. The first Align evaluator upgrades the shared camera binding with one view matrix from `allocateMat4()`; later Align evaluators reuse it. Build takes an initial snapshot. Each preparation reads `scene.camera`; a missing camera clears readiness, while an active camera refreshes the stable position and copies all 16 values from `getViewMatrix(camera)` into binding-owned storage. The copy prevents one program instance or later camera cache writes from aliasing another system's prepared state. Multiple camera-dependent evaluators on one system share the snapshot while retaining independent direction scratch.
+
+For each live particle, a missing prepared camera leaves its angle unchanged. Otherwise the update transforms the current direction as a normal through the prepared view matrix, ignoring translation, and writes:
+
+```text
+directionInView = transformNormal(direction, view)
+angle = atan2(directionInView.y, directionInView.x) + alignment
+```
+
+The direction is read after earlier update steps and the angle is visible to later steps. Zero direction follows JavaScript `Math.atan2(0, 0)` and therefore produces `alignment`. The block performs no normalization, wrapping, finiteness checks, or per-particle allocation. Registered simulation refreshes after earlier camera-control callbacks; direct `animateParticleSystem` calls refresh inside the same simulation call.
+
+### 9.26 UpdateNoiseBlock
 
 Inputs are `particle`, `noiseTexture`, and `strength`. Strength defaults to `{ x: 100, y: 100, z: 100 }`. The block allocates eight optional columns: two three-component Float64 coordinate sets, a Uint32 particle id, and a Uint8 validity flag. The id and validity columns regenerate all six random coordinates on the first update of each new particle id, including a recycled slot; subsequent updates reuse them.
 
@@ -1528,9 +1611,281 @@ Focused LocalVariable and proxy tests cover:
 
 Bundle checks require the LocalVariable evaluator and topology runtime only for Scene 305. Representative particle scenes without those features reject both modules, and Scene 305 rejects `arc-rotate-controls`, provider, specialized texture-update, exact-blend, and Sprite2D modules.
 
+### 9.36 Sub-emitter triggers and lifecycle systems
+
+Phase 13 completes serialized system-flow execution. A connected system output is a reusable template plan, never a
+mutable `ParticleSystem` instance. Compilation resolves system-valued routes once; every accepted trigger creates a
+fresh runtime system from that immutable plan. Child state, buffers, evaluator closures, lifecycle hooks, and optional
+columns never alias the template's top-level instance or another child.
+
+The supported serialized contracts are:
+
+| Owner                  | Connection                                           | Serialized fields                              | Event                                                        |
+| ---------------------- | ---------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
+| `ParticleTriggerBlock` | `input` Particle, `condition` Float, `system` System | `limit` (default `5`), `delay` (default `250`) | Per-particle update at the block's ordered position          |
+| `SystemBlock`          | optional `onStart` System                            | none                                           | Once for every accepted `startParticleSystem` call           |
+| `SystemBlock`          | optional `onEnd` System                              | none                                           | Once when that started run first enters `stopParticleSystem` |
+
+`ParticleTriggerBlock.output` passes through the input particle system. Its `condition` defaults to zero. A missing
+system plan leaves the pass-through installed but cannot create a child. The evaluator appends one `updateSteps`
+entry in compiled graph order, so it observes position and condition state written by preceding updates and later
+updates observe no graph-value mutation from the trigger.
+
+For every updated live slot, the trigger step:
+
+1. Evaluates `condition(index)`. Exactly zero rejects; every other JavaScript numeric result, including `NaN`, accepts.
+2. Applies the active-child limit. `limit === 0` is unlimited; otherwise creation requires `active < limit`. Negative
+   limits therefore reject every trigger, matching Babylon's comparison.
+3. Reads `Date.now()`. When a prior accepted timestamp is truthy and `now - previous < delay`, creation is rejected.
+   Delay is one block-global gate, not one timestamp per particle. Rejected attempts update neither timestamp nor count.
+4. Copies the particle's current authoritative position components into a new emitter value before any child build or
+   later swap-remove can mutate the parent slot.
+5. Increments the active count, creates and starts one child, and records the accepted timestamp. Child disposal
+   decrements the count exactly once. A build failure disposes the partial child and releases the count.
+
+The trigger count and timestamp belong to one instantiated evaluator. Reusing a compiled program creates independent
+gates; two trigger blocks in one system also remain independent. Particle ids do not participate in trigger state:
+the block may fire repeatedly for one particle, and a recycled dense slot is evaluated as its new particle on the next
+update. `limit` counts live child systems, not total historical calls or live particles.
+
+#### 9.36.1 Lifecycle notification order
+
+`ParticleSystem` retains optional internal start, stop, and disposal callbacks only when a selected feature installs
+them. The common simulation path pays one optional call at each existing lifecycle boundary and no per-particle branch.
+
+`startParticleSystem` preserves delay and `doNoStart` checks. On an immediate accepted start it sets `_started`, clears
+`_stopped`, resets `_actualFrame`, performs all synchronous pre-warm steps, then invokes the start callback. This matches
+Babylon's `onStartedObservable` position after pre-warm. A connected `onStart` plan creates one child at a copy of the
+parent system's current emitter position.
+
+`stopParticleSystem` is idempotent while `_stopped` is true. Its first call invokes the stop callback before setting
+`_stopped`, matching Babylon's `onStoppedObservable` order. A connected `onEnd` plan therefore starts immediately when
+an explicit stop or target-duration stop occurs, not after the parent's particles drain. Restart clears `_stopped`, so
+the next start and next stop each create one new lifecycle child. Calling stop repeatedly during one drain creates no
+duplicates.
+
+Lifecycle and trigger children override the template's `doNoStart` and `disposeOnStop`: a child always starts and always
+disposes after its own stopped particles drain. Its other serialized system properties, capacity, graph operations,
+texture, nested triggers, and nested lifecycle plans are rebuilt normally. Cyclic system templates are allowed at
+compile time because no child is instantiated until an event; ordinary runtime limits and user disposal bound their
+execution. A zero-duration recursive on-start cycle is not intercepted and is an unsupported self-triggering graph.
+
+#### 9.36.2 Plan instantiation and live values
+
+Internal plan instantiation is split into two results:
+
+```ts
+interface NodeParticleSystemInstance {
+    readonly system: ParticleSystem;
+    readonly ready: Promise<void>;
+}
+```
+
+System allocation and evaluator installation are synchronous. Texture/resource promises compose into `ready`. The
+public `buildNodeParticleSet` still resolves only after every top-level instance is ready. Event processing can therefore
+create, count, and start a child synchronously inside an update or lifecycle callback; live rendering attaches that
+child only after `ready` resolves. A rejected resource load follows the existing texture-source behavior and does not
+reject CPU simulation.
+
+All top-level systems and event-created children from one `NodeParticleSet` share that set's block-id-keyed Phase 12
+input cells. Mutating a public handle affects subsequent reads in existing children and future children. Rebuilding the
+same program creates a separate cell set. The standalone internal test helper that instantiates one plan without a set
+continues to allocate independent cells.
+
+`program._systems` retains one plan for every serialized `SystemBlock`, matching Babylon's top-level set construction.
+`CompiledParticleBlock._systemPlans` references those same immutable plans by consumer input name. System-plan
+compilation removes connected system edges from ordinary value traversal, so child plans are neither inlined nor
+mistaken for `NpeValue` getters. `ParticleTriggerBlock.system`, `SystemBlock.onStart`, and `SystemBlock.onEnd` are the only
+runtime consumers in Phase 13.
+
+#### 9.36.3 Child ownership, registration, and disposal
+
+The built set owns an internal child-host record containing every event-created system and readiness promise. Creating a
+child inserts it before start notification, allowing nested children to register against the same host. Disposal removes
+the entry by identity. The public `NodeParticleSet.systems` array remains the top-level serialized systems only; clones
+do not change its length.
+
+`registerNodeParticleSet` registers every top-level system and subscribes to that host before auto-starting roots. A
+child created before registration is attached when registration begins; a later child is attached when its readiness
+promise settles. Each registered system receives its own billboard, simulation callback, synchronization callback, and
+idempotent unregister closure. Child render properties and billboard modes use the child's installed optional registrar
+and synchronizer exactly like a top-level system.
+
+Late scene renderable registration uses the same scene-owned builder path as initial registration. If the scene is
+already built, the builder runs asynchronously, appends its renderables, and increments `_renderableVersion`. Its
+returned unregister closure removes those exact renderables, increments the version, unregisters picking, and destroys
+feature GPU resources. Disposal before an asynchronous build settles prevents installation and destroys the completed
+resources immediately. Scene disposal remains the final owner and invokes every still-live unregister closure once.
+
+`disposeParticleSystem(system)` is the standalone pure-state disposal boundary. It is idempotent and performs this
+order:
+
+1. Mark `_disposed`, clear `_started`, set `_stopped`, and set `buffer.alive = 0`.
+2. Detach the system's frame/render registration so no later frame closes over it.
+3. Dispose all direct event-created children. Their own disposal recursively handles descendants.
+4. Invoke and clear the existing owner cleanup callback exactly once.
+
+Terminal `disposeOnStop` calls the same function after the stopped system drains. Explicit parent disposal does not fire
+`onEnd`; disposal is not a stop notification in Babylon. Disposing one child releases its trigger limit slot. Disposing
+a parent before a child's asynchronous readiness settles still retires that child and prevents late scene attachment.
+Set/scene disposal removes its child-host subscription and disposes top-level systems, which recursively retires every
+clone.
+
+#### 9.36.4 Pay-for-use and validation
+
+- The trigger evaluator, system-flow runtime, child host, and late billboard registration are dynamically reachable only
+  from a graph whose compiler feature scan finds a system-valued connection or `ParticleTriggerBlock`.
+- Graphs without Phase 13 features retain no trigger getter, lifecycle callback, child array, timestamp, readiness
+  promise, dynamic registration callback, or trigger/runtime module.
+- Existing `_systemPlans` compilation remains in the optional system-flow compiler pass. Ordinary Scene 262 must not
+  fetch the trigger/runtime module.
+- Focused deterministic tests cover condition ordering, default and explicit limits/delays, simultaneous active count,
+  child disposal and slot release, emitter-position copies, capacity exhaustion, swap-removed/recycled parent slots,
+  parent stop/disposal, child build failure, program/set isolation, and nested templates.
+- Lifecycle tests cover start after pre-warm, target-duration and explicit end, stop idempotence, restart, current
+  emitter position, forced child start/dispose behavior, parent/child recursive disposal, and disposal-before-ready.
+- One Phase 13A scene exercises a particle-position trigger; a separate Phase 13B scene exercises start/end systems.
+  Both use checked-in serialized graphs shared with their Babylon oracle. Authorized focused parity validation passes
+  at MAD 0.091 for Scene 306 and 0.149 for Scene 307 against their immutable 1280x720 Babylon goldens.
+
 ## 10. Rendering and live registration
 
-### 10.1 Billboard creation
+### 10.0 Render-property ownership and ordering
+
+`translationPivot`, `textureMask`, and `renderingGroupId` are one coherent optional billboard feature. The generic billboard system, public billboard custom-shader API, Sprite2D bridge, particle instance layout, and base particle system remain unchanged. Only a graph selected by the System render-property variant imports `particle-billboard-render-properties.ts` and installs its registrar.
+
+The feature object is immutable after System evaluation:
+
+```ts
+interface ParticleRenderProperties {
+    readonly translationPivot: Vec2;
+    readonly textureMask: Color4;
+    readonly renderingGroupId: number;
+}
+```
+
+Registration applies the exact particle blend descriptor for the system's current mutable `blendMode`. Modes 0, 1, 2, 3, 4, and unknown values use the same factors and pass counts specified in section 10.2. The feature owns its own private billboard shader descriptors and deferred renderable builder; it neither imports nor alters the generic public custom-shader factory. Mode 4 remains one logical transparent renderable with one sorted instance upload and two consecutive draws, but both passes use the render-property vertex math and texture mask. The first pass uses Multiply color transformation and blending; the second uses ordinary masked color and Add blending.
+
+The feature UBO is 32 bytes and has this WGSL/Float32 layout:
+
+| Floats | WGSL field                | Meaning                                  |
+| ------ | ------------------------- | ---------------------------------------- |
+| 0..1   | `translationPivot: vec2f` | Babylon particle translation pivot       |
+| 2      | `multiplyPass: f32`       | `1` for Multiply, `0` for ordinary color |
+| 3      | padding                   | zero                                     |
+| 4..7   | `textureMask: vec4f`      | Babylon particle texture mask            |
+
+Each render pass owns one feature UBO because pipeline layouts and bind groups are pass-specific. Values are written once when the renderable attachment is created; there is no per-frame feature UBO write. Shader descriptors share lazily allocated per-device modules because the WGSL is value-independent. All caches begin as nullable module state and allocate only on first use.
+
+For quad corner `q`, atlas/frame pivot `o` (normally `[0.5, 0.5]` for NPE), particle size `s`, angle rotation `R`, and translation pivot `t`, the facing-billboard vertex stage computes exactly:
+
+```text
+local = (q - o - t) * s
+rotated = R(local)
+translated = rotated + t
+world = anchor + basisRight * translated.x + basisUp * translated.y
+clip = scene.viewProjection * vec4(world, 1)
+```
+
+The final `+ t` is deliberately not multiplied by particle size and occurs after rotation. Reparameterizing the existing instance pivot is forbidden: it would require division by each size component and cannot reproduce Babylon for a zero-size axis.
+
+Picking uses the same geometry. A zero translation pivot keeps the stock lazy billboard pick source. A nonzero translation pivot registers a feature-owned lazy contributor that copies logical instances into transient pick storage and shifts each copied anchor by `t - R(t * s)` along the camera's normalized billboard basis before invoking the stock pick draw. The stock pick vertex then computes `anchor' + R((q - o) * s)`, algebraically equal to the render equation above even when either size component is zero. It never mutates simulation or render instance storage, preserves sprite-index pick ids, and allocates the transient copy only on the first pick.
+
+For sampled texture color `sampled`, copied mask `mask`, per-particle tint `tint`, and billboard opacity multiplier `opacityMul`, every pass first computes:
+
+```text
+baseColor = (sampled * mask + (vec4(1) - mask)) * tint * opacityMul
+```
+
+An ordinary pass returns `baseColor`. A Multiply pass preserves Babylon's unmasked source-alpha term and computes:
+
+```text
+sourceAlpha = sampled.a * tint.a * opacityMul.a
+result = vec4(baseColor.rgb * sourceAlpha + vec3(1) * (1 - sourceAlpha), baseColor.a)
+```
+
+The mask therefore affects `baseColor.a` but does not replace `sampled.a` in `sourceAlpha`. A mask of `[1, 1, 1, 1]` reduces to stock sampling; a channel mask of zero replaces that sampled channel with one before tinting.
+
+Lite renderables gain one optional internal `_renderingGroupId`. The render-property registrar assigns the copied id to its billboard renderable; every other renderable behaves as group `0` without storing a field. Shared render code exposes only a null-by-default transparent prefix-comparator hook and contains no rendering-group semantics. The lazy render-property module explicitly installs a comparator that reads `_renderingGroupId`; scenes that never load the feature retain the null hook. Transparent binding sort is lexicographic:
+
+1. `renderingGroupId` ascending, using `0` when absent;
+2. camera-space distance descending within one group;
+3. existing renderable `order` ascending as the stable tie-break.
+
+This reproduces Babylon's outer rendering-group ordering: every group 0 transparent draw completes before any group 1 draw, regardless of distance. It deliberately preserves Lite's existing back-to-front ordering inside each group and leaves opaque/direct sorting unchanged. Numeric ids are retained as authored and sorted ascending; valid NPE editor output uses integer ids 0 through 3.
+
+The Sprite2D bridges do not consume these three world-billboard properties. `translationPivot` is expressed in billboard-plane world units, while Sprite2D has a separate pixel-space pivot API; `renderingGroupId` belongs to scene renderables, not SpriteRenderer layers. Silently approximating either would violate the explicit render-target contract.
+
+### 10.1 Serialized billboard geometry modes
+
+`SystemBlock.isBillboardBased` defaults to `true`. `SystemBlock.billBoardMode` defaults to `7` and uses Babylon's serialized constants:
+
+| Value | Meaning         | Direction source                         |
+| ----: | --------------- | ---------------------------------------- |
+|   `2` | Y               | none                                     |
+|   `7` | ALL             | none                                     |
+|   `8` | STRETCHED       | current `dirX/Y/Z`                       |
+|   `9` | STRETCHED_LOCAL | current `dirX/Y/Z`                       |
+|   any | non-billboard   | initial direction, then current fallback |
+
+The last row is selected only when `isBillboardBased === false`; its numeric mode is ignored. A true billboard with an unsupported numeric mode throws `NodeParticle: unsupported billboard mode <value>` during instantiation. Missing and explicit `(true, 7)` values retain the ordinary System evaluator and existing ALL renderer. Y, STRETCHED, STRETCHED_LOCAL, and non-billboard values route to `npe-pack-billboard-modes.ts` before the render-property and dynamic-emit-rate variants. That pack applies the same base/dynamic System behavior and captures the Phase 10 pivot, mask, and rendering-group values, so any combination is represented by one registrar and one renderable.
+
+The generic billboard system, its fixed 16-float instance layout, and public custom-shader hook remain unchanged. The mode attachment owns a sidecar direction array only for direction-consuming modes and a specialized renderable. Its GPU staging layout is:
+
+| Floats | Field                              | Modes                                         |
+| ------ | ---------------------------------- | --------------------------------------------- |
+| 0..15  | existing packed billboard instance | all four Phase 11 paths                       |
+| 16..18 | `direction: vec3f`                 | STRETCHED, STRETCHED_LOCAL, and non-billboard |
+
+Y uses the original 64-byte stride. Direction-consuming modes use a 76-byte stride. The renderer interleaves into reusable feature-owned staging, applies the same stable depth sort and floating-origin subtraction as the generic billboard renderer, and uploads once per visible nonempty version. No Phase 11 array, shader, pipeline, or module is allocated or fetched for ALL systems.
+
+STRETCHED and STRETCHED_LOCAL copy the live post-emit-power direction during billboard synchronization. Non-billboard mode uses three optional `initialDir.*` particle columns. The mode evaluator allocates or reuses those columns and wraps `createEmitPower` once to snapshot the shape-produced direction before emit-power scaling. Mesh-normal emitters preserve Babylon's missing-initial-direction behavior: when `_suppressInitialDirectionCapture` is true, no columns are allocated and synchronization falls back to the live direction. When the System is local and an initial direction exists, synchronization transforms it by the current emitter matrix's upper 3 by 3 before upload, matching Babylon's CPU particle upload. Swap-remove includes the optional columns automatically.
+
+For all paths, define centered corner `c = q - o`, scaled translated-pivot corner `l = (c - t) * s`, and angle-rotated values:
+
+```text
+rx = l.x * cos(angle) - l.y * sin(angle) + t.x
+ry = l.x * sin(angle) + l.y * cos(angle) + t.y
+```
+
+The final translation pivot remains unscaled and post-rotation. Each mode then computes world position exactly as follows; WGSL `normalize`/`cross` behavior is retained without epsilon fallbacks:
+
+```text
+ALL:
+    world = anchor + cameraRight * rx + cameraUp * ry
+
+Y:
+    toParticle = normalize(vec3(anchor.x - eye.x, 0, anchor.z - eye.z))
+    right = normalize(cross(worldY, toParticle))
+    up = normalize(cross(toParticle, right))
+    world = anchor + right * rx + up * ry
+
+STRETCHED:
+    toCamera = normalize(anchor - eye)
+    right = normalize(cross(normalize(direction), toCamera))
+    up = normalize(cross(toCamera, right))
+    world = anchor + right * rx + up * ry
+
+STRETCHED_LOCAL:
+    toCamera = normalize(anchor - eye)
+    right = normalize(cross(normalize(direction), toCamera))
+    up = normalize(direction)
+    world = anchor + right * rx + up * ry
+
+NON_BILLBOARD:
+    axis = normalize(direction)
+    right = normalize(cross(worldY, axis))
+    forward = normalize(cross(axis, right))
+    world = anchor + right * rx + forward * ry
+```
+
+All four paths use `scene.vEyePosition.xyz`, preserve the Phase 10 texture-mask and blend equations, assign the copied rendering group, and retain one logical renderable for MultiplyAdd. They do not mutate simulation positions or directions.
+
+Picking owns a separate lazy `particle-billboard-modes-pick.ts` contributor. It consumes the same logical instances, direction sidecar, mode, pivot, and camera values and uses the same 64/76-byte layout and vertex equations with the existing integer-id fragment contract. It never approximates a non-camera-facing quad through the stock facing-billboard picker. Pick ids and resolved `{ system, spriteIndex }` identity remain unchanged. GPU pick resources allocate only on the first pick and are destroyed with the scene contributor.
+
+`ParticleSystem` exposes one internal optional `_syncBillboard` seam. `particle-billboard-scene.ts` calls `(system._syncBillboard ?? syncParticleBillboard)(system, billboard)`; all mode meaning and sidecar writes live in the lazy mode attachment. Ordinary and Phase 10-only systems retain byte-for-byte synchronization behavior. Sprite2D remains explicit XY rendering and ignores these world-space geometry modes.
+
+### 10.2 Billboard creation
 
 `createParticleBillboard` converts a `ParticleSystem` into its generic `FacingBillboardSpriteSystem` rendering representation. It requires `system.texture`; a null texture throws `createParticleBillboard: the particle system has no texture`.
 
@@ -1583,7 +1938,9 @@ Mode `4` draws the normal Multiply binding first. The primary draw leaves its in
 
 `registerNodeParticleSet` invokes each system's installed `_registerBillboard` callback, falling back to `addFacingBillboardSystem`. Enriched systems therefore resolve all five modes exactly from the current `system.blendMode`; ordinary builders retain the stock live-registration path and Add fallback.
 
-### 10.2 Billboard synchronization
+When System render properties are present, their registrar takes precedence over the blend-only registrar and resolves every mode exactly. It registers the same billboard pick source and one scene-owned deferred renderable as the existing particle blend path, assigns `_renderingGroupId`, and owns all feature UBO and optional second-pass disposal.
+
+### 10.3 Billboard synchronization
 
 `syncParticleBillboard` clears the billboard count and saved sizes, requests the standard size, scale, angle, and color columns, then iterates `[0, buffer.alive)`. It calls `addBillboardSpriteIndex` once per particle with:
 
@@ -1601,9 +1958,9 @@ The property value and its position, size, and color tuples are transient alloca
 
 Frame lookup is bounds-checked by the sprite atlas. An invalid cell throws `resolveSpriteFrame: index <frame> out of range [0, <frameCount>)` during sync. A non-sprite graph always requests frame zero.
 
-The billboard path uses the transient allocations above and the billboard subsystem's storage, shader, pipeline, bind groups, deferred renderable, and picking support.
+The billboard path uses the transient allocations above and the billboard subsystem's storage, shader, pipeline, bind groups, deferred renderable, and picking support. A Phase 11 system invokes its `_syncBillboard` seam after the same base writes, then copies its selected live or initial direction source into feature sidecar storage in matching particle order.
 
-### 10.3 Billboard scene registration
+### 10.4 Billboard scene registration
 
 `registerNodeParticleSet(scene, set, options = {})` uses `autoStart = options.autoStart ?? true`. For each system, in `set.systems` order, it:
 
@@ -1624,7 +1981,7 @@ There is no synchronization during registration; the first registered callback p
 
 The registration function returns `void`, exposes no billboard, and supplies no callback-unregister handle. With auto-start false, the callback is still registered; animation is a no-op until the system is started, while synchronization still runs every frame.
 
-### 10.4 Sprite2D bridge creation and mapping
+### 10.5 Sprite2D bridge creation and mapping
 
 `createParticleSprite2DBridge(system, options = {})` is the manual pure-2D bridge factory. It requires `system.texture`; a missing texture throws `createParticleSprite2DBridge: the particle system has no texture`.
 
@@ -1661,7 +2018,7 @@ Every blend operation is `add`. Mode `0` is pure one-one additive; unlike the al
 
 `enableNodeParticleBlendModes` does not change this baseline Sprite2D mapping. It installs only the billboard `_registerBillboard` callback. Modes `3`, `4`, and unknown values therefore remain `spriteBlendAdditive` when callers explicitly choose the ordinary bridge. Exact Sprite2D rendering is a separate opt-in described next.
 
-### 10.5 Exact Sprite2D blend-mode bridge
+### 10.6 Exact Sprite2D blend-mode bridge
 
 `particle-sprite-2d-blend-modes.ts` is the particle-owned opt-in for exact Sprite2D output. It works on any built `NodeParticleSet` by reading each system's current mutable `blendMode` when the bridge is created; neither `buildNodeParticleSetWithBlendModes` nor `enableNodeParticleBlendModes` is required because those APIs configure only billboard registration.
 
@@ -1704,7 +2061,7 @@ Manual callers add every `bridge.layers` entry to one renderer in array order an
 
 `NodeParticleSet2DBlendModesBinding` owns the hook and all pass-layer attachments. `disposeNodeParticleSet2DBlendModesBinding` is idempotent, and renderer disposal invokes it automatically. Disposal removes every layer and callback but does not stop systems or dispose particle textures. The optional Handle API is forbidden on every bridge-owned pass layer for the same exclusive-live-range reason as the baseline bridge.
 
-### 10.6 Sprite2D bridge synchronization
+### 10.7 Sprite2D bridge synchronization
 
 `syncParticleSprite2DBridge(bridge)` owns the layer's complete live range. The layer cannot contain independent Index API sprites, and the function rejects a layer on which the optional Handle API has installed hooks.
 
@@ -1714,7 +2071,7 @@ After the packed loop, synchronization clears saved-size entries in the stale ta
 
 Because mapping fields are mutable, each synchronization revalidates `pixelsPerUnit` and `originPx` before touching the packed range. This supports moving the origin or changing scale between frames while rejecting non-finite state.
 
-### 10.7 SpriteRenderer registration and lifecycle
+### 10.8 SpriteRenderer registration and lifecycle
 
 Manual callers create a bridge, add `bridge.layer` to a `SpriteRenderer`, and choose when to call `animateParticleSystem` and `syncParticleSprite2DBridge`. `registerNodeParticleSet2D(renderer, set, options = {})` supplies the managed path:
 
@@ -1779,6 +2136,7 @@ The implementation preserves these explicit failures:
 Additional behavior is observable:
 
 - `compileNodeParticleGraph` reports malformed reachable proxy routes and invalid LocalVariable domains before a builder runs. Inline and fetched snippet paths invoke the same compiler.
+- Live-input discovery is compile-time metadata work and has no new failure mode. Duplicate names deterministically use the later serialized eligible block; invalid writes outside the public value shape are unsupported caller behavior.
 - A dangling target block id is marked built and skipped. It fails only if a consumer requests its absent getter; a flow-only edge can remain silent.
 - Detached unsupported blocks are ignored because they are unreachable.
 - Dynamic-import failures for compiler passes, reachable evaluators, or registry modules propagate from compilation or asynchronous build.
@@ -1798,21 +2156,22 @@ Additional behavior is observable:
 
 ## 12. Current limitations
 
-- The parser represents arbitrary serialized class names. Compiled programs support the 46 classes listed in section 9. Other reachable NPE classes follow the registry errors in section 11.
+- The parser represents arbitrary serialized class names. Compiled programs support the 47 classes listed in section 9. Other reachable NPE classes follow the registry errors in section 11.
 - Simulation is CPU-only.
-- Rendering is selected explicitly by the caller: camera-facing billboards or pure-2D Sprite2D. Serialized `billBoardMode` and `isBillboardBased` do not select either runtime path.
+- Rendering is selected explicitly by the caller as a world-space particle quad or pure-2D Sprite2D. On the world-space path, serialized `billBoardMode` and `isBillboardBased` select ALL, Y, STRETCHED, STRETCHED_LOCAL, or direction-aligned non-billboard geometry. They do not select Sprite2D.
+- Camera-facing billboards implement System `translationPivot`, `textureMask`, and `renderingGroupId` through the lazy render-property path. Sprite2D bridges intentionally ignore those world-scene properties and retain their explicit pixel-space layer options.
 - The Sprite2D bridge maps only NPE world XY. It ignores `posZ` and does not support XZ/YZ projection.
 - Exact particle blend factors and specialized Multiply/MultiplyAdd output are explicit per render target. Billboards require `buildNodeParticleSetWithBlendModes` or `enableNodeParticleBlendModes`; Sprite2D requires `createParticleSprite2DBridgeWithBlendModes` or `registerNodeParticleSet2DWithBlendModes` and works with a set from any builder.
 - The plain billboard path maps mode `0` to OneOne, mode `1` to alpha, and modes `2`, `3`, `4`, and unknown values to Add. The baseline Sprite2D bridge independently maps mode `0` to `spriteBlendOneOne`, mode `1` to `spriteBlendAlpha`, and every other value to `spriteBlendAdditive`. These fallback contracts remain intentionally unchanged for callers that do not opt in.
-- System source 4 and every system source outside 1, 2, and 3 are unsupported.
-- Custom emitter functions, sub-emitter triggers, and inherited emitter velocity have no supported block evaluator.
+- Every system source outside ids 1 through 4 is unsupported.
+- Custom emitter functions and inherited emitter velocity have no supported block evaluator.
 - ParticleTextureSource supports serialized static URL/data-URL pixels. Babylon's live `sourceTexture`, including `NoiseProceduralTexture` refresh, is not reconstructed because it is an in-memory object and is not serialized into NPE graph JSON.
 - Emit power scales the created direction; exactly zero clears it. No inherited velocity term is added.
 - Mesh emission reads only `cachedVertexData`; mesh `worldSpace` is ignored, and mesh data is not structurally validated.
 - A renderable particle system needs a successfully loaded or manually assigned texture. Neither render target has an untextured fallback.
 - Local-position integration is available only through source `0x0018` on a system whose root has `isLocal === true`.
 - Billboard scene registration provides no unregister handle and does not set `_started` false when a stopped system becomes empty. Sprite2D renderer registration returns an idempotently disposable binding but likewise does not stop caller-owned systems.
-- The simulation structure is allocation-free per indexed step. Live emitter refresh copies into stable matrix/vector/inverse storage and also allocates nothing per call. Billboard synchronization allocates transient values; Sprite2D bridge synchronization is allocation-free per particle and update.
+- The simulation structure is allocation-free per indexed step. Live input getter evaluation reads a cell without allocation; only a caller reading a vector/color handle allocates its defensive result array. Live emitter refresh copies into stable matrix/vector/inverse storage and also allocates nothing per call. Billboard synchronization allocates transient values; Sprite2D bridge synchronization is allocation-free per particle and update.
 
 ## 13. Verification contract
 
@@ -1834,7 +2193,8 @@ The current unit categories are:
 
 - Buffer and lifecycle: base-only allocation, string-key column sharing, dense spawn/swap-remove, capacity, emission, integration, death clamp, and sprite-column math.
 - System lifecycle properties: direct and serialized defaults; delayed and blocked starts; synchronous prewarm birth/death state and random consumption; one-shot manual emission without rate evaluation; fractional-carry reset; stopped drain completion; terminal disposal; and restart rejection after disposal.
-- Compilation and build behavior: trusted parse identity, program reuse, root reachability, detached-block isolation, immutable post-order operation plans, evaluator-owned keyed storage, Loop preparation, flow-map bindings, two-field connection criteria, dynamic emit-rate laziness, system-time reevaluation, deliberate URL-over-data precedence for serializer-unreachable hand-authored input, and default-path embedded texture upload with explicit-false mapping and Lite's class default when `invertY` is omitted.
+- Compilation and build behavior: trusted parse identity, program reuse, root reachability, detached-block isolation, immutable post-order operation plans and live-input plans, evaluator-owned keyed storage, Loop preparation, flow-map and camera-view bindings, two-field connection criteria, dynamic emit-rate laziness, system-time and camera-position reevaluation, deliberate URL-over-data precedence for serializer-unreachable hand-authored input, and default-path embedded texture upload with explicit-false mapping and Lite's class default when `invertY` is omitted.
+- Live inputs: exact scalar/vector/color type and default-value mapping; metadata defaults and authored values; hidden-input metadata retention; contextual/system/unnamed/detached exclusion; stable handle identity; shared-block identity across system roots; serialized-order duplicate-name replacement; Float-only range clamping; defensive vector/color reads; immediate post-build creation and update mutation; independent repeated program builds; all builder/enabler preservation; and no unrelated-scene module fetch.
 - Canonical graph state: scenes 262, 263, 264, and 276; full Basic Properties; Size; Sphere; and deterministic/random-start sprite variants.
 - Change graphs: Size, Color, Speed, Angular Speed, multi-stop Angular Speed, Drag, Emit Rate, Lifetime, Start Size, and Speed Limit.
 - Emitters: Point, Box, Sphere, directed Sphere, Hemisphere, Cone, directed Cone, Cylinder, directed Cylinder, Mesh, rotated Cylinder, all six transformed local shapes, mesh vertex color, mesh InitialDirection, shared volatile bounds, and local source build/read guards.
@@ -1842,6 +2202,9 @@ The current unit categories are:
 - Value correctness: shared-scratch Math, Lerp/Gradient endpoints, Random min/max aliasing, lock modes, Uint32 id edge cases, and capacity-bounded OncePerParticle caches.
 - Attractors: softened inverse-square attraction, negative-strength repulsion, defaults, coincident-point handling, lifetime-clamped step scaling, and lazy evaluator isolation.
 - Core updates: serialized queue order; direct scale and age writes; lifetime-clamped authoritative F32/F64 position integration; unclamped color-step scaling; alpha-only clamping; disconnected-input behavior; and basic-update family isolation.
+- Camera values: stable CameraPosition identity, absolute world translation under floating origin, missing-camera zero, prepared camera movement, AlignAngle default and explicit alignment, exact view-normal `atan2`, missing-camera angle preservation, one shared allocator-selected F32/F64 view snapshot per system, independent program instantiations, callback composition, unsupported-source diagnostics, and lazy evaluator isolation.
+- Render properties: ordinary default literals retain the base System evaluator; connected and non-default literal pivot/mask routing; nonzero rendering-group routing; connected emit-rate composition; one-time scratch-safe value copies; exact unscaled post-rotation pivot math including zero-size axes; affine texture-mask channels and alpha; ordinary, Multiply, and both MultiplyAdd pass formulas; one feature UBO write per pass; group-before-distance transparent sorting; program-instance isolation; Sprite2D nonapplication; and positive/negative runtime module isolation.
+- Billboard modes: default `(isBillboardBased: true, billBoardMode: 7)` isolation; Y/STRETCHED/STRETCHED_LOCAL/non-billboard routing; connected emit-rate and Phase 10 property composition; unsupported true-billboard diagnostics; exact basis equations and zero/parallel-direction propagation; live-direction updates; birth-time initial-direction snapshots before emit power; contextual InitialDirection wrapper reuse; mesh-normal live fallback; local upper-3x3 transform; swap-remove; 64/76-byte staging layouts; stable depth sorting; floating-origin anchors; MultiplyAdd pass reuse; exact pick geometry and identity; independent instances; and Sprite2D nonapplication.
 - Flow maps: projected nearest-neighbor sampling including non-zero row stride, vertical screen mapping, RGBA force decoding, alpha and bounds handling, per-particle strength evaluation, lifetime-clamped step scaling, allocator-selected F32/F64 matrix snapshots, and lazy texture/evaluator isolation.
 - Noise textures: exact three-sample red-channel addressing, six deterministic Float64 random coordinates, coordinate reuse and slot recycling, Vector3 defaults/strength, lifetime-clamped step scaling, extraction failure, parsed graph wiring including ordinary/CPU embedded-texture fan-out, Babylon multi-step state fixtures, and lazy runtime isolation.
 - Topology compilation: trusted parser metadata absence; TeleportIn-only nonactivation; candidate-free and detached-malformed paths; Teleport and Elbow routes for scalar, Vector2, Vector3, Color4, gradient, particle/system flow, and texture roles; Debug value-only routing; two-bit shared-domain revisits; consumer-edge-first diagnostic priority; specialized texture evaluator overrides; endpoint id `0`; malformed endpoints; mixed cycles; compiler copy-on-write without source mutation; all builder families; automatic inline/fetched snippets; no Teleport/Elbow/Debug evaluator body; and topology-runtime chunk/module isolation.
@@ -1849,7 +2212,7 @@ The current unit categories are:
 - Feature isolation: runtime chunk manifests and, when bundle-info exists, fetched module contents.
 - Baseline Sprite2D bridge: texture and mapping validation, exact XY/+Y conversion, blend mapping including the additive fallback for modes 3, 4, and unknown values, sprite-sheet mapping and its out-of-range cell error, Handle-API ownership rejection, full-range packed synchronization, stale saved-size clearing, single dirty updates, transactional multi-system registration, auto-start control, idempotent disposal, and renderer-disposal cleanup.
 - Exact Sprite2D blend bridge: descriptors for modes 0 through 4 and default, mode-3 custom shader structure and opacity formula, mode-4 `[Multiply, Add]` layers and stable order, one animation per system/update, byte-equivalent pass synchronization under mutable mapping/presentation, all-pass Handle ownership rejection, transactional creation/attachment rollback, manual and renderer disposal, and baseline isolation.
-- Public declarations: `parseNodeParticleSource`, `compileNodeParticleGraph`, `ParsedNodeParticleGraph`, and `NodeParticleProgram` are present; builders accept only programs; operation plans, compiler passes, feature bits, temporary maps, Loop epochs, and binding setup state are trimmed; the removed post-build provider API is absent; both build-time provider helpers are present; the generic options intersection preserves extended builder options; and `_setupEmitter` plus provider internals are trimmed from the emitted package declaration.
+- Public declarations: `parseNodeParticleSource`, `compileNodeParticleGraph`, `ParsedNodeParticleGraph`, `NodeParticleProgram`, `ParticleInputHandle`, and `NodeParticleSet.inputs` are present; builders accept only programs; input/operation plans, compiler passes, feature bits, temporary maps, live cells, Loop epochs, and binding setup state are trimmed; the removed post-build provider API is absent; both build-time provider helpers are present; the generic options intersection preserves extended builder options; and `_setupEmitter` plus provider internals are trimmed from the emitted package declaration.
 - Path ownership: the `particle/soa` source directory and `particle-soa*.test.ts` unit-test names must not exist. TypeScript compilation validates all source and test imports.
 
 Loop oracle separation is intentional: deterministic Lite tests own manual started-call semantics. No Babylon fixture is claimed to prove that boundary.
@@ -1874,7 +2237,9 @@ A future limited Loop LocalVariable oracle would be an explicit exception to thi
 
 ### 13.3 Visual scenes
 
-The ten frozen billboard oracle Lite scenes seed after build, synchronize one billboard, and register a frozen scene. Scenes 262 through 281 and Scene 305 use a black clear color; scenes 283 and 284 use the warm destination color specified in section 13.5. Scenes 262, 263, 264, 276, 277, and 305 run 200 ratio-1 steps. Scene 280 runs 300, scene 281 runs 240, scene 283 runs 40, and scene 284 runs 20. Scene 280's Babylon reference calls `scene.updateTransformMatrix(true)` before manual steps because Babylon's UpdateFlowMap reads the scene transform matrix before the first render. Scene 302 is the eleventh billboard oracle and adds a default-live mode plus a deterministic frozen query mode.
+`npe-live-inputs` is a descriptive, non-parity lab scene with no Babylon oracle, golden, MAD threshold, or `sceneN` identity. It builds one reusable program once, instantiates one set, and continuously writes an exposed Float handle after build. The graph reads that handle from an update path so already-live particles respond on the next simulation step. The page displays the current authored value through the ordinary lab controls and proves that mutation requires no graph rebuild or system restart. It is registered only in the manual demos catalog and creates no parity or performance obligation.
+
+The ten frozen billboard oracle Lite scenes seed after build, synchronize one billboard, and register a frozen scene. Scenes 262 through 281 and Scene 305 use a black clear color; scenes 283 and 284 use the warm destination color specified in section 13.5. Scenes 262, 263, 264, 276, 277, and 305 run 200 ratio-1 steps. Scene 280 runs 300, scene 281 runs 240, scene 283 runs 40, and scene 284 runs 20. Scene 280's Babylon reference calls `scene.updateTransformMatrix(true)` before manual steps because Babylon's UpdateFlowMap reads the scene transform matrix before the first render. Scene 302 is the eleventh billboard oracle and adds a default-live mode plus a deterministic frozen query mode. Phase 11 reserves four additional frozen oracle fixtures: Y, STRETCHED, STRETCHED_LOCAL, and non-billboard. Each uses an asymmetric texture, nonuniform particle scale, nonzero angle, nonzero translation pivot, and directions/camera placement that distinguish its basis from ALL and the other modes. Their goldens and local parity execution are deferred to explicit PR preparation under repository policy.
 
 | Scene                                 | Coverage                                                                      | Camera                                                       | MAD ceiling | Raw ceiling |
 | ------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------- | ----------- |
@@ -1922,15 +2287,17 @@ Bundle output and per-scene manifests are generated and ignored. Final compiler 
 
 Local `*-npe.ts` graph payload modules are excluded from engine runtime-byte accounting and appear in ignored bytes. The general bundle-size specification identifies scene ids 262, 263, 264, 276, 277, 280, 281, 283, 284, 300, 301, 302, and 305 as sprite users. Scenes 262 through 284, 302, and 305 in that list render through billboard sprite modules. Scene 300 requires `particle-sprite-2d.ts` and `sprite-renderer.ts` while rejecting the exact Sprite2D module, custom-shader path, particle billboard, particle scene-registration, depth-hosted Sprite2D, and billboard rendering paths. Scene 301 requires `particle-sprite-2d-blend-modes.ts`, `particle-blend.ts`, `sprite-custom-shader.ts`, and `sprite-renderer.ts` while rejecting `particle-billboard-renderable.ts`, `particle-billboard-scene.ts`, and the scene-rendered sprite path. Representative unrelated Sprite2D scene 50 also rejects every particle exact-blend and custom-shader module. CI-published baselines and generated bundle-info are comparison inputs, and no per-scene manifest is committed.
 
-The compiler orchestrator is expected in every NPE program path. Its optional passes remain isolated: graphs without topology candidates do not fetch `npe-graph-plumbing-runtime.ts`; graphs without typed value-math candidates do not fetch `npe-value-compilation.ts`, `npe-registry-value-math.ts`, or value-math evaluator bodies; graphs without Loop LocalVariable candidates install no frame effect; graphs without UpdateFlowMap candidates install no flow-map frame binding. Optional columns remain evaluator-owned and require no resource compiler. Unrelated scenes must not fetch Stage 5 evaluator chunks; byte movement from the broader compiler redesign is measured separately against master.
+The compiler orchestrator is expected in every NPE program path. Its optional passes remain isolated: graphs without topology candidates do not fetch `npe-graph-plumbing-runtime.ts`; graphs without typed value-math candidates do not fetch `npe-value-compilation.ts`, `npe-registry-value-math.ts`, or value-math evaluator bodies; graphs without Loop LocalVariable candidates install no frame effect; graphs without CameraPosition or `AlignAngleBlock` do not fetch `npe-pack-camera.ts`; graphs without UpdateFlowMap candidates install no flow-map frame binding. Optional columns remain evaluator-owned and require no resource compiler. Unrelated scenes must not fetch Stage 5 evaluator chunks; byte movement from the broader compiler redesign is measured separately against master.
+
+Graphs with explicit default `(true, 7)` billboard settings reject `npe-pack-billboard-modes.ts`, `particle-billboard-modes.ts`, and `particle-billboard-modes-pick.ts`. Each Phase 11 positive fixture fetches the mode pack and renderer but not the pick body before a pick occurs. Phase 10-only pivot/mask/group graphs reject all Phase 11 modules. Mode graphs with default pivot/mask/group values reject the ALL-only `particle-billboard-render-properties.ts` body; combined graphs fetch one geometry renderer rather than both.
 
 The final measurements use CI baseline `d89a13c8a424b4227feaa0e9a927922f49239799`, which is equivalent for these particle scenes to current master `7889f8720fe2c36029899b4991b3e2b891697844`; the sole intervening commit changes only PLY loader parsing. Scene 276 is the positive Stage 5 fixture. Its Stage 5 path fetches the `523 B` first-stage variants router, `particle-input-sprite-cell-block.ts`, and `update-sprite-cell-index-block.ts`; it does not fetch `npe-registry-variants-extra.ts`, and direct sprite-cell use avoids general value compilation. It measures 44,286 raw bytes and 26.5 KB gzip, versus master's 43,241 raw bytes and 25.0 KB gzip: `+1,045` raw bytes and `+1.5 KB` gzip. Scene 302 fetches neither Stage 5 evaluator and measures 54,087 raw bytes, `132` bytes above master. Across all thirteen representative scenes, the largest raw increase is Scene 276 at `+1,045` bytes, followed by Scene 305 at `+1,044` bytes; no scene has a 3 KB regression and no non-Stage scene fetches a Stage 5 evaluator body.
 
 Scene 302 is the positive moving-emitter bundle fixture. Its fetched module list must contain `npe-emitter-provider.ts`, `mat4-invert-to-ref.ts`, `particle-scene.ts`, `particle-billboard.ts`, `billboard-scene.ts`, and `billboard-renderable.ts`. It must not contain the deleted `npe-live-emitter.ts`, ordinary allocating `mat4-invert.ts`, the flow-map/noise/texture-update runtimes, CPU texture updates, Stage 5 support, advanced particle blend modules, either graph-plumbing module, or either Sprite2D bridge/render path. Its current 54,087-byte result is recorded with the Stage 5 control measurement above. The shared fixture and scene entry do not match the `*-npe.ts` payload exclusion and are intentionally counted, so this measurement is conservative and not directly comparable to sibling payload-excluded scenes.
 
-The particle bundle-content test applies the general unused-feature rejection list to the nine canonical billboard parity scenes. Each canonical scene must have a nonempty runtime chunk list, and its fetched chunks are rejected when they match unused variant, extra-basic, extra-emitter, extra-value, local-shape, attractor/flow-map/noise/direction/angle/sprite-cell update, CPU texture source, typed once-random, random sprite, dynamic emit-rate, optional value block, local input/position, or optional emitter patterns. Scene 263 may fetch `npe-registry-extra-emitters` because it uses Sphere, scene 276 may fetch only the Stage 5 branch, scene 277 must fetch `update-attractor-block`, only scene 280 may fetch `npe-flow-map-runtime`, and only scene 281 may fetch `npe-noise-runtime`.
+The particle bundle-content test applies the general unused-feature rejection list to the nine canonical billboard parity scenes. Each canonical scene must have a nonempty runtime chunk list, and its fetched chunks are rejected when they match unused variant, extra-basic, extra-emitter, extra-value, local-shape, camera pack, attractor/flow-map/noise/direction/angle/sprite-cell update, CPU texture source, typed once-random, random sprite, dynamic emit-rate, optional value block, local input/position, or optional emitter patterns. Scene 263 may fetch `npe-registry-extra-emitters` because it uses Sphere, scene 276 may fetch only the Stage 5 branch, scene 277 must fetch `update-attractor-block`, scene 280 must fetch `update-flow-map-block`, and scene 281 must fetch `update-noise-block`. No canonical scene may fetch the removed flow-map, noise, or combined-texture runtime forwarding modules.
 
-When `lab/public/bundle/bundle-info/sceneN.json` exists, the same test also inspects only modules in fetched runtime chunks. It rejects extra-value, Stage 4B, Stage 5, and local-shape registries; local-position support; dynamic emit rate; optional value evaluators; every local shape body; `cpu-texture-source-block` outside scenes 280 and 281; and `math/mat4-invert.ts`. It requires scenes 283 and 284 to fetch `particle-blend`, `npe-blend-modes`, `particle-billboard-scene`, and `particle-billboard-renderable`, whether Rollup emits named chunks or folds them into the scene entry, while rejecting all four modules in every ordinary particle scene. When bundle-info is absent, this module-level branch is skipped while the runtime-chunk assertions still run.
+When `lab/public/bundle/bundle-info/sceneN.json` exists, the same test also inspects only modules in fetched runtime chunks. It rejects extra-value, Stage 4B, Stage 5, and local-shape registries; the camera pack; local-position support; dynamic emit rate; optional value evaluators; every local shape body; `cpu-texture-source-block` outside scenes 280 and 281; and `math/mat4-invert.ts`. It requires scenes 283 and 284 to fetch `particle-blend`, `npe-blend-modes`, `particle-billboard-scene`, and `particle-billboard-renderable`, whether Rollup emits named chunks or folds them into the scene entry, while rejecting all four modules in every ordinary particle scene. When bundle-info is absent, this module-level branch is skipped while the runtime-chunk assertions still run.
 
 `npe-emitter-provider.ts` is optional content. A separate provider-isolation check requires a nonempty runtime chunk list for scene 12 and every configured particle scene. When bundle-info exists, scene 302 must fetch the provider module. Scene 12 and every other configured particle scene (262, 263, 264, 276, 277, 280, 281, 283, 284, 300, and 301) reject both provider and live-emitter module/chunk names. Filtered bundle builds and the authoritative Bundle Size job measure actual output; generated runtime chunk manifests, fetched-module checks, and provider isolation are the regression guards, without a unit assertion that compares a manifest byte value to a duplicated constant.
 
@@ -1971,10 +2338,14 @@ Scene 284 (`scene284-npe-multiply-add-blend`) is the isolated Babylon.js/Lite or
 
 ## 14. Exact file manifest
 
-### 14.1 Particle root: 11 files
+### 14.1 Particle root: 15 files
 
 ```text
 packages/babylon-lite/src/particle/particle-billboard.ts
+packages/babylon-lite/src/particle/particle-billboard-render-properties-pick.ts
+packages/babylon-lite/src/particle/particle-billboard-render-properties.ts
+packages/babylon-lite/src/particle/particle-billboard-modes-pick.ts
+packages/babylon-lite/src/particle/particle-billboard-modes.ts
 packages/babylon-lite/src/particle/particle-billboard-renderable.ts
 packages/babylon-lite/src/particle/particle-billboard-scene.ts
 packages/babylon-lite/src/particle/particle-blend.ts
@@ -1987,7 +2358,7 @@ packages/babylon-lite/src/particle/sprite-columns-random.ts
 packages/babylon-lite/src/particle/sprite-columns.ts
 ```
 
-### 14.2 Node infrastructure and registries: 37 files
+### 14.2 Node infrastructure and registries: 38 files
 
 ```text
 packages/babylon-lite/src/particle/node/node-particle.ts
@@ -1997,12 +2368,14 @@ packages/babylon-lite/src/particle/node/npe-compiler.ts
 packages/babylon-lite/src/particle/node/npe-emitter-provider.ts
 packages/babylon-lite/src/particle/node/npe-feature-compilation.ts
 packages/babylon-lite/src/particle/node/npe-flow-map-frame-binding.ts
-packages/babylon-lite/src/particle/node/npe-flow-map-runtime.ts
 packages/babylon-lite/src/particle/node/npe-flow-map.ts
 packages/babylon-lite/src/particle/node/npe-general-feature-compilation.ts
 packages/babylon-lite/src/particle/node/npe-graph-plumbing-runtime.ts
-packages/babylon-lite/src/particle/node/npe-noise-runtime.ts
+packages/babylon-lite/src/particle/node/npe-input.ts
 packages/babylon-lite/src/particle/node/npe-noise.ts
+packages/babylon-lite/src/particle/node/npe-pack-camera.ts
+packages/babylon-lite/src/particle/node/npe-pack-billboard-modes.ts
+packages/babylon-lite/src/particle/node/npe-pack-render-properties.ts
 packages/babylon-lite/src/particle/node/npe-contextual-extra.ts
 packages/babylon-lite/src/particle/node/npe-contextual.ts
 packages/babylon-lite/src/particle/node/npe-local-position.ts
@@ -2022,7 +2395,6 @@ packages/babylon-lite/src/particle/node/npe-registry.ts
 packages/babylon-lite/src/particle/node/npe-snippet.ts
 packages/babylon-lite/src/particle/node/npe-system-plan-compilation.ts
 packages/babylon-lite/src/particle/node/npe-texture-content.ts
-packages/babylon-lite/src/particle/node/npe-texture-updates-runtime.ts
 packages/babylon-lite/src/particle/node/npe-texture-updates.ts
 packages/babylon-lite/src/particle/node/npe-types.ts
 packages/babylon-lite/src/particle/node/npe-value-compilation.ts
@@ -2091,7 +2463,7 @@ packages/babylon-lite/src/particle/node/blocks/update-size-block.ts
 packages/babylon-lite/src/particle/node/blocks/update-sprite-cell-index-block.ts
 ```
 
-TeleportIn, TeleportOut, Elbow, and Debug add no evaluator files. Frame-preparation composition remains a function in existing `particle-system.ts`, so section 14.1 stays at 11 root files.
+TeleportIn, TeleportOut, Elbow, and Debug add no evaluator files. Frame-preparation composition remains a function in existing `particle-system.ts`.
 
 ### 14.4 Direct integration dependencies
 
@@ -2108,6 +2480,8 @@ packages/babylon-lite/src/math/mat4-transform.ts
 packages/babylon-lite/src/math/mat4-translation.ts
 packages/babylon-lite/src/math/random-range.ts
 packages/babylon-lite/src/math/types.ts
+packages/babylon-lite/src/render/renderable.ts
+packages/babylon-lite/src/render/transparent-sort-hook.ts
 packages/babylon-lite/src/scene/scene-core.ts
 packages/babylon-lite/src/scene/scene.ts
 packages/babylon-lite/src/sprite/billboard-blend.ts
@@ -2129,6 +2503,8 @@ The billboard subsystem owns its additional rendering, picking, GPU, and blend-d
 ```text
 demos-config.json
 scene-config.json
+lab/lite/demo-npe-live-inputs.html
+lab/lite/src/demos/npe-live-inputs.ts
 lab/lite/src/demos/npe-sprite2d.ts
 lab/lite/src/lite/scene262.ts
 lab/lite/src/lite/scene263.ts
@@ -2187,6 +2563,7 @@ tests/lite/parity/bundle-size.spec.ts
 tests/lite/unit/npe-particle-flow-map.test.ts
 tests/lite/unit/npe-particle-noise-texture.test.ts
 tests/lite/unit/npe-particle-bundle-content.test.ts
+tests/lite/unit/npe-particle-camera.test.ts
 tests/lite/unit/npe-particle-305-graph.test.ts
 tests/lite/unit/npe-particle-graph-compilation.test.ts
 tests/lite/unit/npe-particle-graph-plumbing.test.ts

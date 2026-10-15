@@ -13,7 +13,7 @@ export async function compileNodeParticleGeneralFeatures(
     let features = parsed._features & 0x10 ? 2 : 0;
     for (const block of parsed.blocks.values()) {
         const className = block.customType.slice(8);
-        features |= /^Particle(TeleportOut|LocalVariable|Elbow|Debug)Block$/.test(className) ? 1 : 0;
+        features |= /^Particle(TeleportOut|LocalVariable|Elbow|Debug)Block$/.test(className) ? (className === "ParticleLocalVariableBlock" ? 5 : 1) : 0;
         features |=
             (className === "ParticleInputBlock" &&
                 block.type === 0x0001 &&
@@ -25,6 +25,11 @@ export async function compileNodeParticleGeneralFeatures(
     }
 
     const graph = features & 1 ? (await import("./npe-graph-plumbing-runtime.js")).compileNodeParticleTopology(parsed) : parsed;
+    if (features & 4) {
+        const localVariableEvaluator = (await import("./blocks/particle-local-variable-block.js")).evaluator;
+        const fallback = loadEvaluator;
+        loadEvaluator = async (block) => (block.customType === "BABYLON.ParticleLocalVariableBlock" ? localVariableEvaluator : fallback?.(block));
+    }
     let blocks: ReadonlyMap<number, CompiledParticleBlock> = graph.blocks;
     if (features & 2) {
         const valueCompilation = await import("./npe-value-compilation.js");

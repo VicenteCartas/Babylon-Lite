@@ -9,16 +9,17 @@ export async function compileNodeParticleFeatures(
         systemBlockId: number,
         operations: Array<CompiledParticleBlock | NpeBlockEvaluator>,
         loadEvaluator?: (block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined>
-    ) => Promise<void>
+    ) => Promise<void>,
+    loadEvaluator?: (block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined>
 ): Promise<{
     blocks: ReadonlyMap<number, CompiledParticleBlock>;
     systems: NodeParticleSystemPlan[];
 }> {
     const flowEvaluator = parsed._features & 2 ? (await import("./blocks/update-flow-map-block.js")).updateFlowMapBlock : undefined;
     const noiseEvaluator = parsed._features & 4 ? (await import("./blocks/update-noise-block.js")).updateNoiseBlock : undefined;
-    let loadEvaluator: ((block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined>) | undefined;
     if (flowEvaluator || noiseEvaluator) {
-        loadEvaluator = async (block) => (block.customType[14] === "F" ? flowEvaluator : block.customType[14] === "N" ? noiseEvaluator : undefined);
+        const fallback = loadEvaluator;
+        loadEvaluator = async (block) => (block.customType[14] === "F" ? flowEvaluator : block.customType[14] === "N" ? noiseEvaluator : fallback?.(block));
     }
 
     let blocks: ReadonlyMap<number, CompiledParticleBlock> = parsed.blocks;
