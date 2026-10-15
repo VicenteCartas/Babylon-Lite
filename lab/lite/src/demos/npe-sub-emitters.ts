@@ -1,6 +1,5 @@
 import {
     buildNodeParticleSet,
-    compileNodeParticleGraph,
     createArcRotateCamera,
     createEngine,
     createSceneContext,
@@ -15,8 +14,7 @@ import { createNpeSprite2DFlareUrl } from "../shared/npe-sprite2d-fixture.js";
 import { createScene316TriggerGraph, createScene317LifecycleGraph } from "../shared/scene316-sub-emitter-npe.js";
 
 async function buildGraph(engine: Parameters<typeof buildNodeParticleSet>[0], scene: Parameters<typeof buildNodeParticleSet>[1], graph: object, x: number) {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(graph));
-    return buildNodeParticleSet(engine, scene, program, { emitter: { x, y: -0.6, z: 0 } });
+    return buildNodeParticleSet(engine, scene, parseNodeParticleSource(graph), { emitter: { x, y: -0.6, z: 0 } });
 }
 
 function rootSystem(systems: readonly ParticleSystem[]): ParticleSystem {

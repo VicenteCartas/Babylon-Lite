@@ -8,7 +8,6 @@ import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particl
 import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map";
 import { buildNodeParticleSetWithNoiseTextures } from "../../../packages/babylon-lite/src/particle/node/npe-noise";
 import { buildNodeParticleSetWithTextureUpdates } from "../../../packages/babylon-lite/src/particle/node/npe-texture-updates";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { animateParticleSystem, startParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
@@ -50,52 +49,50 @@ describe("NPE build reachability", () => {
     });
 
     it("preserves a Color4 operand while reading another output from the same producer", async () => {
-        const program = await compileNodeParticleGraph(
-            parseNodeParticleSource({
-                blocks: [
-                    { customType: "BABYLON.ParticleInputBlock", id: 1, type: 0x0080, value: [0, 0, 0, 0], inputs: [] },
-                    { customType: "BABYLON.ParticleInputBlock", id: 2, type: 0x0080, value: [1, 1, 1, 1], inputs: [] },
-                    {
-                        customType: "BABYLON.ParticleRandomBlock",
-                        id: 3,
-                        lockMode: 0,
-                        inputs: [
-                            { name: "min", targetBlockId: 1, targetConnectionName: "output" },
-                            { name: "max", targetBlockId: 2, targetConnectionName: "output" },
-                        ],
-                    },
-                    {
-                        customType: "BABYLON.ParticleConverterBlock",
-                        id: 4,
-                        inputs: [{ name: "color", targetBlockId: 3, targetConnectionName: "output" }],
-                    },
-                    {
-                        customType: "BABYLON.ParticleMathBlock",
-                        id: 5,
-                        operation: 0,
-                        inputs: [
-                            { name: "left", targetBlockId: 4, targetConnectionName: "color" },
-                            { name: "right", targetBlockId: 4, targetConnectionName: "x" },
-                        ],
-                    },
-                    {
-                        customType: "BABYLON.CreateParticleBlock",
-                        id: 6,
-                        inputs: [{ name: "color", targetBlockId: 5, targetConnectionName: "output" }],
-                    },
-                    {
-                        customType: "BABYLON.SystemBlock",
-                        id: 7,
-                        capacity: 1,
-                        updateSpeed: 1,
-                        inputs: [
-                            { name: "particle", targetBlockId: 6, targetConnectionName: "particle" },
-                            { name: "emitRate", valueType: "number", value: 1 },
-                        ],
-                    },
-                ],
-            })
-        );
+        const program = parseNodeParticleSource({
+            blocks: [
+                { customType: "BABYLON.ParticleInputBlock", id: 1, type: 0x0080, value: [0, 0, 0, 0], inputs: [] },
+                { customType: "BABYLON.ParticleInputBlock", id: 2, type: 0x0080, value: [1, 1, 1, 1], inputs: [] },
+                {
+                    customType: "BABYLON.ParticleRandomBlock",
+                    id: 3,
+                    lockMode: 0,
+                    inputs: [
+                        { name: "min", targetBlockId: 1, targetConnectionName: "output" },
+                        { name: "max", targetBlockId: 2, targetConnectionName: "output" },
+                    ],
+                },
+                {
+                    customType: "BABYLON.ParticleConverterBlock",
+                    id: 4,
+                    inputs: [{ name: "color", targetBlockId: 3, targetConnectionName: "output" }],
+                },
+                {
+                    customType: "BABYLON.ParticleMathBlock",
+                    id: 5,
+                    operation: 0,
+                    inputs: [
+                        { name: "left", targetBlockId: 4, targetConnectionName: "color" },
+                        { name: "right", targetBlockId: 4, targetConnectionName: "x" },
+                    ],
+                },
+                {
+                    customType: "BABYLON.CreateParticleBlock",
+                    id: 6,
+                    inputs: [{ name: "color", targetBlockId: 5, targetConnectionName: "output" }],
+                },
+                {
+                    customType: "BABYLON.SystemBlock",
+                    id: 7,
+                    capacity: 1,
+                    updateSpeed: 1,
+                    inputs: [
+                        { name: "particle", targetBlockId: 6, targetConnectionName: "particle" },
+                        { name: "emitRate", valueType: "number", value: 1 },
+                    ],
+                },
+            ],
+        });
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
         const randomValues = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
         let randomIndex = 0;
@@ -115,7 +112,7 @@ describe("NPE build reachability", () => {
         const system = source.blocks.find((block) => block.customType === "BABYLON.SystemBlock")!;
         delete system.updateSpeed;
 
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, await compileNodeParticleGraph(parseNodeParticleSource(source)));
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(source));
 
         expect(set.systems[0]!.updateSpeed).toBe(0.0167);
     });
@@ -147,26 +144,24 @@ describe("NPE build reachability", () => {
                 queue: { copyExternalImageToTexture },
             },
         } as never;
-        const program = await compileNodeParticleGraph(
-            parseNodeParticleSource({
-                blocks: [
-                    {
-                        customType: "BABYLON.SystemBlock",
-                        id: 2,
-                        inputs: [{ name: "texture", targetBlockId: 1, targetConnectionName: "texture" }],
-                    },
-                    {
-                        customType: "BABYLON.ParticleTextureSourceBlock",
-                        id: 1,
-                        url,
-                        serializedCachedData: true,
-                        textureDataUrl,
-                        ...(invertY === undefined ? {} : { invertY }),
-                        inputs: [],
-                    },
-                ],
-            })
-        );
+        const program = parseNodeParticleSource({
+            blocks: [
+                {
+                    customType: "BABYLON.SystemBlock",
+                    id: 2,
+                    inputs: [{ name: "texture", targetBlockId: 1, targetConnectionName: "texture" }],
+                },
+                {
+                    customType: "BABYLON.ParticleTextureSourceBlock",
+                    id: 1,
+                    url,
+                    serializedCachedData: true,
+                    textureDataUrl,
+                    ...(invertY === undefined ? {} : { invertY }),
+                    inputs: [],
+                },
+            ],
+        });
 
         const set = await buildNodeParticleSet(engine, {} as SceneContext, program);
 
@@ -182,7 +177,7 @@ describe("NPE build reachability", () => {
             { customType: "BABYLON.ParticleRandomBlock", id: 10002, name: "detached once", lockMode: 3, inputs: [], outputs: [{ name: "output" }] }
         );
 
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+        const program = parseNodeParticleSource(source);
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         expect(set.systems).toHaveLength(1);
         expect([...set.systems[0]!.buffer._columns.keys()].some((name) => name.startsWith("random.10002."))).toBe(false);
@@ -192,7 +187,7 @@ describe("NPE build reachability", () => {
         const source = structuredClone(changeEmitRateGraph) as MutableGraphSource;
         systemEmitRateInput(source).targetConnectionName = null;
 
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+        const program = parseNodeParticleSource(source);
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
 
@@ -213,7 +208,7 @@ describe("NPE build reachability", () => {
             return 0.5;
         };
         try {
-            const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+            const program = parseNodeParticleSource(source);
             const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
             expect(set.systems[0]!._emitRateGetter).toBeDefined();
         } finally {
@@ -225,7 +220,7 @@ describe("NPE build reachability", () => {
 
     it("re-evaluates a connected emit-rate graph from system time", async () => {
         const truth = changeEmitRateTruth as { N: number; count: number };
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(changeEmitRateGraph));
+        const program = parseNodeParticleSource(changeEmitRateGraph);
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         expect(system._emitRateGetter).toBeDefined();

@@ -3,7 +3,6 @@ import movingLocalGraph from "./fixtures/emitter-moving-local-npe.json";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { Mat4 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { animateParticleSystem, startParticleSystem, type ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
@@ -77,7 +76,7 @@ function worldIntegratedPointGraph(): RawGraph {
 }
 
 async function buildSystem(source: RawGraph, engine: EngineContext, emitterX = FAR_POSITION): Promise<ParticleSystem> {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+    const program = parseNodeParticleSource(source);
     const set = await buildNodeParticleSet(engine, {} as SceneContext, program, { emitterWorldMatrix: emitterMatrix64(emitterX) });
     return set.systems[0]!;
 }

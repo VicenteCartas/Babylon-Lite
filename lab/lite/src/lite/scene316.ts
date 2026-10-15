@@ -3,7 +3,6 @@
 import {
     animateParticleSystem,
     buildNodeParticleSet,
-    compileNodeParticleGraph,
     createArcRotateCamera,
     createEngine,
     createSceneContext,
@@ -36,8 +35,8 @@ async function main(): Promise<void> {
     scene.clearColor = { r: 0.008, g: 0.012, b: 0.018, a: 1 };
     scene.camera = createArcRotateCamera(-Math.PI / 2, Math.PI / 2, 4.6, { x: 0.05, y: 0.3, z: 0 });
 
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(createScene316TriggerGraph(TEXTURE_URL)));
-    const set = await buildNodeParticleSet(engine, scene, program, { emitter: { x: -0.65, y: -0.45, z: 0 } });
+    const graph = parseNodeParticleSource(createScene316TriggerGraph(TEXTURE_URL));
+    const set = await buildNodeParticleSet(engine, scene, graph, { emitter: { x: -0.65, y: -0.45, z: 0 } });
     const root = rootSystem(set);
 
     let seed = 1;

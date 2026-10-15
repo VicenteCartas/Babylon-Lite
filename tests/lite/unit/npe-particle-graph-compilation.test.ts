@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import { createIdentityMat4 } from "../../../packages/babylon-lite/src/math/create-identity-mat4";
-import { buildNodeParticleSet, instantiateNodeParticleSystem } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { buildNodeParticleSetWithBlendModes } from "../../../packages/babylon-lite/src/particle/node/npe-blend-modes";
 import { buildNodeParticleSetWithEmitterProvider } from "../../../packages/babylon-lite/src/particle/node/npe-emitter-provider";
 import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
+import {
+    buildNodeParticleSet,
+    compileNodeParticleGraph,
+    instantiateNodeParticleProgram,
+    instantiateNodeParticleSystem,
+} from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { buildNodeParticleSetWithNoiseTextures } from "../../../packages/babylon-lite/src/particle/node/npe-noise";
 import { parseNodeParticleSetFromSnippet } from "../../../packages/babylon-lite/src/particle/node/node-particle";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
@@ -107,7 +111,7 @@ afterEach(() => {
 describe("NPE graph compilation", () => {
     it("accepts Particle scope only on a particle-only domain", async () => {
         const program = await compileNodeParticleGraph(parseNodeParticleSource(localGraph(0, true, false)));
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const set = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
 
         expect(set.systems[0]!.buffer._columns.size).toBe(6);
         expect(set.systems[0]!.buffer._columns.get("local.2.id")).toBeInstanceOf(Uint32Array);
@@ -132,7 +136,7 @@ describe("NPE graph compilation", () => {
                 ],
             })
         );
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const set = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
 
         expect(set.systems[0]!.buffer._columns.size).toBe(2);
         expect(set.systems[0]!.buffer._columns.get("sprite.cellIndex")).toBeInstanceOf(Uint16Array);
@@ -156,7 +160,7 @@ describe("NPE graph compilation", () => {
         ["missing scope", false, true, undefined],
     ] as Array<[string, boolean, boolean, unknown]>)("accepts Loop scope on the %s domain", async (_name, useParticle, useSystem, scope) => {
         const program = await compileNodeParticleGraph(parseNodeParticleSource(localGraph(scope, useParticle, useSystem)));
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const set = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
 
         expect(set.systems).toHaveLength(1);
         expect(set.systems[0]!._prepareFrame).toEqual(expect.any(Function));
@@ -170,7 +174,7 @@ describe("NPE graph compilation", () => {
         const source = passThroughSource(className, stackSize);
         const snapshot = structuredClone(source);
         const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const set = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
 
         expect(set.systems[0]!.targetStopDuration).toBe(7);
         expect(source).toEqual(snapshot);
@@ -315,14 +319,14 @@ describe("NPE graph compilation", () => {
         ["combined texture-update", buildNodeParticleSetWithTextureUpdates],
         ["blend", buildNodeParticleSetWithBlendModes],
     ] as const)("builds one program LocalVariable graph through the %s family", async (_name, builder) => {
-        const graph = await compileNodeParticleGraph(parseNodeParticleSource(localGraph(1, false, true)));
+        const graph = parseNodeParticleSource(localGraph(1, false, true));
         const set = await builder({} as EngineContext, {} as SceneContext, graph);
 
         expect(set.systems[0]!.targetStopDuration).toBe(7);
     });
 
     it("builds a program LocalVariable graph with an emitter provider", async () => {
-        const graph = await compileNodeParticleGraph(parseNodeParticleSource(localGraph(1, false, true)));
+        const graph = parseNodeParticleSource(localGraph(1, false, true));
         const set = await buildNodeParticleSetWithEmitterProvider({} as EngineContext, {} as SceneContext, graph, () => createIdentityMat4());
 
         expect(set.systems[0]!.targetStopDuration).toBe(7);
@@ -346,6 +350,6 @@ describe("NPE graph compilation", () => {
     it("compiles pass-through blocks before instantiation", async () => {
         const graph = parseNodeParticleSource(passThroughSource("ParticleElbowBlock"));
         const program = await compileNodeParticleGraph(graph);
-        expect((await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program)).systems[0]!.targetStopDuration).toBe(7);
+        expect((await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program)).systems[0]!.targetStopDuration).toBe(7);
     });
 });

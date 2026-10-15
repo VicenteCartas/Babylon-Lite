@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
-import { buildNodeParticleSet, type NodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
+import type { NodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import { compileNodeParticleGraph, instantiateNodeParticleProgram } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import {
     animateParticleSystem,
@@ -74,7 +74,7 @@ async function compile(blocks: RawBlock[]): Promise<NodeParticleProgram> {
 
 async function build(blocks: RawBlock[]): Promise<NodeParticleSet> {
     const program = await compile(blocks);
-    return buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+    return instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
 }
 
 function triggerGraph(options: { count?: number; capacity?: number; limit?: number; delay?: number; condition?: number } = {}): RawBlock[] {
@@ -324,8 +324,8 @@ describe("NPE sub-emitter systems", () => {
 
     it("isolates child hosts and buffers across builds of one reusable program", async () => {
         const program = await compile(triggerGraph({ delay: 0 }));
-        const first = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
-        const second = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const first = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
+        const second = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
         for (const set of [first, second]) {
             const parent = findSystem(set, 10);
             startParticleSystem(parent);
@@ -353,7 +353,7 @@ describe("NPE sub-emitter systems", () => {
         const child = particleBranch(100, 3);
         const parent = particleBranch(1, 5, [{ name: "onStart", targetBlockId: 102, targetConnectionName: "system" }]);
         const program = await compile([...child, ...parent]);
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 3, y: -2, z: 4 } });
+        const set = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program, { emitter: { x: 3, y: -2, z: 4 } });
 
         startParticleSystem(findSystem(set, 5));
         const spawned = childSystems(set)[0]!;

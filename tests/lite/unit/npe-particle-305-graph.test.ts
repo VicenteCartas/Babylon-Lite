@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { SCENE262_NPE_JSON } from "../../../lab/lite/src/shared/scene262-npe";
 import { createScene305NpeGraph } from "../../../lab/lite/src/shared/scene305-teleport-npe";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
+import { compileNodeParticleGraph, instantiateNodeParticleProgram } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import { animateParticleSystem, startParticleSystem, type ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
@@ -90,12 +90,8 @@ describe("Scene 305 compiled graph", () => {
         expect(blockTypes).not.toContain("BABYLON.ParticleElbowBlock");
         expect(blockTypes).not.toContain("BABYLON.ParticleDebugBlock");
 
-        const baseline = await buildNodeParticleSet(
-            {} as EngineContext,
-            {} as SceneContext,
-            await compileNodeParticleGraph(parseNodeParticleSource(withoutTexture(SCENE262_NPE_JSON)))
-        );
-        const compiled = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const baseline = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, parseNodeParticleSource(withoutTexture(SCENE262_NPE_JSON)));
+        const compiled = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
         expect(runDeterministic(compiled.systems[0]!)).toEqual(runDeterministic(baseline.systems[0]!));
         expect([...compiled.systems[0]!.buffer._columns.keys()].filter((name) => name.startsWith(`local.${local.id}.`))).toHaveLength(6);
     });

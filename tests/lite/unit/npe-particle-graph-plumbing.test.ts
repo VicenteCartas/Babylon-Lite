@@ -12,7 +12,7 @@ import { parseNodeParticleSetFromSnippet } from "../../../packages/babylon-lite/
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { buildNodeParticleSetWithTextureUpdates } from "../../../packages/babylon-lite/src/particle/node/npe-texture-updates";
 import { createIdentityMat4 } from "../../../packages/babylon-lite/src/math/create-identity-mat4";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/index";
+import { compileNodeParticleGraph, instantiateNodeParticleProgram } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import type { ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { NodeParticleProgram, ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 
@@ -185,10 +185,10 @@ describe("NPE graph plumbing", () => {
     it("builds a Teleport scalar route with the same state as its direct graph", async () => {
         const engine = {} as EngineContext;
         const scene = {} as SceneContext;
-        const direct = await buildNodeParticleSet(engine, scene, await compileNodeParticleGraph(parseNodeParticleSource(scalarRouteSource(false))));
+        const direct = await buildNodeParticleSet(engine, scene, parseNodeParticleSource(scalarRouteSource(false)));
         const graph = parseNodeParticleSource(scalarRouteSource(true));
 
-        const teleported = await buildNodeParticleSet(engine, scene, await compileNodeParticleGraph(graph));
+        const teleported = await buildNodeParticleSet(engine, scene, graph);
 
         expect(direct.systems[0]!.targetStopDuration).toBe(7);
         expect(teleported.systems[0]!.targetStopDuration).toBe(direct.systems[0]!.targetStopDuration);
@@ -197,8 +197,8 @@ describe("NPE graph plumbing", () => {
     it("preserves scalar, vector, color, and particle-flow state through Teleports", async () => {
         const engine = {} as EngineContext;
         const scene = {} as SceneContext;
-        const direct = await buildNodeParticleSet(engine, scene, await compileNodeParticleGraph(parseNodeParticleSource(valueStateSource(false))));
-        const teleported = await buildNodeParticleSet(engine, scene, await compileNodeParticleGraph(parseNodeParticleSource(valueStateSource(true))));
+        const direct = await buildNodeParticleSet(engine, scene, parseNodeParticleSource(valueStateSource(false)));
+        const teleported = await buildNodeParticleSet(engine, scene, parseNodeParticleSource(valueStateSource(true)));
 
         expect(captureCreationState(teleported.systems[0]!)).toEqual(captureCreationState(direct.systems[0]!));
     });
@@ -255,7 +255,7 @@ describe("NPE graph plumbing", () => {
             }
         );
         const graph = parseNodeParticleSource({ blocks });
-        const program = await compileNodeParticleGraph(graph);
+        const program = graph;
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
 
         expect(set.systems).toHaveLength(1);
@@ -298,7 +298,7 @@ describe("NPE graph plumbing", () => {
             ],
         });
         const scene = { surface: { canvas: { width: 1, height: 1 } }, _beforeRender: [], _deferredBuilders: [] } as unknown as SceneContext;
-        const set = await buildNodeParticleSetWithFlowMaps({} as EngineContext, scene, await compileNodeParticleGraph(graph));
+        const set = await buildNodeParticleSetWithFlowMaps({} as EngineContext, scene, graph);
 
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(set.systems[0]!.updateSteps).toHaveLength(1);
@@ -325,15 +325,15 @@ describe("NPE graph plumbing", () => {
         expect(ordinaryProgram).not.toBe(ordinary);
         expect(detachedProgram).not.toBe(detached);
         expect(getSystemBlockIds(detachedProgram)).toEqual([4]);
-        expect((await buildNodeParticleSet({} as EngineContext, {} as SceneContext, detachedProgram)).systems[0]!.targetStopDuration).toBe(7);
+        expect((await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, detachedProgram)).systems[0]!.targetStopDuration).toBe(7);
     });
 
     it("reuses one immutable program across repeated instantiation", async () => {
         const parsed = parseNodeParticleSource(scalarRouteSource(true));
         const program = await compileNodeParticleGraph(parsed);
 
-        const first = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
-        const rebuilt = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const first = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
+        const rebuilt = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
         expect(first.systems[0]!.targetStopDuration).toBe(7);
         expect(rebuilt.systems[0]!.targetStopDuration).toBe(7);
     });
@@ -352,7 +352,7 @@ describe("NPE graph plumbing", () => {
         };
         const graph = parseNodeParticleSource(source);
         const program = await compileNodeParticleGraph(graph);
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const set = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
 
         expect(program).not.toBe(graph);
         expect(set.systems[0]!.targetStopDuration).toBe(7);
@@ -405,7 +405,7 @@ describe("NPE graph plumbing", () => {
         expect(originalDuration).toMatchObject({ targetBlockId: 2, targetConnectionName: "output" });
         expect(source).toEqual(rawSnapshot);
 
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
+        const set = await instantiateNodeParticleProgram({} as EngineContext, {} as SceneContext, program);
         expect(set.systems.map((system) => system.targetStopDuration)).toEqual([7, 7]);
     });
 
@@ -505,14 +505,14 @@ describe("NPE graph plumbing", () => {
         ["combined texture-update", buildNodeParticleSetWithTextureUpdates],
         ["blend-mode", buildNodeParticleSetWithBlendModes],
     ] as const)("builds one compiled program through the %s builder", async (_name, builder) => {
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(scalarRouteSource(true)));
+        const program = parseNodeParticleSource(scalarRouteSource(true));
         const set = await builder({} as EngineContext, {} as SceneContext, program);
 
         expect(set.systems[0]!.targetStopDuration).toBe(7);
     });
 
     it("builds one compiled program through the emitter-provider builder", async () => {
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(scalarRouteSource(true)));
+        const program = parseNodeParticleSource(scalarRouteSource(true));
         const set = await buildNodeParticleSetWithEmitterProvider({} as EngineContext, {} as SceneContext, program, () => createIdentityMat4());
 
         expect(set.systems[0]!.targetStopDuration).toBe(7);
@@ -565,7 +565,7 @@ describe("NPE graph plumbing", () => {
         expect(featureCompilerSource).toContain('import("./npe-general-feature-compilation.js")');
         expect(generalCompilerSource).toContain('import("./npe-graph-plumbing-runtime.js")');
         expect(generalCompilerSource).not.toMatch(/^(?!\s*import type).*from ["']\.\/npe-graph-plumbing-runtime/m);
-        expect(snippetSource).toContain("await compileNodeParticleGraph(parseNodeParticleSource(source))");
+        expect(snippetSource).toContain("parseNodeParticleSource(source)");
     });
 
     it("adds no Teleport, Elbow, or Debug evaluator or registry implementation", () => {

@@ -9,7 +9,6 @@ import type { Camera } from "../../../packages/babylon-lite/src/camera/camera";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { Mat4 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { createParticleBillboard } from "../../../packages/babylon-lite/src/particle/particle-billboard";
 import {
@@ -125,7 +124,7 @@ function source(properties: Record<string, unknown> = {}, inputs: Array<Record<s
 }
 
 async function build(graph: unknown) {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(graph));
+    const program = parseNodeParticleSource(graph);
     const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
     return { program, system: set.systems[0]! };
 }

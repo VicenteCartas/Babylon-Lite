@@ -5,7 +5,6 @@ import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particl
 import type { NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { particleInputBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/particle-input-block";
 import type { NpeGetter } from "../../../packages/babylon-lite/src/particle/node/npe-value";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { animateParticleSystem, startParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 
@@ -13,7 +12,7 @@ const engine = {} as EngineContext;
 const scene = {} as SceneContext;
 
 async function build(source: object) {
-    return buildNodeParticleSet(engine, scene, await compileNodeParticleGraph(parseNodeParticleSource(source)));
+    return buildNodeParticleSet(engine, scene, parseNodeParticleSource(source));
 }
 
 describe("NPE live input handles", () => {
@@ -180,17 +179,15 @@ describe("NPE live input handles", () => {
     });
 
     it("shares one block cell across systems but isolates repeated program builds", async () => {
-        const program = await compileNodeParticleGraph(
-            parseNodeParticleSource({
-                blocks: [
-                    { customType: "BABYLON.ParticleInputBlock", id: 1, name: "Shared", type: 0x0002, value: 1, inputs: [] },
-                    { customType: "BABYLON.CreateParticleBlock", id: 2, inputs: [{ name: "size", targetBlockId: 1, targetConnectionName: "output" }] },
-                    { customType: "BABYLON.CreateParticleBlock", id: 3, inputs: [{ name: "size", targetBlockId: 1, targetConnectionName: "output" }] },
-                    { customType: "BABYLON.SystemBlock", id: 4, inputs: [{ name: "particle", targetBlockId: 2, targetConnectionName: "particle" }] },
-                    { customType: "BABYLON.SystemBlock", id: 5, inputs: [{ name: "particle", targetBlockId: 3, targetConnectionName: "particle" }] },
-                ],
-            })
-        );
+        const program = parseNodeParticleSource({
+            blocks: [
+                { customType: "BABYLON.ParticleInputBlock", id: 1, name: "Shared", type: 0x0002, value: 1, inputs: [] },
+                { customType: "BABYLON.CreateParticleBlock", id: 2, inputs: [{ name: "size", targetBlockId: 1, targetConnectionName: "output" }] },
+                { customType: "BABYLON.CreateParticleBlock", id: 3, inputs: [{ name: "size", targetBlockId: 1, targetConnectionName: "output" }] },
+                { customType: "BABYLON.SystemBlock", id: 4, inputs: [{ name: "particle", targetBlockId: 2, targetConnectionName: "particle" }] },
+                { customType: "BABYLON.SystemBlock", id: 5, inputs: [{ name: "particle", targetBlockId: 3, targetConnectionName: "particle" }] },
+            ],
+        });
         const first = await buildNodeParticleSet(engine, scene, program);
         const second = await buildNodeParticleSet(engine, scene, program);
 

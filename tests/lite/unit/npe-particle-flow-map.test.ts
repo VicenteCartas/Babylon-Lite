@@ -8,7 +8,6 @@ import { createParticleSystem } from "../../../packages/babylon-lite/src/particl
 import { registerNodeParticleSet } from "../../../packages/babylon-lite/src/particle/particle-scene";
 import { cpuTextureSourceBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/cpu-texture-source-block";
 import { updateFlowMapBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/update-flow-map-block";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map";
 import { buildNodeParticleSet, type NodeParticleSet, type NpeBuildContext, type NpeBuildState } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
@@ -120,23 +119,21 @@ describe("NPE UpdateFlowMapBlock", () => {
             allocations.push(matrix);
             return matrix as unknown as Mat4;
         });
-        const program = await compileNodeParticleGraph(
-            parseNodeParticleSource({
-                blocks: [
-                    { customType: "BABYLON.CreateParticleBlock", id: 1, inputs: [] },
-                    {
-                        customType: "BABYLON.UpdateFlowMapBlock",
-                        id: 2,
-                        inputs: [{ name: "particle", targetBlockId: 1, targetConnectionName: "particle" }],
-                    },
-                    {
-                        customType: "BABYLON.SystemBlock",
-                        id: 3,
-                        inputs: [{ name: "particle", targetBlockId: 2, targetConnectionName: "particle" }],
-                    },
-                ],
-            })
-        );
+        const program = parseNodeParticleSource({
+            blocks: [
+                { customType: "BABYLON.CreateParticleBlock", id: 1, inputs: [] },
+                {
+                    customType: "BABYLON.UpdateFlowMapBlock",
+                    id: 2,
+                    inputs: [{ name: "particle", targetBlockId: 1, targetConnectionName: "particle" }],
+                },
+                {
+                    customType: "BABYLON.SystemBlock",
+                    id: 3,
+                    inputs: [{ name: "particle", targetBlockId: 2, targetConnectionName: "particle" }],
+                },
+            ],
+        });
 
         await buildNodeParticleSetWithFlowMaps({} as never, firstScene, program, { emitterWorldMatrix: firstEmitter });
         await buildNodeParticleSetWithFlowMaps({} as never, secondScene, program, { emitterWorldMatrix: secondEmitter });
@@ -289,7 +286,7 @@ describe("NPE UpdateFlowMapBlock", () => {
         };
         const graph = parseNodeParticleSource(source);
         const originalFlowInput = source.blocks[1]!.inputs.find((input) => input.name === "flowMap")!;
-        const program = await compileNodeParticleGraph(graph);
+        const program = graph;
         const set = await buildNodeParticleSet({ _device: {} } as never, scene, program);
         const system = set.systems[0]!;
         expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -347,7 +344,7 @@ describe("NPE UpdateFlowMapBlock", () => {
                 { customType: "BABYLON.ParticleInputBlock", id: 4, type: 2, value: 2, inputs: [] },
             ],
         });
-        const program = await compileNodeParticleGraph(graph);
+        const program = graph;
         const set = await buildNodeParticleSetWithFlowMaps({ _device: {} } as never, scene, program);
         const system = set.systems[0]!;
         system.buffer.angle[0] = 7;

@@ -3,7 +3,6 @@
 import {
     animateParticleSystem,
     buildNodeParticleSet,
-    compileNodeParticleGraph,
     createArcRotateCamera,
     createEngine,
     createSceneContext,
@@ -35,9 +34,9 @@ async function main(): Promise<void> {
     camera.farPlane = 100;
     scene.camera = camera;
 
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(createScene284NpeJson()));
+    const graph = parseNodeParticleSource(createScene284NpeJson());
     const set = enableNodeParticleBlendModes(
-        await buildNodeParticleSet(engine, scene, program, {
+        await buildNodeParticleSet(engine, scene, graph, {
             emitter: { x: 0, y: 0, z: 0 },
             textureBaseUrl: "https://playground.babylonjs.com/",
         })

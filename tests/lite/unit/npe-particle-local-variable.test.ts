@@ -4,7 +4,6 @@ import { createIdentityMat4 } from "../../../packages/babylon-lite/src/math/crea
 import { createTranslationMat4 } from "../../../packages/babylon-lite/src/math/create-translation-mat4";
 import type { Color4, Vec2, Vec3 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet, type NpeBuildContext, type NpeBuildState } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { withNodeParticleEmitterProvider } from "../../../packages/babylon-lite/src/particle/node/npe-emitter-provider";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { loadValueBlockEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-registry-extra-values";
@@ -169,40 +168,38 @@ describe("ParticleLocalVariableBlock", () => {
     });
 
     it("prepares a provider before advancing the shared Loop epoch", async () => {
-        const graph = await compileNodeParticleGraph(
-            parseNodeParticleSource({
-                blocks: [
-                    { customType: "BABYLON.ParticleInputBlock", id: 1, systemSource: 3, inputs: [] },
-                    {
-                        customType: "BABYLON.ParticleConverterBlock",
-                        id: 2,
-                        inputs: [{ name: "xyz", targetBlockId: 1, targetConnectionName: "output" }],
-                    },
-                    {
-                        customType: "BABYLON.ParticleLocalVariableBlock",
-                        id: 3,
-                        scope: 1,
-                        inputs: [{ name: "input", targetBlockId: 2, targetConnectionName: "x" }],
-                    },
-                    { customType: "BABYLON.ParticleInputBlock", id: 4, type: 0x0002, value: 100, inputs: [] },
-                    {
-                        customType: "BABYLON.CreateParticleBlock",
-                        id: 5,
-                        inputs: [{ name: "lifeTime", targetBlockId: 4, targetConnectionName: "output" }],
-                    },
-                    {
-                        customType: "BABYLON.SystemBlock",
-                        id: 6,
-                        capacity: 16,
-                        updateSpeed: 1,
-                        inputs: [
-                            { name: "particle", targetBlockId: 5, targetConnectionName: "particle" },
-                            { name: "emitRate", targetBlockId: 3, targetConnectionName: "output" },
-                        ],
-                    },
-                ],
-            })
-        );
+        const graph = parseNodeParticleSource({
+            blocks: [
+                { customType: "BABYLON.ParticleInputBlock", id: 1, systemSource: 3, inputs: [] },
+                {
+                    customType: "BABYLON.ParticleConverterBlock",
+                    id: 2,
+                    inputs: [{ name: "xyz", targetBlockId: 1, targetConnectionName: "output" }],
+                },
+                {
+                    customType: "BABYLON.ParticleLocalVariableBlock",
+                    id: 3,
+                    scope: 1,
+                    inputs: [{ name: "input", targetBlockId: 2, targetConnectionName: "x" }],
+                },
+                { customType: "BABYLON.ParticleInputBlock", id: 4, type: 0x0002, value: 100, inputs: [] },
+                {
+                    customType: "BABYLON.CreateParticleBlock",
+                    id: 5,
+                    inputs: [{ name: "lifeTime", targetBlockId: 4, targetConnectionName: "output" }],
+                },
+                {
+                    customType: "BABYLON.SystemBlock",
+                    id: 6,
+                    capacity: 16,
+                    updateSpeed: 1,
+                    inputs: [
+                        { name: "particle", targetBlockId: 5, targetConnectionName: "particle" },
+                        { name: "emitRate", targetBlockId: 3, targetConnectionName: "output" },
+                    ],
+                },
+            ],
+        });
         let providerCalls = 0;
         const set = await buildNodeParticleSet(
             {} as EngineContext,
@@ -382,7 +379,7 @@ describe("ParticleLocalVariableBlock", () => {
 
     it("uses one Loop snapshot for dynamic emit rate, existing updates, and births", async () => {
         let providerCalls = 0;
-        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
+        const graph = parseNodeParticleSource(loopLifecycleGraph());
         const set = await buildNodeParticleSet(
             {} as EngineContext,
             {} as SceneContext,
@@ -403,7 +400,7 @@ describe("ParticleLocalVariableBlock", () => {
 
     it("keeps Loop snapshots independent across systems and builds", async () => {
         let providerCalls = 0;
-        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph(2)));
+        const graph = parseNodeParticleSource(loopLifecycleGraph(2));
         const options = withNodeParticleEmitterProvider(() => createTranslationMat4(++providerCalls, 0, 0));
         const firstBuild = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
         const secondBuild = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
@@ -433,7 +430,7 @@ describe("ParticleLocalVariableBlock", () => {
             setupEmitter(state);
             buildState = state;
         };
-        const graph = await compileNodeParticleGraph(parseNodeParticleSource(loopLifecycleGraph()));
+        const graph = parseNodeParticleSource(loopLifecycleGraph());
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, options);
         const system = set.systems[0]!;
         startParticleSystem(system);

@@ -5,8 +5,7 @@ import type { EngineContext } from "../../../packages/babylon-lite/src/engine/en
 import { _resetMatrixAllocatorForTests, _setHpmAllocator } from "../../../packages/babylon-lite/src/math/_matrix-allocator";
 import { createIdentityMat4 } from "../../../packages/babylon-lite/src/math/create-identity-mat4";
 import type { Mat4 } from "../../../packages/babylon-lite/src/math/types";
-import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
+import { compileNodeParticleGraph, instantiateNodeParticleProgram } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import type { NodeParticleProgram } from "../../../packages/babylon-lite/src/particle/node/npe-types";
 import { spawnParticle } from "../../../packages/babylon-lite/src/particle/particle-buffer";
@@ -59,7 +58,7 @@ async function compile(source: GraphSource): Promise<NodeParticleProgram> {
 }
 
 async function build(program: NodeParticleProgram, scene: SceneContext, emitterWorldMatrix?: Mat4): Promise<ParticleSystem> {
-    return (await buildNodeParticleSet({} as EngineContext, scene, program, emitterWorldMatrix ? { emitterWorldMatrix } : {})).systems[0]!;
+    return (await instantiateNodeParticleProgram({} as EngineContext, scene, program, emitterWorldMatrix ? { emitterWorldMatrix } : {})).systems[0]!;
 }
 
 function prime(system: ParticleSystem, direction: readonly [number, number, number], angle = 0): void {
@@ -158,7 +157,7 @@ describe("NPE camera-dependent blocks", () => {
         const previous = vi.fn(() => {
             camera.alpha = Math.PI / 2;
         });
-        const set = await buildNodeParticleSet({} as EngineContext, cameraScene(camera), program, {
+        const set = await instantiateNodeParticleProgram({} as EngineContext, cameraScene(camera), program, {
             _setupEmitter(state) {
                 state.system!._prepareFrame = previous;
             },

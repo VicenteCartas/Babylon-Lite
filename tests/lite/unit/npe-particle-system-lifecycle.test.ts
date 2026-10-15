@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import {
     animateParticleSystem,
@@ -79,7 +78,7 @@ function lifecycleGraph(systemFields: Record<string, unknown>, dynamicEmitRate =
 }
 
 async function buildSystem(systemFields: Record<string, unknown> = {}, dynamicEmitRate = false): Promise<ParticleSystem> {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(lifecycleGraph(systemFields, dynamicEmitRate)));
+    const program = parseNodeParticleSource(lifecycleGraph(systemFields, dynamicEmitRate));
     const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
     return set.systems[0]!;
 }

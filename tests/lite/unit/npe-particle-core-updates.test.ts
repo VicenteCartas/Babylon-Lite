@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { Mat4 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { animateParticleSystem, startParticleSystem, stopParticleSystem, type ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
@@ -128,7 +127,7 @@ function dyingParticleGraph(): RawGraph {
 
 async function buildLwrSystem(source: RawGraph): Promise<ParticleSystem> {
     const engine = { useFloatingOrigin: true } as EngineContext;
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+    const program = parseNodeParticleSource(source);
     const set = await buildNodeParticleSet(engine, {} as SceneContext, program, { emitterWorldMatrix: emitterMatrix64() });
     return set.systems[0]!;
 }

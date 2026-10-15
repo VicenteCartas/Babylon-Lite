@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
-import { buildNodeParticleSet, compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import type { ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
@@ -10,7 +10,7 @@ const SPRITE_CELL_START = 0x0011;
 const SPRITE_CELL_END = 0x0012;
 
 async function buildSystem(blocks: object[]): Promise<ParticleSystem> {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource({ blocks }));
+    const program = parseNodeParticleSource({ blocks });
     return (await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program)).systems[0]!;
 }
 

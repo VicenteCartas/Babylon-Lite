@@ -1,6 +1,5 @@
 import {
     buildNodeParticleSet,
-    compileNodeParticleGraph,
     createEngine,
     createSceneContext,
     createSpriteRenderer,
@@ -72,8 +71,8 @@ async function main(): Promise<void> {
     const flareUrl = await createNpeSprite2DFlareUrl();
     let set: Awaited<ReturnType<typeof buildNodeParticleSet>>;
     try {
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(createLiveInputGraph(flareUrl)));
-        set = await buildNodeParticleSet(engine, buildScene, program);
+        const graph = parseNodeParticleSource(createLiveInputGraph(flareUrl));
+        set = await buildNodeParticleSet(engine, buildScene, graph);
     } finally {
         URL.revokeObjectURL(flareUrl);
     }

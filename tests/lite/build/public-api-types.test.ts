@@ -953,19 +953,18 @@ void [current, ready];
         expect(dts).not.toMatch(/\b_(?:capture|setup)Emitter\b|\b_emitterProvider\b|\bParticleEmitterState\b/);
     });
 
-    it("exposes the graph compiler and lifecycle types without compiler internals", () => {
+    it("builds parsed graphs directly without exposing compiler internals", () => {
         const dts = readFileSync(DTS_PATH, "utf-8");
 
         expect(dts).toMatch(/parseNodeParticleSource\(source: unknown\): ParsedNodeParticleGraph/);
-        expect(dts).toMatch(/compileNodeParticleGraph\(parsed: ParsedNodeParticleGraph\): Promise<NodeParticleProgram>/);
-        expect(dts).toMatch(/buildNodeParticleSet\(engine: EngineContext, scene: SceneContext, program: NodeParticleProgram/);
-        expect(dts).toContain("interface ParsedNodeParticleGraph");
-        expect(dts).toContain("interface NodeParticleProgram");
-        expect(dts).toMatch(/interface NodeParticleProgram \{\s*\}/);
+        expect(dts).toMatch(/buildNodeParticleSet\(engine: EngineContext, scene: SceneContext, graph: ParsedNodeParticleGraph/);
+        expect(dts).toMatch(/normalizeNodeParticleGraph\(graph: ParsedNodeParticleGraph\): Promise<ParsedNodeParticleGraph>/);
+        expect(dts).not.toContain("compileNodeParticleGraph");
+        expect(dts).not.toContain("NodeParticleProgram");
+        expect(dts).not.toContain("instantiateNodeParticleProgram");
         expect(dts).not.toContain("NodeParticlePrepareFrameEffect");
         expect(dts).not.toContain("NodeParticleSystemEffectManifest");
         expect(dts).not.toContain("NodeParticleBindingManifest");
-        expect(dts).not.toContain("normalizeNodeParticleGraph");
         expect(dts).not.toContain("compileNodeParticleTopology");
         expect(dts).not.toContain("compileNodeParticleValueTypes");
         expect(dts).not.toContain("loadNodeParticleValueMathEvaluator");

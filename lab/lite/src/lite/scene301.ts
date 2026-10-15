@@ -3,7 +3,6 @@
 import {
     animateParticleSystem,
     buildNodeParticleSet,
-    compileNodeParticleGraph,
     createEngine,
     createSceneContext,
     createSpriteRenderer,
@@ -45,10 +44,8 @@ async function main(): Promise<void> {
     const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
     const engine = await createEngine(canvas);
     const buildScene = createSceneContext(engine);
-    const multiplyProgram = await compileNodeParticleGraph(parseNodeParticleSource(createScene283NpeJson({ blendMode: 3 })));
-    const multiplyAddProgram = await compileNodeParticleGraph(parseNodeParticleSource(createScene283NpeJson({ blendMode: 4 })));
-    const multiplySet = await buildNodeParticleSet(engine, buildScene, multiplyProgram);
-    const multiplyAddSet = await buildNodeParticleSet(engine, buildScene, multiplyAddProgram);
+    const multiplySet = await buildNodeParticleSet(engine, buildScene, parseNodeParticleSource(createScene283NpeJson({ blendMode: 3 })));
+    const multiplyAddSet = await buildNodeParticleSet(engine, buildScene, parseNodeParticleSource(createScene283NpeJson({ blendMode: 4 })));
     const multiply = multiplySet.systems[0];
     const multiplyAdd = multiplyAddSet.systems[0];
     if (!multiply || !multiplyAdd) {

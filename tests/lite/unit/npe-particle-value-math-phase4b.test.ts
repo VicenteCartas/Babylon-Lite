@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { buildNodeParticleSet, compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-build";
+import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { loadValueBlockEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-registry-extra-values";
 import { loadNodeParticleValueMathEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-registry-value-math";
@@ -195,7 +195,7 @@ describe("NPE Phase 4B value math", () => {
                 { customType: "BABYLON.SystemBlock", id: 9, inputs: [{ name: "emitRate", targetBlockId: 8, targetConnectionName: "output" }] },
             ],
         });
-        const program = await compileNodeParticleGraph(source);
+        const program = source;
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
         expect(set.systems[0]!._emitRateGetter!()).toBe(0.15625);
     });
@@ -218,7 +218,7 @@ describe("NPE Phase 4B value math", () => {
                 { customType: "BABYLON.SystemBlock", id: 5, inputs: [{ name: "emitRate", targetBlockId: 4, targetConnectionName: "output" }] },
             ],
         });
-        const program = await compileNodeParticleGraph(source);
+        const program = source;
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
         expect(set.systems[0]!._emitRateGetter!()).toBe(0);
     });

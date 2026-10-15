@@ -2,7 +2,6 @@ import {
     animateParticleSystem,
     attachControl,
     buildNodeParticleSet,
-    compileNodeParticleGraph,
     createArcRotateCamera,
     createEngine,
     createSceneContext,
@@ -85,8 +84,12 @@ async function main(): Promise<void> {
 
     let set: Awaited<ReturnType<typeof buildNodeParticleSet>>;
     try {
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(createScene302NpeGraph()));
-        set = await buildNodeParticleSet(engine, scene, program, withNodeParticleEmitterProvider(provider, { emitter: { x: 0, y: 0, z: 0 } }));
+        set = await buildNodeParticleSet(
+            engine,
+            scene,
+            parseNodeParticleSource(createScene302NpeGraph()),
+            withNodeParticleEmitterProvider(provider, { emitter: { x: 0, y: 0, z: 0 } })
+        );
         const system = set.systems[0];
         if (!system) {
             throw new Error("Scene 302 requires one NPE particle system");

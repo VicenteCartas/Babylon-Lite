@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import groundTruth from "./fixtures/scene263-npe-sphere-states.json";
 import { SCENE263_NPE_JSON } from "../../../lab/lite/src/shared/scene263-npe";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { startParticleSystem, animateParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
@@ -24,7 +23,7 @@ const truth = groundTruth as { N: number; count: number; particles: BjsParticle[
 
 describe("NPE particle simulation (Sphere emitter) — deterministic parity with Babylon.js", () => {
     it(`reproduces Babylon.js particle states after ${truth.N} deterministic steps`, async () => {
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(SCENE263_NPE_JSON));
+        const program = parseNodeParticleSource(SCENE263_NPE_JSON);
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         expect(system).toBeTruthy();

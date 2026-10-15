@@ -6,7 +6,6 @@ gpuGlobals.GPUBufferUsage ??= { UNIFORM: 0x40, COPY_DST: 0x8 } as unknown as GPU
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { loadRenderPropertiesBlockEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-pack-render-properties";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import type { ParsedParticleBlock } from "../../../packages/babylon-lite/src/particle/node/npe-types";
@@ -32,7 +31,7 @@ function systemSource(inputs: Array<Record<string, unknown>>, properties: Record
 }
 
 async function build(source: unknown) {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+    const program = parseNodeParticleSource(source);
     const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
     return { program, system: set.systems[0]! };
 }

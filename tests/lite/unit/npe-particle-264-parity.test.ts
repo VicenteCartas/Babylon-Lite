@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SCENE264_NPE_JSON } from "../../../lab/lite/src/shared/scene264-npe";
 import groundTruth from "./fixtures/change-size-states.json";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { startParticleSystem, stopParticleSystem, animateParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
@@ -24,7 +23,7 @@ const truth = groundTruth as { N: number; count: number; particles: BjsParticle[
 
 describe("NPE particle simulation (Change - Size) — deterministic parity with Babylon.js", () => {
     it(`reproduces Babylon.js particle states after ${truth.N} deterministic steps`, async () => {
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(SCENE264_NPE_JSON));
+        const program = parseNodeParticleSource(SCENE264_NPE_JSON);
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         expect(system).toBeTruthy();
@@ -81,7 +80,7 @@ describe("NPE particle simulation (Change - Size) — deterministic parity with 
     });
 
     it("keeps OncePerParticle cache storage bounded when compacted slots are recycled", async () => {
-        const program = await compileNodeParticleGraph(parseNodeParticleSource(SCENE264_NPE_JSON));
+        const program = parseNodeParticleSource(SCENE264_NPE_JSON);
         const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         const previousRandom = Math.random;

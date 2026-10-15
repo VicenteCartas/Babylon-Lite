@@ -4,7 +4,6 @@ import { animateParticleSystem, createParticleSystem, startParticleSystem } from
 import { createParticleBillboard } from "../../../packages/babylon-lite/src/particle/particle-billboard";
 import { killParticle, spawnParticle } from "../../../packages/babylon-lite/src/particle/particle-buffer";
 import { updateNoiseBlock } from "../../../packages/babylon-lite/src/particle/node/blocks/update-noise-block";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { buildNodeParticleSetWithTextureUpdates } from "../../../packages/babylon-lite/src/particle/node/npe-texture-updates";
 import { buildNodeParticleSet, type NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
@@ -99,7 +98,7 @@ async function buildNoiseTextureFanOut(renderUrl: string) {
             { customType: "BABYLON.ParticleInputBlock", id: 4, type: 8, valueType: "BABYLON.Vector3", value: [2, 3, 4], inputs: [] },
         ],
     });
-    const program = await compileNodeParticleGraph(graph);
+    const program = graph;
     const set = await buildNodeParticleSet(engine, {} as never, program);
     return { system: set.systems[0]!, fetchMock, textureDataUrl };
 }
@@ -318,7 +317,7 @@ describe("NPE UpdateNoiseBlock", () => {
                 { customType: "BABYLON.ParticleInputBlock", id: 4, type: 8, value: [3, 0, 0], inputs: [] },
             ],
         });
-        const program = await compileNodeParticleGraph(graph);
+        const program = graph;
         const set = await buildNodeParticleSetWithTextureUpdates({} as never, scene, program);
         const system = set.systems[0]!;
         vi.spyOn(Math, "random").mockReturnValue(0);

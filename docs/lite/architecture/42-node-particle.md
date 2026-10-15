@@ -20,33 +20,39 @@ The design requirements are:
 
 ## 2. Package-root API
 
-`packages/babylon-lite/src/index.ts` exports exactly twenty-five node-particle functions and fourteen node-particle types.
+`packages/babylon-lite/src/index.ts` exports exactly twenty-six node-particle functions and thirteen node-particle types.
 
 ### 2.1 Functions
 
 ```ts
 function parseNodeParticleSource(source: unknown): ParsedNodeParticleGraph;
-function compileNodeParticleGraph(parsed: ParsedNodeParticleGraph): Promise<NodeParticleProgram>;
+/** @deprecated Builders compile parsed graphs internally; this returns its argument unchanged. */
+function normalizeNodeParticleGraph(graph: ParsedNodeParticleGraph): Promise<ParsedNodeParticleGraph>;
 
-function buildNodeParticleSet(engine: EngineContext, scene: SceneContext, program: NodeParticleProgram, options?: BuildNodeParticleOptions): Promise<NodeParticleSet>;
-function buildNodeParticleSetWithBlendModes(engine: EngineContext, scene: SceneContext, program: NodeParticleProgram, options?: BuildNodeParticleOptions): Promise<NodeParticleSet>;
-function buildNodeParticleSetWithFlowMaps(engine: EngineContext, scene: SceneContext, program: NodeParticleProgram, options?: BuildNodeParticleOptions): Promise<NodeParticleSet>;
+function buildNodeParticleSet(engine: EngineContext, scene: SceneContext, graph: ParsedNodeParticleGraph, options?: BuildNodeParticleOptions): Promise<NodeParticleSet>;
+function buildNodeParticleSetWithBlendModes(
+    engine: EngineContext,
+    scene: SceneContext,
+    graph: ParsedNodeParticleGraph,
+    options?: BuildNodeParticleOptions
+): Promise<NodeParticleSet>;
+function buildNodeParticleSetWithFlowMaps(engine: EngineContext, scene: SceneContext, graph: ParsedNodeParticleGraph, options?: BuildNodeParticleOptions): Promise<NodeParticleSet>;
 function buildNodeParticleSetWithNoiseTextures(
     engine: EngineContext,
     scene: SceneContext,
-    program: NodeParticleProgram,
+    graph: ParsedNodeParticleGraph,
     options?: BuildNodeParticleOptions
 ): Promise<NodeParticleSet>;
 function buildNodeParticleSetWithTextureUpdates(
     engine: EngineContext,
     scene: SceneContext,
-    program: NodeParticleProgram,
+    graph: ParsedNodeParticleGraph,
     options?: BuildNodeParticleOptions
 ): Promise<NodeParticleSet>;
 function buildNodeParticleSetWithEmitterProvider(
     engine: EngineContext,
     scene: SceneContext,
-    program: NodeParticleProgram,
+    graph: ParsedNodeParticleGraph,
     provider: NodeParticleEmitterProvider,
     options?: BuildNodeParticleOptions
 ): Promise<NodeParticleSet>;
@@ -60,6 +66,7 @@ function parseNodeParticleSetFromSnippet(engine: EngineContext, scene: SceneCont
 
 function startParticleSystem(system: ParticleSystem, delay?: number): void;
 function stopParticleSystem(system: ParticleSystem): void;
+function disposeParticleSystem(system: ParticleSystem): void;
 function animateParticleSystem(system: ParticleSystem, scaledRatio: number): void;
 
 function createParticleBillboard(system: ParticleSystem): FacingBillboardSpriteSystem;
@@ -78,7 +85,7 @@ function registerNodeParticleSet2DWithBlendModes(renderer: SpriteRenderer, set: 
 function disposeNodeParticleSet2DBlendModesBinding(binding: NodeParticleSet2DBlendModesBinding): void;
 ```
 
-All twenty-five functions listed above, including the graph compiler, build-options helper, and blend-mode enabler, are public package-root exports. `ParsedNodeParticleGraph` is immutable source data returned by `parseNodeParticleSource`. `NodeParticleProgram` is immutable reusable executable metadata returned by `compileNodeParticleGraph`. Both lifecycle types are named package-root exports. Every builder accepts only `NodeParticleProgram`, so topology routing, value-type propagation, and evaluator selection cannot be accidentally omitted.
+All twenty-six functions listed above, including the deprecated graph normalizer, build-options helper, and blend-mode enabler, are public package-root exports. `ParsedNodeParticleGraph` is immutable source data returned by `parseNodeParticleSource`; it is not a named package-root type export, and TypeScript infers it through the parser. Every builder accepts the parsed graph and compiles it internally, so topology routing, value-type propagation, and evaluator selection cannot be accidentally omitted. `normalizeNodeParticleGraph` is retained only for source compatibility with callers written against the earlier explicit-normalization API: it returns its argument unchanged, and passing its result to any builder is equivalent to passing the parsed graph directly. `ParticleInputHandle` and `disposeParticleSystem` are the only additions over the previous public surface.
 
 ### 2.2 Types
 
@@ -87,6 +94,7 @@ interface ParsedNodeParticleGraph {
     readonly blocks: readonly ParsedParticleBlock[];
 }
 
+/** @internal Compiled executable metadata; never part of the package-root surface. */
 interface NodeParticleProgram {
     /** @internal Alternating block/evaluator operation plans, one per SystemBlock. */
     readonly _systems: readonly NodeParticleSystemPlan[];
@@ -174,9 +182,9 @@ interface NodeParticleSet2DBlendModesBinding {
 }
 ```
 
-`ParsedParticleBlock`, `ParsedParticleInput`, `CompiledParticleBlock`, `NodeParticleInputPlan`, and `NodeParticleSystemPlan` are internal declaration details; they are not named package-root exports. `NodeParticleProgram` is intentionally opaque after `@internal` trimming. `ParticleSystem` is specified in section 5. `NodeParticleEmitterProvider` is a pure state source: it accepts no runtime objects and returns only a matrix value. `NodeParticleSet.systems` is a mutable array behind a readonly property, and each system and its typed arrays are mutable. `NodeParticleSet.inputs` is a stable readonly name map whose handles have stable identity for the set lifetime; only each handle's `value` property is mutable. Both bridge families expose readonly system/layer references while keeping `pixelsPerUnit`, `originPx`, and `invertY` mutable. Both binding families expose a readonly bridge list and mutable `active` state. Every public type is pure state; behavior remains in standalone functions.
+`ParsedParticleBlock`, `ParsedParticleInput`, `CompiledParticleBlock`, `NodeParticleInputPlan`, and `NodeParticleSystemPlan` are internal declaration details; they are not named package-root exports. `NodeParticleProgram` and the internal `compileNodeParticleGraph` and `instantiateNodeParticleProgram` functions are absent from the emitted package declaration. `ParticleSystem` is specified in section 5. `NodeParticleEmitterProvider` is a pure state source: it accepts no runtime objects and returns only a matrix value. `NodeParticleSet.systems` is a mutable array behind a readonly property, and each system and its typed arrays are mutable. `NodeParticleSet.inputs` is a stable readonly name map whose handles have stable identity for the set lifetime; only each handle's `value` property is mutable. Both bridge families expose readonly system/layer references while keeping `pixelsPerUnit`, `originPx`, and `invertY` mutable. Both binding families expose a readonly bridge list and mutable `active` state. Every public type is pure state; behavior remains in standalone functions.
 
-### 2.3 Breaking migration
+### 2.3 Provider migration
 
 The post-build `enableNodeParticleEmitterProvider` API is removed with no deprecated compatibility shim. Move provider selection into the builder options:
 
@@ -185,25 +193,23 @@ The post-build `enableNodeParticleEmitterProvider` API is removed with no deprec
 await enableNodeParticleEmitterProvider(await builder(engine, scene, parsed, options), provider);
 
 // Replacement for every node-particle builder, including snippet parsing
-const program = await compileNodeParticleGraph(parsed);
-await builder(engine, scene, program, withNodeParticleEmitterProvider(provider, options));
+await builder(engine, scene, parsed, withNodeParticleEmitterProvider(provider, options));
 ```
 
-The default-builder convenience remains `buildNodeParticleSetWithEmitterProvider(engine, scene, program, provider, options)`. The options helper returns a shallow copy, preserves extension-specific fields such as `ParseNodeParticleOptions.json` and `snippetServer`, and gives the provider precedence over static `emitterWorldMatrix` and `emitter` values.
+The default-builder convenience remains `buildNodeParticleSetWithEmitterProvider(engine, scene, graph, provider, options)`. The options helper returns a shallow copy, preserves extension-specific fields such as `ParseNodeParticleOptions.json` and `snippetServer`, and gives the provider precedence over static `emitterWorldMatrix` and `emitter` values.
 
 ### 2.4 Compilation boundary
 
-Direct `parseNodeParticleSource` users compile parsed source before invoking any builder. Compilation is the mandatory asynchronous boundary for topology routing, value-type propagation, evaluator selection, and reusable operation-plan creation. One program composes with the default, flow-map, noise, combined texture-update, blend-mode, and provider-backed builder families:
+Every builder compiles its parsed graph before instantiation. Compilation is the mandatory asynchronous boundary for topology routing, value-type propagation, evaluator selection, and operation-plan creation. One parsed graph composes with the default, flow-map, noise, combined texture-update, blend-mode, and provider-backed builder families:
 
 ```ts
 const parsed = parseNodeParticleSource(source);
-const program = await compileNodeParticleGraph(parsed);
-const set = await buildNodeParticleSet(engine, scene, program);
+const set = await buildNodeParticleSet(engine, scene, parsed);
 ```
 
-Compilation never mutates the parsed graph or serialized class identity. It creates temporary id maps, validates and rewrites compile-away topology in program-owned records, selects evaluator variants, and emits immutable graph-ordered operation plans. Programs can instantiate multiple independent particle sets. Builders accept only `NodeParticleProgram` at the TypeScript boundary.
+Compilation never mutates the parsed graph or serialized class identity. It creates temporary id maps, validates and rewrites compile-away topology in program-owned records, selects evaluator variants, and emits immutable graph-ordered operation plans. A parsed graph can be built repeatedly into independent particle sets. Programs stay internal: the compiled `NodeParticleProgram` is instantiated by the internal `instantiateNodeParticleProgram`, and sub-emitter children reuse their parent program's system plans instead of recompiling. Keeping compilation behind the builders preserves the previous parsed-graph builder signatures without a breaking change.
 
-`parseNodeParticleSetFromSnippet` is already an asynchronous arbitrary-content boundary, so it always parses and compiles before its default build. Optional topology and value-math modules are dynamically imported only when the parsed classes require them.
+`parseNodeParticleSetFromSnippet` is already an asynchronous arbitrary-content boundary, so it parses and then builds through the default builder, which compiles. Optional topology and value-math modules are dynamically imported only when the parsed classes require them.
 
 ### 2.5 Internal APIs
 
@@ -216,6 +222,7 @@ The following symbols are implementation APIs and are not node-particle package-
 - Runtime construction: `ParticleSpriteHandle` and `createParticleSystem`.
 - Sprite features: `SpriteSheetConfig`, `SpriteSheet`, `useSpriteSheet`, and `useRandomSpriteSheet`.
 - Snippet transport: `fetchNodeParticleSnippet`.
+- Compiler and instantiation: `compileNodeParticleGraph`, `NodeParticleProgram`, and `instantiateNodeParticleProgram`.
 - Compiler helpers: `compileNodeParticleTopology`, `compileNodeParticleValueTypes`, and `loadNodeParticleValueMathEvaluator`.
 - Contextual factories, local-position helpers, evaluator values, and registry loaders.
 
@@ -227,8 +234,6 @@ The direct data flow is:
 serialized value
     -> parseNodeParticleSource
     -> ParsedNodeParticleGraph
-    -> compileNodeParticleGraph
-    -> NodeParticleProgram
      -> buildNodeParticleSet
          or buildNodeParticleSetWithBlendModes for exact billboard Multiply/MultiplyAdd rendering
          aliases: buildNodeParticleSetWithFlowMaps / buildNodeParticleSetWithNoiseTextures / buildNodeParticleSetWithTextureUpdates
@@ -248,14 +253,15 @@ serialized value
                  -> registerNodeParticleSet2DWithBlendModes
 ```
 
-The three texture-update builder names are direct exports of `buildNodeParticleSet`. Compilation selects flow-map and noise evaluators automatically; instantiation adds no feature-specific forwarding module or dynamic import. All names accept the same compiled program and options, including omitted options.
+The three texture-update builder names are direct exports of `buildNodeParticleSet`. Compilation selects flow-map and noise evaluators automatically; instantiation adds no feature-specific forwarding module or dynamic import. All names accept the same parsed graph and options, including omitted options.
 
 The snippet convenience flow is:
 
 ```text
 inline JSON or fetched snippet response
     -> parseNodeParticleSource
-    -> compileNodeParticleGraph
+    -> buildNodeParticleSet
+    -> compileNodeParticleGraph (internal)
         topology compiler loaded only for topology candidates
         value compiler loaded only for typed value-math candidates
         sprite-cell reachability compiler loaded only for sprite-cell Int sources
@@ -629,7 +635,7 @@ interface SerializedSource {
 
 `parseNodeParticleSource` is a zero-copy trusted cast to `ParsedNodeParticleGraph`. It preserves Babylon.js JSON field names and class identities exactly, including the `BABYLON.` prefix, input names, connection names, value tags, and block-specific properties. It does not normalize, clone, freeze, or validate records. Callers must not mutate parsed source while compilation is in progress.
 
-`compileNodeParticleGraph` is the first structural consumer. It builds a temporary `Map<number, CompiledParticleBlock>`, records each `SystemBlock` root, conditionally invokes topology and value compilers, resolves lazy evaluators, and emits reusable operation plans. Temporary maps are not retained by the public program.
+`compileNodeParticleGraph` is the first structural consumer. It builds a temporary `Map<number, CompiledParticleBlock>`, records each `SystemBlock` root, conditionally invokes topology and value compilers, resolves lazy evaluators, and emits reusable operation plans. Temporary maps are not retained by the program.
 
 ### 6.3 Validation errors
 
@@ -684,7 +690,7 @@ For each root:
 
 Only blocks reachable by following input connections from a root enter an operation plan. Detached blocks load no evaluator, allocate no columns, and expose no input handle.
 
-Every caller reaches instantiation through a `NodeParticleProgram`. `compileNodeParticleGraph` conditionally compiles topology routes, propagates value types, selects evaluator variants, and records alternating block/evaluator entries in post-order. After every system plan is final, compilation forms `program._inputs` by filtering the original serialized block order to reachable constant `ParticleInputBlock` instances with a truthy string name. Contextual and system-source blocks never enter this plan. The immutable input plan retains block identity, initial serialized value, type, and inspector metadata but no mutable cell or handle. Instantiation runs operation entries directly and performs no registry lookup or graph traversal.
+Every builder reaches instantiation through an internal `NodeParticleProgram`. `compileNodeParticleGraph` conditionally compiles topology routes, propagates value types, selects evaluator variants, and records alternating block/evaluator entries in post-order. After every system plan is final, compilation forms `program._inputs` by filtering the original serialized block order to reachable constant `ParticleInputBlock` instances with a truthy string name. Contextual and system-source blocks never enter this plan. The immutable input plan retains block identity, initial serialized value, type, and inspector metadata but no mutable cell or handle. Instantiation runs operation entries directly and performs no registry lookup or graph traversal.
 
 The standard asynchronous `buildBlock(id)` algorithm is exact:
 
@@ -1226,7 +1232,7 @@ The ordinary evaluator treats HTTP(S), protocol-relative, and root-relative URLs
 
 The ordinary GPU evaluator and CPU-readable evaluator intentionally remain import-independent. Standard graphs retain the base texture chunk set and never fetch `cpu-texture-source-block`; only flow-map or noise dependencies may fetch that evaluator.
 
-`compileNodeParticleGraph` selects `cpuTextureSourceBlock` only when a source feeds the `flowMap` or `noiseTexture` input of a reachable update evaluator. The public flow-map, noise-texture, and combined texture-update builders retain their lazy adapter boundaries and delegate instantiation to the shared builder; evaluator selection has already been captured in the reusable program.
+`compileNodeParticleGraph` selects `cpuTextureSourceBlock` only when a source feeds the `flowMap` or `noiseTexture` input of a reachable update evaluator. The public flow-map, noise-texture, and combined texture-update builders retain their lazy adapter boundaries and delegate instantiation to the shared builder; evaluator selection has already been captured in the compiled program.
 
 The CPU evaluator gives `textureDataUrl` precedence over `url`, accepts only explicit `http`, `https`, `data`, and `blob` schemes, resolves relative URLs against `textureBaseUrl`, and installs `texture` as an `NpeTextureValue`. It performs no GPU upload.
 
@@ -1392,7 +1398,7 @@ Append an update step that adds `colorStep * system._scaledUpdateSpeed` to all f
 
 ### 9.35 Compiled topology and local values
 
-`compileNodeParticleGraph` is the only transition from trusted parsed source to executable plans. Its initial scan creates a temporary id map and root list while detecting which optional compiler passes may be needed. Topology rewrites use copy-on-write records and never mutate source objects or serialized class names. The resulting `NodeParticleProgram` retains only one post-order block/evaluator operation plan per system root; compiler maps, feature bits, and registries are discarded.
+The internal `compileNodeParticleGraph`, invoked by every builder, is the only transition from trusted parsed source to executable plans. Its initial scan creates a temporary id map and root list while detecting which optional compiler passes may be needed. Topology rewrites use copy-on-write records and never mutate source objects or serialized class names. The resulting `NodeParticleProgram` retains only one post-order block/evaluator operation plan per system root; compiler maps, feature bits, and registries are discarded.
 
 The compiler scans for topology candidates and dynamically imports `npe-graph-plumbing-runtime.ts` only when the source contains TeleportOut, LocalVariable, Elbow, or Debug. The runtime validates and rewrites only blocks reachable from a `SystemBlock`. Detached malformed candidates remain inert. Every builder family consumes the same compiled program; inline and fetched snippet parsing performs parse, compile, and default instantiation automatically.
 
@@ -1585,13 +1591,12 @@ Compiled topology and runtime metadata are implemented by these side-effect-free
 
 ```text
 packages/babylon-lite/src/particle/node/npe-graph-plumbing-runtime.ts
-packages/babylon-lite/src/particle/node/npe-compiler.ts
 packages/babylon-lite/src/particle/node/npe-flow-map-frame-binding.ts
 packages/babylon-lite/src/particle/node/npe-feature-compilation.ts
 packages/babylon-lite/src/particle/node/npe-general-feature-compilation.ts
 ```
 
-`npe-compiler.ts` owns the public lifecycle boundary, feature detection, root-reachable operation planning, and conditional pass loading. The topology runtime owns root-reachable domain analysis, copy-on-write route resolution, and diagnostics. Flow-map and Loop preparation are installed by their selected evaluators during plan instantiation. Neither Teleport class receives an evaluator.
+`npe-build.ts` owns the compile-then-instantiate lifecycle boundary, feature detection, root-reachable operation planning, and conditional pass loading. The topology runtime owns root-reachable domain analysis, copy-on-write route resolution, and diagnostics. Flow-map and Loop preparation are installed by their selected evaluators during plan instantiation. Neither Teleport class receives an evaluator.
 
 Focused fixtures cover trusted parse identity and nonmutating topology rewrites; Teleport fan-out and chains across scalar, Vector2, Vector3, Color4, gradient, particle/system flow, and texture edges; terminal output-name preservation; System `particle` ordering; one program across every specialized builder; endpoint id `0`; invalid, empty, missing, and wrong endpoints; disconnected TeleportIn; cycles; detached malformed candidates; automatic inline and fetched snippet support; declaration trimming; no Teleport evaluator body; and generated runtime-chunk/module isolation. Particle-flow Teleport coverage is mandatory.
 
@@ -2094,7 +2099,6 @@ The implementation preserves these explicit failures:
 - Parser: `NodeParticle: block missing numeric id (name=<stringified name>)`.
 - Parser: `NodeParticle: duplicate block id <id>`.
 - Parser: `NodeParticle: graph has no SystemBlock`.
-- Builder: `NodeParticle: buildNodeParticleSet requires a compiled program`.
 - Teleport endpoint value: `NodeParticle: ParticleTeleportOutBlock <outId> has invalid entryPoint`.
 - Missing Teleport endpoint: `NodeParticle: ParticleTeleportOutBlock <outId> references missing entryPoint <entryId>`.
 - Wrong Teleport endpoint class: `NodeParticle: ParticleTeleportOutBlock <outId> entryPoint <entryId> is not ParticleTeleportInBlock`.
@@ -2137,7 +2141,7 @@ The implementation preserves these explicit failures:
 
 Additional behavior is observable:
 
-- `compileNodeParticleGraph` reports malformed reachable proxy routes and invalid LocalVariable domains before a builder runs. Inline and fetched snippet paths invoke the same compiler.
+- Builder compilation reports malformed reachable proxy routes and invalid LocalVariable domains before instantiation. Inline and fetched snippet paths invoke the same compiler.
 - Live-input discovery is compile-time metadata work and has no new failure mode. Duplicate names deterministically use the later serialized eligible block; invalid writes outside the public value shape are unsupported caller behavior.
 - A dangling target block id is marked built and skipped. It fails only if a consumer requests its absent getter; a flow-only edge can remain silent.
 - Detached unsupported blocks are ignored because they are unreachable.
@@ -2214,7 +2218,7 @@ The current unit categories are:
 - Feature isolation: runtime chunk manifests and, when bundle-info exists, fetched module contents.
 - Baseline Sprite2D bridge: texture and mapping validation, exact XY/+Y conversion, blend mapping including the additive fallback for modes 3, 4, and unknown values, sprite-sheet mapping and its out-of-range cell error, Handle-API ownership rejection, full-range packed synchronization, stale saved-size clearing, single dirty updates, transactional multi-system registration, auto-start control, idempotent disposal, and renderer-disposal cleanup.
 - Exact Sprite2D blend bridge: descriptors for modes 0 through 4 and default, mode-3 custom shader structure and opacity formula, mode-4 `[Multiply, Add]` layers and stable order, one animation per system/update, byte-equivalent pass synchronization under mutable mapping/presentation, all-pass Handle ownership rejection, transactional creation/attachment rollback, manual and renderer disposal, and baseline isolation.
-- Public declarations: `parseNodeParticleSource`, `compileNodeParticleGraph`, `ParsedNodeParticleGraph`, `NodeParticleProgram`, `ParticleInputHandle`, and `NodeParticleSet.inputs` are present; builders accept only programs; input/operation plans, compiler passes, feature bits, temporary maps, live cells, Loop epochs, and binding setup state are trimmed; the removed post-build provider API is absent; both build-time provider helpers are present; the generic options intersection preserves extended builder options; and `_setupEmitter` plus provider internals are trimmed from the emitted package declaration.
+- Public declarations: `parseNodeParticleSource`, the deprecated `normalizeNodeParticleGraph`, `ParticleInputHandle`, `disposeParticleSystem`, and `NodeParticleSet.inputs` are present; builders accept parsed graphs; `compileNodeParticleGraph`, `NodeParticleProgram`, and `instantiateNodeParticleProgram` are absent; input/operation plans, compiler passes, feature bits, temporary maps, live cells, Loop epochs, and binding setup state are trimmed; the removed post-build provider API is absent; both build-time provider helpers are present; the generic options intersection preserves extended builder options; and `_setupEmitter` plus provider internals are trimmed from the emitted package declaration.
 - Path ownership: the `particle/soa` source directory and `particle-soa*.test.ts` unit-test names must not exist. TypeScript compilation validates all source and test imports.
 
 Loop oracle separation is intentional: deterministic Lite tests own manual started-call semantics. No Babylon fixture is claimed to prove that boundary.
@@ -2305,7 +2309,7 @@ When `lab/public/bundle/bundle-info/sceneN.json` exists, the same test also insp
 
 Topology bundle guards filter generated bundle-info through each scene's `runtimeChunks`, because Vite may build a lazy chunk without fetching it. Canonical scenes without topology candidates and Scene 302 reject `npe-graph-plumbing-runtime.ts` and `particle-local-variable-block.ts`; Scene 305 requires both while rejecting `arc-rotate-controls`, the provider, specialized texture-update, exact-blend, and Sprite2D modules. A source guard also rejects any Scene 305 `attachControl` import or call. Inline and fetched snippet unit coverage exercises their parse-compile-build boundary. No bundle may contain a Teleport, Elbow, or Debug evaluator module because those files do not exist.
 
-The parser, builders, flow-map runtime, and texture-update runtime contain no topology implementation. `npe-compiler.ts` is the sole owner of the conditional import. Scene 305 fetches the topology runtime, optional value route, and LocalVariable evaluator while fetching no camera controls. Scene 264 and Scene 276 do not fetch `npe-registry-extra-remaining`; Scene 277 fetches it only for UpdateAttractor.
+The parser, builders, flow-map runtime, and texture-update runtime contain no topology implementation. `npe-build.ts` is the sole owner of the conditional import. Scene 305 fetches the topology runtime, optional value route, and LocalVariable evaluator while fetching no camera controls. Scene 264 and Scene 276 do not fetch `npe-registry-extra-remaining`; Scene 277 fetches it only for UpdateAttractor.
 
 The provider implementation is synchronous because its public options helper must install the callback before a builder starts. Tree shaking removes the entire module, including its matrix validation and inverse-refresh dependencies, from non-provider scenes.
 
@@ -2368,12 +2372,12 @@ packages/babylon-lite/src/particle/sprite-columns.ts
 packages/babylon-lite/src/particle/node/node-particle.ts
 packages/babylon-lite/src/particle/node/npe-blend-modes.ts
 packages/babylon-lite/src/particle/node/npe-build.ts
-packages/babylon-lite/src/particle/node/npe-compiler.ts
 packages/babylon-lite/src/particle/node/npe-emitter-provider.ts
 packages/babylon-lite/src/particle/node/npe-feature-compilation.ts
 packages/babylon-lite/src/particle/node/npe-flow-map-frame-binding.ts
 packages/babylon-lite/src/particle/node/npe-flow-map.ts
 packages/babylon-lite/src/particle/node/npe-general-feature-compilation.ts
+packages/babylon-lite/src/particle/node/npe-graph-plumbing.ts
 packages/babylon-lite/src/particle/node/npe-graph-plumbing-runtime.ts
 packages/babylon-lite/src/particle/node/npe-input.ts
 packages/babylon-lite/src/particle/node/npe-noise.ts

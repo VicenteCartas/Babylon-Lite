@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { EngineContext } from "../../../packages/babylon-lite/src/engine/engine";
 import type { Color4, Vec2, Vec3 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet, type NodeParticleSet, type NpeBuildContext } from "../../../packages/babylon-lite/src/particle/node/npe-build";
-import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { buildNodeParticleSetWithFlowMaps } from "../../../packages/babylon-lite/src/particle/node/npe-flow-map";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
 import { loadValueBlockEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-registry-extra-values";
 import { loadNodeParticleValueMathEvaluator } from "../../../packages/babylon-lite/src/particle/node/npe-registry-value-math";
 import { buildNodeParticleSetWithTextureUpdates } from "../../../packages/babylon-lite/src/particle/node/npe-texture-updates";
-import type { NodeParticleProgram, ParsedParticleBlock, ParsedParticleInput } from "../../../packages/babylon-lite/src/particle/node/npe-types";
+import type { ParsedNodeParticleGraph, ParsedParticleBlock, ParsedParticleInput } from "../../../packages/babylon-lite/src/particle/node/npe-types";
+import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import type { NpeGetter, NpeValue } from "../../../packages/babylon-lite/src/particle/node/npe-value";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
 
@@ -64,12 +64,12 @@ function scalarGraph(className: string, blockFields: Record<string, unknown>, in
 }
 
 async function evaluateCompiledGraph(source: object): Promise<number> {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+    const program = parseNodeParticleSource(source);
     const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program);
     return set.systems[0]!._emitRateGetter!();
 }
 
-type ParticleBuilder = (engine: EngineContext, scene: SceneContext, program: NodeParticleProgram) => Promise<NodeParticleSet>;
+type ParticleBuilder = (engine: EngineContext, scene: SceneContext, graph: ParsedNodeParticleGraph) => Promise<NodeParticleSet>;
 
 const particleBuilders = [
     ["default", buildNodeParticleSet],
@@ -78,14 +78,15 @@ const particleBuilders = [
 ] as const satisfies ReadonlyArray<readonly [string, ParticleBuilder]>;
 
 async function evaluateCompiledGraphWith(source: object, builder: ParticleBuilder): Promise<number> {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
+    const program = parseNodeParticleSource(source);
     const set = await builder({} as EngineContext, {} as SceneContext, program);
     return set.systems[0]!._emitRateGetter!();
 }
 
 async function evaluateCompiledGraphContract(source: object, builder: ParticleBuilder): Promise<{ value: number; valueType: string | undefined }> {
-    const program = await compileNodeParticleGraph(parseNodeParticleSource(source));
-    const system = program._systems[0]![program._systems[0]!.length - 2] as ParsedParticleBlock;
+    const program = parseNodeParticleSource(source);
+    const compiled = await compileNodeParticleGraph(program);
+    const system = compiled._systems[0]![compiled._systems[0]!.length - 2] as ParsedParticleBlock;
     const valueType = system.inputs.find((input) => input.name === "emitRate")?.valueType;
     const set = await builder({} as EngineContext, {} as SceneContext, program);
     return { value: set.systems[0]!._emitRateGetter!(), valueType };

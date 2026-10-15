@@ -155,7 +155,7 @@ describe("Particle bundle feature isolation", () => {
     });
 
     it("keeps optional storage owned by selected evaluators", () => {
-        const compiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-compiler.ts"), "utf8");
+        const compiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
         const localVariable = readFileSync(resolve(NPE_SOURCE_DIR, "blocks/particle-local-variable-block.ts"), "utf8");
         const spriteSheet = readFileSync(resolve(NPE_SOURCE_DIR, "blocks/setup-sprite-sheet-block.ts"), "utf8");
 
@@ -173,7 +173,7 @@ describe("Particle bundle feature isolation", () => {
     });
 
     it("routes core updates through one optional pack without changing the compiler", () => {
-        const compiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-compiler.ts"), "utf8");
+        const compiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
         const basicRegistry = readFileSync(resolve(NPE_SOURCE_DIR, "npe-registry-extra-basic.ts"), "utf8");
         const corePack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-core-updates.ts"), "utf8");
 

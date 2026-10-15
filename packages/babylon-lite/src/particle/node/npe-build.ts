@@ -198,7 +198,7 @@ function collectInputPlans(blocks: Iterable<CompiledParticleBlock>, systems: rea
     return [...named.values()];
 }
 
-/** Compile immutable parsed NPE data into a reusable executable program. */
+/** @internal Compile immutable parsed NPE data into a reusable executable program. */
 export async function compileNodeParticleGraph(parsed: ParsedNodeParticleGraph): Promise<NodeParticleProgram> {
     const blocks = new Map<number, CompiledParticleBlock>();
     const systemBlockIds: number[] = [];
@@ -361,9 +361,25 @@ function instantiateNodeParticlePlan(
 }
 
 /**
- * Instantiate data-oriented particle systems from a compiled node-particle program.
+ * Build the data-oriented particle systems of a parsed node-particle graph.
+ *
+ * @param engine - The engine (used for texture loads and position precision).
+ * @param scene - The hosting scene (carried in the per-particle evaluation context).
+ * @param graph - A graph returned by parseNodeParticleSource.
+ * @param options - Emitter placement and texture base URL.
+ * @returns The built {@link NodeParticleSet}.
  */
 export async function buildNodeParticleSet(
+    engine: EngineContext,
+    scene: SceneContext,
+    graph: ParsedNodeParticleGraph,
+    options: BuildNodeParticleOptions = {}
+): Promise<NodeParticleSet> {
+    return instantiateNodeParticleProgram(engine, scene, await compileNodeParticleGraph(graph), options);
+}
+
+/** @internal Instantiate one set from a compiled program; sub-emitters reuse its system plans. */
+export async function instantiateNodeParticleProgram(
     engine: EngineContext,
     scene: SceneContext,
     program: NodeParticleProgram,
@@ -398,5 +414,5 @@ export async function instantiateNodeParticleSystem(
     const program: NodeParticleProgram = usesSubEmitters
         ? { _systems: [plan], _inputs: collectInputPlans(blocks, [plan]), _subEmitters: true }
         : { _systems: [plan], _inputs: collectInputPlans(blocks, [plan]) };
-    return (await buildNodeParticleSet(engine, scene, program, options)).systems[0]!;
+    return (await instantiateNodeParticleProgram(engine, scene, program, options)).systems[0]!;
 }
