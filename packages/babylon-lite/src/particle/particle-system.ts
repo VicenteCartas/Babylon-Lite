@@ -37,7 +37,7 @@ export interface ParticleSpriteHandle {
 /** @internal Extended lifecycle behavior installed only by systems that use it. */
 export interface ParticleLifecycle {
     /** @internal Return true to defer or reject this start. */
-    _beforeStart?: (delay: number) => boolean;
+    _beforeStart?: (delay?: number) => boolean;
     /** @internal Run after the system enters its started state. */
     _started?: () => void;
     /** @internal Return a one-shot emission count, or undefined for rate-based emission. */
@@ -59,18 +59,23 @@ export interface ParticleSystem {
     updateSpeed: number;
     /** When non-zero, the system stops once `_actualFrame` reaches this value. */
     targetStopDuration: number;
+    /*
+     * SystemBlock lifecycle properties. NPE assigns them, and start/animate honor them, only when the serialized
+     * SystemBlock enables a non-default lifecycle; otherwise they stay undefined and the system uses rate-based,
+     * immediate-start behavior.
+     */
     /** One-shot emission count; `-1` uses rate-based emission. */
-    manualEmitCount: number;
+    manualEmitCount?: number;
     /** Number of synchronous simulation steps performed when the system starts. */
-    preWarmCycles: number;
+    preWarmCycles?: number;
     /** Step ratio used by pre-warm simulation calls. */
-    preWarmStepOffset: number;
+    preWarmStepOffset?: number;
     /** Start delay in milliseconds. */
-    startDelay: number;
+    startDelay?: number;
     /** Dispose the system after stopped particles have drained. */
-    disposeOnStop: boolean;
+    disposeOnStop?: boolean;
     /** Prevent start calls until cleared. */
-    doNoStart: boolean;
+    doNoStart?: boolean;
     /** Rendering blend mode (Babylon.js BaseParticleSystem blend constants). */
     blendMode: number;
     /** Particle texture, bound after the build's async loads settle (null until then / for headless builds). */
@@ -132,12 +137,6 @@ export function createParticleSystem(capacity: number, buffer: ParticleBuffer = 
         emitRate: 10,
         updateSpeed: 0.0167,
         targetStopDuration: 0,
-        manualEmitCount: -1,
-        preWarmCycles: 0,
-        preWarmStepOffset: 1,
-        startDelay: 0,
-        disposeOnStop: false,
-        doNoStart: false,
         blendMode: 2,
         texture: null,
         createLifeTime: null,
@@ -160,8 +159,11 @@ export function createParticleSystem(capacity: number, buffer: ParticleBuffer = 
     };
 }
 
-/** Start emission after the configured delay, then synchronously pre-warm. */
-export function startParticleSystem(system: ParticleSystem, delay = system.startDelay): void {
+/**
+ * Start emission. With an installed SystemBlock lifecycle, start honors `doNoStart`, waits `delay`
+ * (default `startDelay`) milliseconds, then synchronously pre-warms.
+ */
+export function startParticleSystem(system: ParticleSystem, delay?: number): void {
     if (system._disposed || system._lifecycle?._beforeStart?.(delay)) {
         return;
     }

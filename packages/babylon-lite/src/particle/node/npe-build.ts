@@ -146,14 +146,8 @@ async function resolveEvaluator(
     if (className !== "SystemBlock") {
         return evaluator;
     }
-    if (
-        (typeof block.manualEmitCount === "number" && block.manualEmitCount !== -1) ||
-        (typeof block.preWarmCycles === "number" && block.preWarmCycles !== 0) ||
-        block.preWarmStepOffset !== 1 ||
-        (typeof block.startDelay === "number" && block.startDelay !== 0) ||
-        block.disposeOnStop === true ||
-        !!block.doNoStart
-    ) {
+    // preWarmStepOffset only matters with preWarmCycles, so it does not select the lifecycle on its own.
+    if ((block.manualEmitCount ?? -1) !== -1 || !!block.preWarmCycles || !!block.startDelay || block.disposeOnStop === true || !!block.doNoStart) {
         evaluator = (await import("./npe-system-lifecycle.js")).withSystemLifecycle(evaluator);
     }
     return block._systemPlans && (block._systemPlans.onStart || block._systemPlans.onEnd)

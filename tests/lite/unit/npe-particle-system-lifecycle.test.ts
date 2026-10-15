@@ -190,15 +190,17 @@ describe("NPE SystemBlock lifecycle properties", () => {
         expect(system._disposed).toBe(false);
     });
 
-    it("uses SystemBlock lifecycle defaults", async () => {
-        const system = await buildSystem();
+    it("skips the lifecycle for default SystemBlock values and applies fallbacks when installed", async () => {
+        const plain = await buildSystem({ preWarmStepOffset: 2 });
+        expect(plain._lifecycle).toBeUndefined();
+        expect(createParticleSystem(1).manualEmitCount).toBeUndefined();
 
-        expect(createParticleSystem(1).preWarmStepOffset).toBe(1);
+        const system = await buildSystem({ doNoStart: true });
         expect(system.manualEmitCount).toBe(-1);
         expect(system.preWarmCycles).toBe(0);
         expect(system.preWarmStepOffset).toBe(0);
         expect(system.startDelay).toBe(0);
         expect(system.disposeOnStop).toBe(false);
-        expect(system.doNoStart).toBe(false);
+        expect(system.doNoStart).toBe(true);
     });
 });

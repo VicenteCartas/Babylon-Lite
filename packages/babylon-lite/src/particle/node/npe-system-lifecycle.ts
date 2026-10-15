@@ -3,7 +3,7 @@ import type { NpeBlockEvaluator } from "./npe-build.js";
 
 function installLifecycle(system: ParticleSystem): void {
     const lifecycle = (system._lifecycle ??= {});
-    lifecycle._beforeStart = (delay) => {
+    lifecycle._beforeStart = (delay = system.startDelay) => {
         if (system.doNoStart) {
             return true;
         }
@@ -15,15 +15,15 @@ function installLifecycle(system: ParticleSystem): void {
         return false;
     };
     lifecycle._started = () => {
-        for (let index = 0; index < system.preWarmCycles; index++) {
-            animateParticleSystem(system, system.preWarmStepOffset);
+        for (let index = 0; index < (system.preWarmCycles ?? 0); index++) {
+            animateParticleSystem(system, system.preWarmStepOffset ?? 0);
         }
     };
     lifecycle._emit = () => {
-        if (system.manualEmitCount < 0) {
+        const count = system.manualEmitCount ?? -1;
+        if (count < 0) {
             return undefined;
         }
-        const count = system.manualEmitCount;
         system._newPartsExcess = 0;
         system.manualEmitCount = 0;
         return count;

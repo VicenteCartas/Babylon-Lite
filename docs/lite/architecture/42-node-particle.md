@@ -448,12 +448,12 @@ interface ParticleSystem {
     emitRate: number;
     updateSpeed: number;
     targetStopDuration: number;
-    manualEmitCount: number;
-    preWarmCycles: number;
-    preWarmStepOffset: number;
-    startDelay: number;
-    disposeOnStop: boolean;
-    doNoStart: boolean;
+    manualEmitCount?: number;
+    preWarmCycles?: number;
+    preWarmStepOffset?: number;
+    startDelay?: number;
+    disposeOnStop?: boolean;
+    doNoStart?: boolean;
     blendMode: number;
     texture: Texture2D | null;
 
@@ -493,12 +493,6 @@ interface ParticleSystem {
 | `emitRate`                | `10`             |
 | `updateSpeed`             | `0.0167`         |
 | `targetStopDuration`      | `0`              |
-| `manualEmitCount`         | `-1`             |
-| `preWarmCycles`           | `0`              |
-| `preWarmStepOffset`       | `1`              |
-| `startDelay`              | `0`              |
-| `disposeOnStop`           | `false`          |
-| `doNoStart`               | `false`          |
 | `blendMode`               | `2`              |
 | `texture`                 | `null`           |
 | all eight `create*` slots | `null`           |
@@ -511,11 +505,11 @@ interface ParticleSystem {
 | `_disposed`               | `false`          |
 | `_actualFrame`            | `0`              |
 
-Optional internal fields are absent until a feature installs them.
+Optional internal fields are absent until a feature installs them. The six SystemBlock lifecycle properties (`manualEmitCount`, `preWarmCycles`, `preWarmStepOffset`, `startDelay`, `disposeOnStop`, `doNoStart`) are also absent: NPE assigns them only when it installs the lifecycle (section 9.1), and only that lifecycle reads them.
 
 ### 5.2 Start and stop
 
-`startParticleSystem(system, delay = system.startDelay)` first returns without scheduling work when `doNoStart` or `_disposed` is true. A user may clear `doNoStart` and call start again; a disposed system cannot restart.
+`startParticleSystem(system, delay?)` returns without work when `_disposed` is true. Without an installed lifecycle it then starts immediately. With the lifecycle, `delay` defaults to `startDelay`, and start first returns without scheduling work when `doNoStart` is true. A user may clear `doNoStart` and call start again; a disposed system cannot restart.
 
 When `delay` is truthy, start assigns it to `startDelay`, schedules `startParticleSystem(system, 0)` through `setTimeout` in milliseconds, and returns before changing simulation state. The delayed call rechecks `doNoStart` and `_disposed`. Multiple delayed starts are not deduplicated or cancelled.
 
@@ -962,8 +956,8 @@ The builder has created the system before this evaluator runs. The evaluator:
 
 - Assigns `serialized.updateSpeed` only when it is a number.
 - Assigns `serialized.blendMode` only when it is a number.
-- Assigns numeric `manualEmitCount`, `preWarmCycles`, `preWarmStepOffset`, and `startDelay` with `-1`, `0`, `0`, and `0` fallbacks respectively. The `SystemBlock` fallback for `preWarmStepOffset` is `0`, while a directly-created non-NPE `ParticleSystem` defaults to `1`, matching the corresponding Babylon.js defaults.
-- Assigns `disposeOnStop = serialized.disposeOnStop === true` and `doNoStart = !!serialized.doNoStart`.
+- Installs the lifecycle only when a serialized value is non-default: `manualEmitCount` other than `-1`, truthy `preWarmCycles` or `startDelay`, `disposeOnStop === true`, or truthy `doNoStart`. `preWarmStepOffset` alone does not install it because it only scales prewarm cycles. Default systems carry no lifecycle state or hooks.
+- When installed, assigns numeric `manualEmitCount`, `preWarmCycles`, `preWarmStepOffset`, and `startDelay` with `-1`, `0`, `0`, and `0` fallbacks respectively (the Babylon.js `SystemBlock` deserialization fallbacks), plus `disposeOnStop = serialized.disposeOnStop === true` and `doNoStart = !!serialized.doNoStart`.
 - For an unconnected `emitRate`, evaluates the input once at build with fallback `10` and assigns a numeric result.
 - For a connected `emitRate`, the dynamic evaluator installs `_emitRateGetter`. Each call evaluates the graph at particle index `0` and returns its number result, or the system's constant `emitRate` when the result is not numeric. It is not evaluated during build.
 - Evaluates `targetStopDuration` once at build with fallback `0` and assigns a numeric result.
