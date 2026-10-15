@@ -120,7 +120,7 @@ export interface ParticleSystem {
     /** @internal Local-position source hook installed only for emitter-local graphs that read source 0x18. */
     _seedLocalPosition?: ParticleStep;
     /** @internal Optional scene registrar installed for particle blend modes requiring specialized rendering. */
-    _registerBillboard?: (scene: SceneContext, billboard: FacingBillboardSpriteSystem) => void | (() => void);
+    _registerBillboard?: (scene: SceneContext, billboard: FacingBillboardSpriteSystem) => () => void;
     /** @internal Optional billboard synchronization installed by specialized particle geometry. */
     _syncBillboard?: (system: ParticleSystem, billboard: FacingBillboardSpriteSystem) => void;
 }

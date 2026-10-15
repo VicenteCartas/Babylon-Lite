@@ -5,7 +5,6 @@ import type { Mat4 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { compileNodeParticleGraph } from "../../../packages/babylon-lite/src/particle/node/npe-compiler";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
-import { createF64ParticleBuffer } from "../../../packages/babylon-lite/src/particle/particle-buffer-f64";
 import { animateParticleSystem, startParticleSystem, type ParticleSystem } from "../../../packages/babylon-lite/src/particle/particle-system";
 import type { SceneContext } from "../../../packages/babylon-lite/src/scene/scene";
 
@@ -98,7 +97,6 @@ describe("NPE floating-origin positions", () => {
         const lwr = await buildSystem(source, {
             useHighPrecisionMatrix: true,
             useFloatingOrigin: true,
-            _createParticleBuffer: createF64ParticleBuffer,
         } as EngineContext);
 
         advanceIntegratedParticle(ordinary);
@@ -119,7 +117,6 @@ describe("NPE floating-origin positions", () => {
             {
                 useHighPrecisionMatrix: true,
                 useFloatingOrigin: true,
-                _createParticleBuffer: createF64ParticleBuffer,
             } as EngineContext,
             FAR_POSITION + SUB_ULP_STEP
         );

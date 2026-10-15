@@ -164,14 +164,12 @@ describe("Particle bundle feature isolation", () => {
         expect(spriteSheet).toContain("useSpriteSheet(buffer");
     });
 
-    it("keeps F64 particle storage behind the floating-origin engine gate", () => {
+    it("keeps F64 particle storage out of the shared engine", () => {
         const engine = readFileSync(ENGINE_SOURCE, "utf8");
         const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
 
-        expect(engine).toContain('import("../particle/particle-buffer-f64.js")');
-        expect(engine).not.toMatch(/from ["']\.\.\/particle\/particle-buffer-f64\.js["']/);
-        expect(build).toContain("engine._createParticleBuffer?.(capacity)");
-        expect(build).not.toContain("particle-buffer-f64");
+        expect(engine).not.toContain("particle");
+        expect(build).toContain("engine.useFloatingOrigin ? Float64Array : Float32Array");
     });
 
     it("routes core updates through one optional pack without changing the compiler", () => {
@@ -197,8 +195,7 @@ describe("Particle bundle feature isolation", () => {
         expect(variantsRuntime.match(/import\("\.\/npe-pack-render-properties\.js"\)/g)).toHaveLength(1);
         expect(pack).toContain('from "../particle-billboard-render-properties.js"');
         expect(build).not.toContain("particle-billboard-render-properties");
-        expect(renderTask).not.toContain("_renderingGroupId");
-        expect(renderTask).toContain("_getTransparentSortCompare");
+        expect(renderTask).not.toMatch(/renderingGroup|TransparentSort/);
     });
 
     it("keeps non-ALL particle geometry in one optional evaluator, renderer, and lazy picker", () => {

@@ -104,7 +104,7 @@ describe("NPE particle blend modes", () => {
 
     it("preserves a richer registrar already installed by an optional SystemBlock pack", () => {
         const set = { systems: [createParticleSystem(1)] } as NodeParticleSet;
-        const registrar = () => undefined;
+        const registrar = () => () => undefined;
         set.systems[0]!._registerBillboard = registrar;
 
         enableNodeParticleBlendModes(set);

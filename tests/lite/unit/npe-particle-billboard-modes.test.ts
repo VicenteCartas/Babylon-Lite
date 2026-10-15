@@ -306,7 +306,6 @@ describe("particle billboard mode GPU contracts", () => {
             queue: { writeBuffer: ReturnType<typeof vi.fn> };
         };
 
-        expect(built.renderable._renderingGroupId).toBe(2);
         expect(device.createRenderPipeline).toHaveBeenCalledTimes(2);
         const shader = (device.createShaderModule.mock.calls[0]![0] as GPUShaderModuleDescriptor).code;
         expect(shader).toContain("(sampled * properties.textureMask + (vec4f(1.0) - properties.textureMask))");

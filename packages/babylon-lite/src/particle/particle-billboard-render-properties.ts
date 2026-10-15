@@ -4,10 +4,8 @@ import type { EngineContext } from "../engine/engine.js";
 import type { Color4, Vec2 } from "../math/types.js";
 import type { Renderable } from "../render/renderable.js";
 import { getSceneBindGroupLayout } from "../render/scene-helpers.js";
-import { _registerTransparentSortCompare } from "../render/transparent-sort-hook.js";
 import { createEmptyUniformBuffer } from "../resource/gpu-buffers.js";
 import type { SceneContext } from "../scene/scene-core.js";
-import { addDeferredSceneRenderables } from "../scene/scene-core.js";
 import { SCENE_UBO_WGSL } from "../shader/scene-uniforms.js";
 import type { BillboardCustomShader } from "../sprite/billboard-custom-shader.js";
 import type { buildBillboardRenderable } from "../sprite/billboard-renderable.js";
@@ -25,7 +23,8 @@ import type { BillboardOrientation, BillboardSpriteSystem, BillboardSpriteSystem
 import type { SpriteLayerFx } from "../sprite/custom-shader-core.js";
 import type { BillboardFxHook } from "../sprite/sprite-fx-hook.js";
 import { _registerBillboardFxHook } from "../sprite/sprite-fx-hook.js";
-import { registerPickSource } from "../picking/pick-contributor.js";
+import { applyParticleRenderingGroup } from "./particle-rendering-group.js";
+import { addParticleSceneRenderable } from "./particle-scene-renderable.js";
 import { createParticleBlend } from "./particle-blend.js";
 import type { ParticleRenderPropertiesPickSource } from "./particle-billboard-render-properties-pick.js";
 
@@ -185,10 +184,6 @@ function attachRenderPropertiesShader(system: BillboardSpriteSystem, properties:
     system.shaderParams = undefined;
 }
 
-function compareRenderingGroups(left: { renderable: Renderable }, right: { renderable: Renderable }): number {
-    return (left.renderable._renderingGroupId ?? 0) - (right.renderable._renderingGroupId ?? 0);
-}
-
 /** Add a facing billboard with exact SystemBlock render properties and particle blend state. */
 export function addFacingBillboardSystemWithParticleRenderProperties(
     scene: SceneContext,
@@ -199,36 +194,13 @@ export function addFacingBillboardSystemWithParticleRenderProperties(
     const blend = createParticleBlend(blendMode);
     (billboard as { blendMode: FacingBillboardSpriteSystem["blendMode"] }).blendMode = blend;
     attachRenderPropertiesShader(billboard, properties, blendMode === 3 || blendMode === 4);
-    _registerTransparentSortCompare(compareRenderingGroups);
-    let unregisterPick: () => void;
+    const build = async (engine: EngineContext) =>
+        buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, (await import("../sprite/billboard-renderable.js")).buildBillboardRenderable);
     if (properties.translationPivot.x || properties.translationPivot.y) {
         const pickSource: ParticleRenderPropertiesPickSource = { system: billboard, translationPivot: properties.translationPivot };
-        unregisterPick = registerPickSource(scene, pickSource, () => import("./particle-billboard-render-properties-pick.js"));
-    } else {
-        unregisterPick = registerPickSource(scene, billboard, () => import("../picking/billboard-pick-pipeline.js"));
+        return addParticleSceneRenderable(scene, pickSource, () => import("./particle-billboard-render-properties-pick.js"), build);
     }
-    const unregisterRender = addDeferredSceneRenderables(scene, async (engine) => {
-        const { buildBillboardRenderable } = await import("../sprite/billboard-renderable.js");
-        const built = buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, buildBillboardRenderable);
-        return { renderables: [built.renderable], dispose: built.dispose };
-    });
-    let disposed = false;
-    const unregister = () => {
-        if (disposed) {
-            return;
-        }
-        disposed = true;
-        unregisterPick();
-        unregisterRender();
-        if (!scene._z) {
-            const index = scene._disposables.indexOf(unregister);
-            if (index !== -1) {
-                scene._disposables.splice(index, 1);
-            }
-        }
-    };
-    scene._disposables.splice(scene._disposables.indexOf(unregisterRender), 0, unregister);
-    return unregister;
+    return addParticleSceneRenderable(scene, billboard, () => import("../picking/billboard-pick-pipeline.js"), build);
 }
 
 /** @internal Build the property shader and optional Add pass over one billboard renderable. */
@@ -240,7 +212,7 @@ export function buildParticleRenderPropertiesBillboardRenderable(
 ): { renderable: Renderable; dispose: () => void } {
     const system = billboard as FacingBillboardSpriteSystem;
     const built = buildBase(engine, system);
-    built.renderable._renderingGroupId = properties.renderingGroupId;
+    applyParticleRenderingGroup(built.renderable, properties.renderingGroupId);
     if (system.blendMode._particlePasses !== 2) {
         return built;
     }

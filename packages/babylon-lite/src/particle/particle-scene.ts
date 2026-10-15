@@ -1,7 +1,8 @@
 import { animateParticleSystem, disposeParticleSystem, startParticleSystem, type ParticleSystem } from "./particle-system.js";
 import { createParticleBillboard, syncParticleBillboard } from "./particle-billboard.js";
-import { addFacingBillboardSystem } from "../sprite/billboard-scene.js";
+import { addParticleSceneRenderable } from "./particle-scene-renderable.js";
 import type { SceneContext } from "../scene/scene.js";
+import type { FacingBillboardSpriteSystem } from "../sprite/billboard-sprite.js";
 import type { NodeParticleSet } from "./node/node-particle.js";
 
 /** One simulated frame at 60 fps, used to convert frame delta time to an update-speed ratio. */
@@ -13,12 +14,21 @@ export interface RegisterNodeParticleOptions {
     autoStart?: boolean;
 }
 
+function addParticleBillboard(scene: SceneContext, billboard: FacingBillboardSpriteSystem): () => void {
+    return addParticleSceneRenderable(
+        scene,
+        billboard,
+        () => import("../picking/billboard-pick-pipeline.js"),
+        async (engine) => (await import("../sprite/billboard-renderable.js")).buildBillboardRenderable(engine, billboard)
+    );
+}
+
 function registerSystem(scene: SceneContext, system: ParticleSystem): void {
     if (system._disposed || system._unregister) {
         return;
     }
     const billboard = createParticleBillboard(system);
-    const unregisterBillboard = (system._registerBillboard ?? addFacingBillboardSystem)(scene, billboard);
+    const unregisterBillboard = (system._registerBillboard ?? addParticleBillboard)(scene, billboard);
     const tick = (deltaMs: number) => {
         const ratio = deltaMs > 0 ? deltaMs / FRAME_MS : 1;
         animateParticleSystem(system, ratio);
@@ -30,7 +40,7 @@ function registerSystem(scene: SceneContext, system: ParticleSystem): void {
         if (index !== -1) {
             scene._beforeRender.splice(index, 1);
         }
-        unregisterBillboard?.();
+        unregisterBillboard();
     };
 }
 

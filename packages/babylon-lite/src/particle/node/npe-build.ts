@@ -20,7 +20,7 @@ import type {
     ParsedParticleBlock,
     ParsedParticleInput,
 } from "./npe-types.js";
-import type { ParticleBuffer } from "../particle-buffer.js";
+import { createParticleBuffer, type ParticleBuffer } from "../particle-buffer.js";
 import { createParticleSystem, type ParticleEmitterInverse, type ParticleSystem } from "../particle-system.js";
 import type { NpeGetter, NpeValue } from "./npe-value.js";
 import { loadNpeBlockEvaluator } from "./npe-registry.js";
@@ -288,7 +288,8 @@ function instantiateNodeParticlePlan(
     const systemBlock = operations[operations.length - 2] as ParsedParticleBlock;
 
     const capacity = typeof systemBlock.capacity === "number" ? systemBlock.capacity : 1000;
-    const system = createParticleSystem(capacity, engine._createParticleBuffer?.(capacity));
+    // Floating-origin engines keep world positions in F64 so large-world particles do not lose precision.
+    const system = createParticleSystem(capacity, createParticleBuffer(capacity, engine.useFloatingOrigin ? Float64Array : Float32Array));
 
     let emitterWorldMatrix: Mat4;
     const emitter: Vec3 = { x: 0, y: 0, z: 0 };

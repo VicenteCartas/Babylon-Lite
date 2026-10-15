@@ -5,13 +5,12 @@ import type { EngineContext } from "../engine/engine.js";
 import type { RenderTargetSignature } from "../engine/render-target.js";
 import { F32, U32 } from "../engine/typed-arrays.js";
 import type { Mat4 } from "../math/types.js";
-import { registerPickSource } from "../picking/pick-contributor.js";
+import { applyParticleRenderingGroup } from "./particle-rendering-group.js";
+import { addParticleSceneRenderable } from "./particle-scene-renderable.js";
 import type { DrawBinding, DrawUpdateContext, Renderable } from "../render/renderable.js";
 import { getSceneBindGroupLayout } from "../render/scene-helpers.js";
-import { _registerTransparentSortCompare } from "../render/transparent-sort-hook.js";
 import { createEmptyUniformBuffer, createMappedBuffer } from "../resource/gpu-buffers.js";
 import type { SceneContext } from "../scene/scene-core.js";
-import { addDeferredSceneRenderables } from "../scene/scene-core.js";
 import { SCENE_UBO_WGSL } from "../shader/scene-uniforms.js";
 import { BILLBOARD_INDEX_DATA, BILLBOARD_SYSTEM_UBO_BYTES, buildBillboardSystemUbo, writeBillboardSystemUboIfDirty } from "../sprite/billboard-pipeline.js";
 import type { FacingBillboardSpriteSystem } from "../sprite/billboard-sprite.js";
@@ -382,10 +381,6 @@ export function packParticleBillboardModeInstances(system: ParticleBillboardMode
     }
 }
 
-function compareRenderingGroups(left: { renderable: Renderable }, right: { renderable: Renderable }): number {
-    return (left.renderable._renderingGroupId ?? 0) - (right.renderable._renderingGroupId ?? 0);
-}
-
 /** @internal Build one specialized mode renderable for focused rendering tests and deferred scene registration. */
 export function buildParticleBillboardModeRenderable(
     engine: EngineContext,
@@ -425,7 +420,6 @@ export function buildParticleBillboardModeRenderable(
         order: system.order,
         isTransparent: true,
         _direct: true,
-        _renderingGroupId: properties.renderingGroupId,
         _worldCenter: [0, 0, 0],
         bind(bindEngine, target): DrawBinding {
             const primaryPipeline = getPipeline(bindEngine, target, system, system.blendMode);
@@ -569,6 +563,7 @@ export function buildParticleBillboardModeRenderable(
         }
     }
 
+    applyParticleRenderingGroup(renderable, properties.renderingGroupId);
     return {
         renderable,
         dispose() {
@@ -590,28 +585,11 @@ export function buildParticleBillboardModeRenderable(
 /** Register a serialized particle billboard mode with exact render properties and picking. */
 export function addParticleBillboardModeSystem(scene: SceneContext, system: ParticleBillboardModeSystem, blendMode: number, properties: ParticleRenderProperties): () => void {
     (system as { blendMode: FacingBillboardSpriteSystem["blendMode"] }).blendMode = createParticleBlend(blendMode);
-    _registerTransparentSortCompare(compareRenderingGroups);
     const pickSource: ParticleBillboardModePickSource = { system, properties };
-    const unregisterPick = registerPickSource(scene, pickSource, () => import("./particle-billboard-modes-pick.js"));
-    const unregisterRender = addDeferredSceneRenderables(scene, async (engine) => {
-        const built = buildParticleBillboardModeRenderable(engine, system, properties);
-        return { renderables: [built.renderable], dispose: built.dispose };
-    });
-    let disposed = false;
-    const unregister = () => {
-        if (disposed) {
-            return;
-        }
-        disposed = true;
-        unregisterPick();
-        unregisterRender();
-        if (!scene._z) {
-            const index = scene._disposables.indexOf(unregister);
-            if (index !== -1) {
-                scene._disposables.splice(index, 1);
-            }
-        }
-    };
-    scene._disposables.splice(scene._disposables.indexOf(unregisterRender), 0, unregister);
-    return unregister;
+    return addParticleSceneRenderable(
+        scene,
+        pickSource,
+        () => import("./particle-billboard-modes-pick.js"),
+        (engine) => buildParticleBillboardModeRenderable(engine, system, properties)
+    );
 }

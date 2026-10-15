@@ -676,7 +676,6 @@ describe("addFacingBillboardSystemWithParticleRenderProperties", () => {
 
         expect(system._customShader?._key).toBe("particle-render-properties");
         expect(system.shaderParams).toBeUndefined();
-        expect(scene._renderables[0]!._renderingGroupId).toBe(3);
 
         const device = engine._device as unknown as {
             createRenderPipeline: ReturnType<typeof vi.fn>;

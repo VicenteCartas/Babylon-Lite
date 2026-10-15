@@ -216,7 +216,7 @@ describe("NPE UpdateFlowMapBlock", () => {
 
         const system = createParticleSystem(1);
         system.texture = { width: 1, height: 1 } as Texture2D;
-        system._registerBillboard = () => undefined;
+        system._registerBillboard = () => () => undefined;
         system.emitRate = 0;
         system.buffer.alive = 1;
         system.buffer.lifeTime[0] = 10;
