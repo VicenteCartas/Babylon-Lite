@@ -250,7 +250,7 @@ for (const scene of SCENES) {
                 /\/math\/invert-mat4-to-ref-or-identity\.[jt]s$/,
                 /\/particle\/particle-scene\.[jt]s$/,
                 /\/particle\/particle-billboard\.[jt]s$/,
-                /\/sprite\/billboard-scene\.[jt]s$/,
+                /\/particle\/particle-scene-renderable\.[jt]s$/,
                 /\/sprite\/billboard-renderable\.[jt]s$/,
             ]) {
                 expect(
@@ -259,7 +259,7 @@ for (const scene of SCENES) {
                 ).toBe(true);
             }
             const offenders = runtimeModules.filter((id) =>
-                /\/(math\/invert-mat4|particle\/(particle-(blend|billboard-renderable|billboard-scene|sprite-2d|sprite-2d-blend-modes)|node\/(npe-(blend-modes|flow-map-runtime|graph-plumbing(?:-runtime)?|live-emitter|noise-runtime|texture-update-runtime|texture-content)|blocks\/(cpu-texture-source-block|update-(flow-map|noise)-block)))|sprite\/(sprite-renderer|sprite-custom-shader|sprite-renderable))\.[jt]s$/.test(
+                /\/(math\/invert-mat4|particle\/(particle-(blend|billboard-renderable|billboard-scene|sprite-2d|sprite-2d-blend-modes)|node\/(npe-(blend-modes|flow-map-runtime|graph-plumbing(?:-runtime)?|live-emitter|noise-runtime|texture-update-runtime|texture-content)|blocks\/(cpu-texture-source-block|update-(flow-map|noise)-block)))|sprite\/(billboard-scene|sprite-renderer|sprite-custom-shader|sprite-renderable))\.[jt]s$/.test(
                     id
                 )
             );
