@@ -19,6 +19,7 @@ import {
     updateBillboardSpriteIndex,
 } from "../../../packages/babylon-lite/src/sprite/billboard-sprite";
 import { addFacingBillboardSystem, addAxisLockedBillboardSystem } from "../../../packages/babylon-lite/src/sprite/billboard-scene";
+import { buildBillboardRenderable } from "../../../packages/babylon-lite/src/sprite/billboard-renderable";
 import { billboardBlendAdditive, billboardBlendCutout, billboardBlendPremultiplied } from "../../../packages/babylon-lite/src/sprite/billboard-blend";
 import { BILLBOARD_SYSTEM_UBO_BYTES, createBillboardPipelineCache, getOrCreateBillboardPipeline } from "../../../packages/babylon-lite/src/sprite/billboard-pipeline";
 import { createBillboardCustomShader } from "../../../packages/babylon-lite/src/sprite/billboard-custom-shader";
@@ -522,6 +523,25 @@ describe("addFacingBillboardSystem", () => {
         expect([uploaded[2], uploaded[BILLBOARD_INSTANCE_FLOATS_PER_SPRITE + 2], uploaded[BILLBOARD_INSTANCE_FLOATS_PER_SPRITE * 2 + 2]]).toEqual([1, 2, 3]);
     });
 
+    it("can preserve particle insertion order while retaining transparent draw state and an active camera", () => {
+        const engine = makeMockEngine();
+        const system = createFacingBillboardSystem(makeMockAtlas(), { capacity: 3 });
+        addBillboardSpriteIndex(system, { position: [10, 0, 1], sizeWorld: [1, 1], frame: 0 });
+        addBillboardSpriteIndex(system, { position: [20, 0, 2], sizeWorld: [1, 1], frame: 0 });
+        addBillboardSpriteIndex(system, { position: [30, 0, 3], sizeWorld: [1, 1], frame: 0 });
+        const built = buildBillboardRenderable(engine, system, false);
+        const device = engine._device as unknown as { queue: { writeBuffer: ReturnType<typeof vi.fn> } };
+        const binding = built.renderable.bind(engine, { _colorFormat: "bgra8unorm", _depthStencilFormat: "depth32float", _sampleCount: 1 });
+        device.queue.writeBuffer.mockClear();
+
+        binding.update?.({ targetWidth: 512, targetHeight: 256, _camera: makeIdentityCamera() });
+
+        expect(built.renderable.isTransparent).toBe(true);
+        const uploaded = findInstanceUploadFloats(device.queue.writeBuffer, 3);
+        expect([uploaded[2], uploaded[BILLBOARD_INSTANCE_FLOATS_PER_SPRITE + 2], uploaded[BILLBOARD_INSTANCE_FLOATS_PER_SPRITE * 2 + 2]]).toEqual([1, 2, 3]);
+        built.dispose();
+    });
+
     it("uploads cutout billboards in logical order without transparent sorting", async () => {
         const engine = makeMockEngine();
         const scene = createSceneContext(engine);
@@ -692,8 +712,9 @@ describe("addFacingBillboardSystemWithParticleRenderProperties", () => {
         expect((addDescriptor.fragment!.targets as GPUColorTargetState[])[0]!.blend).toEqual(createParticleBlend(2)._descriptor);
 
         const shaderCode = device.createShaderModule.mock.calls.map((call) => (call[0] as GPUShaderModuleDescriptor).code).join("\n");
-        expect(shaderCode).toContain("let l = (q - in.o - properties.translationPivot) * in.s");
-        expect(shaderCode).toContain("vec2f(l.x * cr - l.y * sr, l.x * sr + l.y * cr) + properties.translationPivot");
+        expect(shaderCode).toContain("let pivot = properties.translationPivot * vec2f(1, -1)");
+        expect(shaderCode).toContain("let l = (q - in.o - pivot) * in.s");
+        expect(shaderCode).toContain("vec2f(l.x * cr - l.y * sr, l.x * sr + l.y * cr) + pivot");
         expect(shaderCode).toContain("(sampled * properties.textureMask + (vec4f(1.0) - properties.textureMask)) * in.tint * billboards.opacityMul");
         expect(shaderCode).toContain("let sourceAlpha = sampled.a * in.tint.a * billboards.opacityMul.a");
         expect(shaderCode).toContain("baseColor.rgb * sourceAlpha + vec3f(1.0) * (1.0 - sourceAlpha)");

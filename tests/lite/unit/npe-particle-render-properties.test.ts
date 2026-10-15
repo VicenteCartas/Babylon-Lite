@@ -73,11 +73,13 @@ describe("NPE SystemBlock render properties", () => {
         const view = { _worldCenter: [0, 0, -1e9] } as Renderable;
         const primaryBind = vi.fn(() => ({ renderable: view, pipeline: {} as GPURenderPipeline, draw: () => 1 }));
         const renderable = { order: 200, isTransparent: true, bind: primaryBind } satisfies Renderable;
-        const built = buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, () => ({ renderable, dispose: vi.fn() }));
+        const buildBase = vi.fn(() => ({ renderable, dispose: vi.fn() }));
+        const built = buildParticleRenderPropertiesBillboardRenderable(engine, billboard, properties, buildBase);
 
         const binding = built.renderable.bind(engine, { _colorFormat: "bgra8unorm", _depthStencilFormat: "depth32float", _sampleCount: 1 });
 
         expect(primaryBind).toHaveBeenCalledOnce();
+        expect(buildBase).toHaveBeenCalledWith(engine, billboard, false);
         expect(binding.renderable).toBe(view);
         expect(binding.renderable).not.toBe(built.renderable);
         built.dispose();

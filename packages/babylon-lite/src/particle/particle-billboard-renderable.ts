@@ -153,7 +153,7 @@ export function buildParticleBlendBillboardRenderable(
 ): { renderable: Renderable; dispose: () => void } {
     const system = billboard as FacingBillboardSpriteSystem;
     const addSystem = { ...system, blendMode: createParticleBlend(2), _customShader: undefined, shaderParams: undefined } as BillboardSpriteSystem;
-    const built = buildBase(engine, system);
+    const built = buildBase(engine, system, false);
     if (system.blendMode._particlePasses !== 2) {
         return built;
     }

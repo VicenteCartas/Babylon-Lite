@@ -57,7 +57,8 @@ export function syncParticleBillboard(system: ParticleSystem, billboard: FacingB
             position: [posX[i]!, posY[i]!, posZ[i]!],
             sizeWorld: [size[i]! * scaleX[i]!, size[i]! * scaleY[i]!],
             color: [colR[i]!, colG[i]!, colB[i]!, colA[i]!],
-            rotation: angle[i]!,
+            // Particle angles are Y-up; generic billboard-local coordinates are Y-down.
+            rotation: -angle[i]!,
             frame: cellIndex ? cellIndex[i]! : 0,
         });
     }

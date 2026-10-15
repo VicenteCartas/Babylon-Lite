@@ -10,7 +10,7 @@ import type { EngineContext } from "../../../packages/babylon-lite/src/engine/en
 import type { Mat4 } from "../../../packages/babylon-lite/src/math/types";
 import { buildNodeParticleSet } from "../../../packages/babylon-lite/src/particle/node/npe-build";
 import { parseNodeParticleSource } from "../../../packages/babylon-lite/src/particle/node/npe-parser";
-import { createParticleBillboard } from "../../../packages/babylon-lite/src/particle/particle-billboard";
+import { createParticleBillboard, syncParticleBillboard } from "../../../packages/babylon-lite/src/particle/particle-billboard";
 import {
     buildParticleBillboardModeRenderable,
     installParticleBillboardMode,
@@ -138,6 +138,25 @@ function modeSystem(mode: 0 | 2 | 8 | 9, directions: Float32Array | null = null)
 }
 
 describe("NPE SystemBlock billboard modes", () => {
+    it("converts particle Y-up angles to the billboard's Y-down coordinates without changing simulation state", () => {
+        const system = createParticleSystem(1);
+        system.texture = texture();
+        const buffer = system.buffer;
+        buffer.alive = 1;
+        buffer.size[0] = 1;
+        buffer.scaleX[0] = 0.5;
+        buffer.scaleY[0] = 2;
+        buffer.angle[0] = 0.65;
+        const billboard = createParticleBillboard(system);
+
+        syncParticleBillboard(system, billboard);
+
+        expect(billboard._instanceData[9]).toBeCloseTo(-0.65);
+        expect(buffer.angle[0]).toBeCloseTo(0.65);
+        expect(makeParticleBillboardModeVertexWgsl(8, false)).toContain("let sr = -sin(in.r)");
+        expect(makeParticleBillboardModeVertexWgsl(8, true)).toContain("(q - in.o) * vec2f(1, -1)");
+    });
+
     it("keeps missing and explicit ALL geometry on the default path", async () => {
         const missing = await build(source());
         const explicit = await build(source({ isBillboardBased: true, billBoardMode: 7 }));
@@ -308,7 +327,7 @@ describe("particle billboard mode GPU contracts", () => {
         expect(device.createRenderPipeline).toHaveBeenCalledTimes(2);
         const shader = (device.createShaderModule.mock.calls[0]![0] as GPUShaderModuleDescriptor).code;
         expect(shader).toContain("(sampled * properties.textureMask + (vec4f(1.0) - properties.textureMask))");
-        expect(shader).toContain("let l = (q - in.o - properties.translationPivot) * in.s");
+        expect(shader).toContain("let l = ((q - in.o) * vec2f(1, -1) - properties.translationPivot) * in.s");
         expect(shader).toContain("+ properties.translationPivot");
         const propertyWrites = device.queue.writeBuffer.mock.calls.filter((call) => call[4] === undefined && (call[2] as Float32Array).byteLength === 32);
         expect(Array.from(propertyWrites[0]![2] as Float32Array)).toEqual([0.25, -0.5, 1, 0, expect.closeTo(0.2), expect.closeTo(0.4), expect.closeTo(0.6), expect.closeTo(0.8)]);

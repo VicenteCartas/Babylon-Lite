@@ -105,10 +105,11 @@ struct O {
 @vertex
 fn vs(in: I) -> O {
 let q = vec2f(select(0.0, 1.0, in.vid == 1u || in.vid == 2u), select(0.0, 1.0, in.vid >= 2u));
-let l = (q - in.o - properties.translationPivot) * in.s;
+let pivot = properties.translationPivot * vec2f(1, -1);
+let l = (q - in.o - pivot) * in.s;
 let cr = cos(in.r);
 let sr = sin(in.r);
-let r = vec2f(l.x * cr - l.y * sr, l.x * sr + l.y * cr) + properties.translationPivot;
+let r = vec2f(l.x * cr - l.y * sr, l.x * sr + l.y * cr) + pivot;
 let b = basis(in.p);
 let wp = in.p + b.r * r.x + b.u * r.y;
 var out: O;
@@ -211,7 +212,7 @@ export function buildParticleRenderPropertiesBillboardRenderable(
     buildBase: typeof buildBillboardRenderable
 ): { renderable: Renderable; dispose: () => void } {
     const system = billboard as FacingBillboardSpriteSystem;
-    const built = buildBase(engine, system);
+    const built = buildBase(engine, system, false);
     applyParticleRenderingGroup(built.renderable, properties.renderingGroupId);
     if (system.blendMode._particlePasses !== 2) {
         return built;

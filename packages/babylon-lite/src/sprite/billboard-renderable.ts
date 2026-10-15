@@ -62,6 +62,7 @@ interface BillboardRenderableInternal extends Renderable {
     _uploadedCamera: Camera | null;
     _uploadedCameraViewVersion: number;
     _uploadedSorted: boolean;
+    _sortInstances: boolean;
     _centerVersion: number;
     _drawableCount: number;
     _uboUploaded: boolean;
@@ -71,7 +72,7 @@ interface BillboardRenderableInternal extends Renderable {
     _disposed: boolean;
 }
 
-export function buildBillboardRenderable(engine: EngineContext, system: BillboardSpriteSystem): { renderable: Renderable; dispose: () => void } {
+export function buildBillboardRenderable(engine: EngineContext, system: BillboardSpriteSystem, sortInstances = true): { renderable: Renderable; dispose: () => void } {
     const indexBuffer = createMappedBuffer(engine, BILLBOARD_INDEX_DATA, BU.INDEX);
     const uniformBuffer = createEmptyUniformBuffer(engine, BILLBOARD_SYSTEM_UBO_BYTES, `${system._orientation}-billboard-system-ubo`);
     const instanceBuffer = createBillboardInstanceBuffer(engine._device, system, `${system._orientation}-billboard-instances`);
@@ -94,6 +95,7 @@ export function buildBillboardRenderable(engine: EngineContext, system: Billboar
         _uploadedCamera: null,
         _uploadedCameraViewVersion: -1,
         _uploadedSorted: false,
+        _sortInstances: sortInstances,
         _centerVersion: -1,
         _drawableCount: 0,
         _uboUploaded: false,
@@ -192,7 +194,7 @@ function uploadSystem(renderable: BillboardRenderableInternal, context: DrawUpda
         foY = wm[13]!;
         foZ = wm[14]!;
     }
-    if (renderable._system._depthMode === "transparent" && camera) {
+    if (renderable._sortInstances && renderable._system._depthMode === "transparent" && camera) {
         const cameraViewMatrix = getViewMatrix(camera);
         if (
             !renderable._uploadedSorted ||

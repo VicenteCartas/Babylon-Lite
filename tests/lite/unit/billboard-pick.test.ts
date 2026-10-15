@@ -119,6 +119,34 @@ describe("billboard scene pick registration", () => {
 });
 
 describe("particle render-property picking", () => {
+    it("matches Babylon's Y-up corner rotation and pivot for nonuniform, rotated particles", () => {
+        const system = createFacingBillboardSystem(makeMockAtlas(), { capacity: 1 });
+        const angle = 0.7;
+        const pivot = { x: 0.25, y: -0.5 };
+        addBillboardSpriteIndex(system, { position: [1, 2, 3], sizeWorld: [2, 4], rotation: -angle });
+        const view = new Float32Array(16);
+        view[0] = view[5] = view[10] = view[15] = 1;
+        const transformed = new Float32Array(system._instanceData.length);
+        copyParticleRenderPropertyPickInstances(system, pivot, view as unknown as Mat4, transformed);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        for (const [x, y] of [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+        ]) {
+            const localX = (x! - 0.5) * 2;
+            const localY = (y! - 0.5) * 4;
+            const pickX = transformed[0]! + localX * cos + localY * sin;
+            const pickY = transformed[1]! + localX * sin - localY * cos;
+            const babylonX = (x! - 0.5 - pivot.x) * 2;
+            const babylonY = (0.5 - y! - pivot.y) * 4;
+            expect(pickX).toBeCloseTo(1 + babylonX * cos - babylonY * sin + pivot.x, 5);
+            expect(pickY).toBeCloseTo(2 + babylonX * sin + babylonY * cos + pivot.y, 5);
+        }
+    });
+
     it("shifts transient pick anchors to reproduce translated-pivot geometry, including zero size", () => {
         const system = createFacingBillboardSystem(makeMockAtlas(), { capacity: 1 });
         addBillboardSpriteIndex(system, { position: [1, 2, 3], sizeWorld: [0, 0], rotation: 0.75 });
@@ -131,7 +159,7 @@ describe("particle render-property picking", () => {
 
         copyParticleRenderPropertyPickInstances(system, { x: 0.25, y: -0.5 }, view as unknown as Mat4, transformed);
 
-        expect(Array.from(transformed.slice(0, 3))).toEqual([1.25, 2.5, 3]);
+        expect(Array.from(transformed.slice(0, 3))).toEqual([1.25, 1.5, 3]);
         expect(Array.from(system._instanceData.slice(0, 3))).toEqual([1, 2, 3]);
     });
 

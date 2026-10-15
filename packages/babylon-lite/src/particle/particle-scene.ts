@@ -19,7 +19,7 @@ function addParticleBillboard(scene: SceneContext, billboard: FacingBillboardSpr
         scene,
         billboard,
         () => import("../picking/billboard-pick-pipeline.js"),
-        async (engine) => (await import("../sprite/billboard-renderable.js")).buildBillboardRenderable(engine, billboard)
+        async (engine) => (await import("../sprite/billboard-renderable.js")).buildBillboardRenderable(engine, billboard, false)
     );
 }
 

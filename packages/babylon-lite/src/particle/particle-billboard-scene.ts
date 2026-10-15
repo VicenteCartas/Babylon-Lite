@@ -17,7 +17,7 @@ export function addFacingBillboardSystemWithParticleBlend(scene: SceneContext, b
         () => import("../picking/billboard-pick-pipeline.js"),
         async (engine) => {
             const { buildBillboardRenderable } = await import("../sprite/billboard-renderable.js");
-            return multiplyPasses ? buildParticleBlendBillboardRenderable(engine, billboard, buildBillboardRenderable) : buildBillboardRenderable(engine, billboard);
+            return multiplyPasses ? buildParticleBlendBillboardRenderable(engine, billboard, buildBillboardRenderable) : buildBillboardRenderable(engine, billboard, false);
         }
     );
 }

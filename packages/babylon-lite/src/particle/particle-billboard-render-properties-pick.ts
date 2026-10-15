@@ -29,12 +29,12 @@ export function copyParticleRenderPropertyPickInstances(system: FacingBillboardS
     for (let index = 0; index < count; index++) {
         const offset = index * stride;
         const scaledX = translationPivot.x * target[offset + 3]!;
-        const scaledY = translationPivot.y * target[offset + 4]!;
+        const scaledY = -translationPivot.y * target[offset + 4]!;
         const angle = target[offset + 9]!;
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
         const deltaX = translationPivot.x - (scaledX * cos - scaledY * sin);
-        const deltaY = translationPivot.y - (scaledX * sin + scaledY * cos);
+        const deltaY = -translationPivot.y - (scaledX * sin + scaledY * cos);
         target[offset] = target[offset]! + rightX * deltaX + upX * deltaY;
         target[offset + 1] = target[offset + 1]! + rightY * deltaX + upY * deltaY;
         target[offset + 2] = target[offset + 2]! + rightZ * deltaX + upZ * deltaY;

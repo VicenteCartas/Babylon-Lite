@@ -1,9 +1,8 @@
-import { getViewMatrix } from "../camera/camera.js";
 import type { Camera } from "../camera/camera.js";
 import { BU, CW, SS } from "../engine/gpu-flags.js";
 import type { EngineContext } from "../engine/engine.js";
 import type { RenderTargetSignature } from "../engine/render-target.js";
-import { F32, U32 } from "../engine/typed-arrays.js";
+import { F32 } from "../engine/typed-arrays.js";
 import type { Mat4 } from "../math/types.js";
 import { applyParticleRenderingGroup } from "./particle-rendering-group.js";
 import { addParticleSceneRenderable } from "./particle-scene-renderable.js";
@@ -192,9 +191,9 @@ export function makeParticleBillboardModeVertexWgsl(mode: ParticleBillboardMode,
 @vertex
 fn vs(in: I) -> O {
 let q = vec2f(select(0.0, 1.0, in.vid == 1u || in.vid == 2u), select(0.0, 1.0, in.vid >= 2u));
-let l = (q - in.o - properties.translationPivot) * in.s;
+let l = ((q - in.o) * vec2f(1, -1) - properties.translationPivot) * in.s;
 let cr = cos(in.r);
-let sr = sin(in.r);
+let sr = -sin(in.r);
 let r = vec2f(l.x * cr - l.y * sr, l.x * sr + l.y * cr) + properties.translationPivot;
 ${makeModeBasisWgsl(mode, pick ? "properties.eye" : "scene.vEyePosition.xyz")}
 let wp = in.p + right * r.x + up * r.y;
@@ -393,8 +392,6 @@ export function buildParticleBillboardModeRenderable(
     let instanceCapacity = system._capacity;
     let instanceBuffer = device.createBuffer({ label: "particle-billboard-mode-instances", size: instanceCapacity * strideBytes, usage: BU.VERTEX | BU.COPY_DST });
     let staging = new F32(instanceCapacity * strideFloats);
-    let indices = new U32(instanceCapacity);
-    let depths = new F32(instanceCapacity);
     const indexBuffer = createMappedBuffer(engine, BILLBOARD_INDEX_DATA, BU.INDEX);
     const uniformBuffer = createEmptyUniformBuffer(engine, BILLBOARD_SYSTEM_UBO_BYTES, "particle-billboard-mode-system-ubo");
     const primaryProperties = createPropertiesBuffer(
@@ -482,8 +479,6 @@ export function buildParticleBillboardModeRenderable(
             instanceCapacity = system._capacity;
             instanceBuffer = device.createBuffer({ label: "particle-billboard-mode-instances", size: instanceCapacity * strideBytes, usage: BU.VERTEX | BU.COPY_DST });
             staging = new F32(instanceCapacity * strideFloats);
-            indices = new U32(instanceCapacity);
-            depths = new F32(instanceCapacity);
             uploadedVersion = -1;
             uploadedCamera = null;
             uploadedCameraViewVersion = -1;
@@ -498,21 +493,7 @@ export function buildParticleBillboardModeRenderable(
                 foY = camera.worldMatrix[13]!;
                 foZ = camera.worldMatrix[14]!;
             }
-            let sourceIndices: Uint32Array | undefined;
-            if (camera) {
-                const view = getViewMatrix(camera);
-                for (let index = 0; index < count; index++) {
-                    const anchorOffset = index * 3;
-                    const x = system._anchor[anchorOffset]! - foX;
-                    const y = system._anchor[anchorOffset + 1]! - foY;
-                    const z = system._anchor[anchorOffset + 2]! - foZ;
-                    indices[index] = index;
-                    depths[index] = view[2]! * x + view[6]! * y + view[10]! * z + view[14]!;
-                }
-                indices.subarray(0, count).sort((left, right) => depths[right]! - depths[left]! || left - right);
-                sourceIndices = indices;
-            }
-            packParticleBillboardModeInstances(system, staging, sourceIndices, foX, foY, foZ);
+            packParticleBillboardModeInstances(system, staging, undefined, foX, foY, foZ);
             device.queue.writeBuffer(instanceBuffer, 0, staging.buffer, staging.byteOffset, count * strideBytes);
             uploadedVersion = system._version;
             uploadedCamera = camera;
