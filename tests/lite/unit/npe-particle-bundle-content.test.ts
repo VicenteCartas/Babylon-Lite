@@ -243,12 +243,14 @@ describe("Particle bundle feature isolation", () => {
     it("keeps sub-emitter evaluation and ownership behind system-flow compilation", () => {
         const build = readFileSync(resolve(NPE_SOURCE_DIR, "npe-build.ts"), "utf8");
         const featureCompiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-feature-compilation.ts"), "utf8");
+        const systemPlanCompiler = readFileSync(resolve(NPE_SOURCE_DIR, "npe-system-plan-compilation.ts"), "utf8");
         const pack = readFileSync(resolve(NPE_SOURCE_DIR, "npe-pack-sub-emitters.ts"), "utf8");
 
-        expect(build).toContain('import("./npe-pack-sub-emitters.js")');
+        expect(build).not.toContain("npe-pack-sub-emitters");
         expect(build).toContain('import("./npe-sub-emitter-runtime.js")');
         expect(build).toContain('import type { NodeParticleChildHost } from "./npe-sub-emitter-runtime.js"');
         expect(featureCompiler).toContain('import("./npe-system-plan-compilation.js")');
+        expect(systemPlanCompiler).toContain('from "./npe-pack-sub-emitters.js"');
         expect(pack).toContain('from "./blocks/particle-trigger-block.js"');
         expect(pack).not.toContain('from "./blocks/system-block.js"');
     });

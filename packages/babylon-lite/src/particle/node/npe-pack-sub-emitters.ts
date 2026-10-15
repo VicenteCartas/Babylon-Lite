@@ -1,5 +1,5 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
-import type { NodeParticleSystemPlan } from "./npe-types.js";
+import type { CompiledParticleBlock, NodeParticleSystemPlan } from "./npe-types.js";
 import { particleTriggerBlock } from "./blocks/particle-trigger-block.js";
 
 /** Decorate the already-selected SystemBlock variant with lifecycle child plans. */
@@ -41,12 +41,19 @@ export function withSubEmitterLifecycle(systemEvaluator: NpeBlockEvaluator): Npe
     };
 }
 
-/** Resolve trigger evaluators used only by graphs with system-flow connections. */
-export function loadSubEmitterBlockEvaluator(className: string): NpeBlockEvaluator {
-    if (className === "ParticleTriggerBlock") {
-        return particleTriggerBlock;
-    }
-    throw new Error(`NodeParticle: unsupported sub-emitter block "${className}"`);
+/** Extend a compiled-evaluator loader with the trigger evaluator used only by graphs with system-flow connections. */
+export function withTriggerEvaluator(
+    loadEvaluator: ((block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined>) | undefined
+): (block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined> {
+    return async (block) => (block.customType === "BABYLON.ParticleTriggerBlock" ? particleTriggerBlock : await loadEvaluator?.(block));
 }
 
-export { loadSubEmitterBlockEvaluator as load };
+/** Decorate every compiled SystemBlock that owns onStart/onEnd child plans. */
+export function decorateSubEmitterSystems(operations: Array<CompiledParticleBlock | NpeBlockEvaluator>): void {
+    for (let index = 0; index < operations.length; index += 2) {
+        const plans = (operations[index] as CompiledParticleBlock)._systemPlans;
+        if (plans?.onStart || plans?.onEnd) {
+            operations[index + 1] = withSubEmitterLifecycle(operations[index + 1] as NpeBlockEvaluator);
+        }
+    }
+}

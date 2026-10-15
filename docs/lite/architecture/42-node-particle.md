@@ -771,7 +771,7 @@ The initial pack topology is:
 - **Sprite:** SetupSpriteSheet, BasicSpriteUpdate, SpriteCellIndex/Start/End, and UpdateSpriteCellIndex. Sprite-cell Int reachability detection is part of this pack, not a separate router. Random-start setup remains owned by this catalog but is a measured mutually exclusive leaf, so deterministic sprite graphs do not fetch its extra column and update implementation.
 - **Basic updates:** UpdateSize, Gradient, GradientValue, UpdateAttractor, UpdateDirection, UpdateAngle, UpdateScale, UpdateAge, BasicPositionUpdate, and BasicColorUpdate.
 - **Advanced values:** Condition, FloatToInt, VectorLength, NumberMath, Clamp, Step, Trigonometry, VectorMath, SmoothStep, NLerp, and their shared value-type propagation. Small value evaluators do not receive individual chunks.
-- **Topology and variables:** Teleport normalization, Elbow, Debug, LocalVariable, and reusable nested system-plan compilation. Future `ParticleTriggerBlock` and System `onStart`/`onEnd` support join this family.
+- **Topology and variables:** Teleport normalization, Elbow, Debug, LocalVariable, and reusable nested system-plan compilation. `ParticleTriggerBlock` and System `onStart`/`onEnd` support are resolved by that system-plan pass.
 - **Texture simulation:** shared CPU texture decoding plus flow-map and noise update support. Flow and noise may remain separate large leaves only when the measured total is smaller than one combined pack.
 - **Camera-dependent particles:** CameraPosition and `AlignAngleBlock`, sharing one camera-state binding.
 - **Render properties:** the SystemBlock variant for a non-default `translationPivot`, non-default `textureMask`, or nonzero `renderingGroupId`. The pack owns build-time value capture plus the specialized billboard registrar and shader. Default serialized values select the ordinary System evaluator and fetch no render-property module.
@@ -1740,8 +1740,10 @@ clone.
   from a graph whose compiler feature scan finds a system-valued connection or `ParticleTriggerBlock`.
 - Graphs without Phase 13 features retain no trigger getter, lifecycle callback, child array, timestamp, readiness
   promise, dynamic registration callback, or trigger/runtime module.
-- Existing `_systemPlans` compilation remains in the optional system-flow compiler pass. Ordinary Scene 262 must not
-  fetch the trigger/runtime module.
+- Existing `_systemPlans` compilation remains in the optional system-flow compiler pass. That pass also supplies the
+  `ParticleTriggerBlock` evaluator and decorates SystemBlocks with `onStart`/`onEnd` plans after their ordinary and
+  lifecycle evaluators are selected, so the always-loaded resolver contains no sub-emitter routing. Ordinary Scene 262
+  must not fetch the trigger/runtime module.
 - Focused deterministic tests cover condition ordering, default and explicit limits/delays, simultaneous active count,
   child disposal and slot release, emitter-position copies, capacity exhaustion, swap-removed/recycled parent slots,
   parent stop/disposal, child build failure, program/set isolation, and nested templates.

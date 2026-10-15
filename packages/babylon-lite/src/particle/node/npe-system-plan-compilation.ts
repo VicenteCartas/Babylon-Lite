@@ -1,5 +1,6 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
 import type { CompiledParticleBlock, NodeParticleSystemPlan } from "./npe-types.js";
+import { decorateSubEmitterSystems, withTriggerEvaluator } from "./npe-pack-sub-emitters.js";
 
 /** Compile reusable child-system references without adding their routing to ordinary NPE programs. */
 export async function compileNodeParticleSystemPlans(
@@ -32,8 +33,10 @@ export async function compileNodeParticleSystemPlans(
     }
 
     const compiledBlocks = blocks ?? sourceBlocks;
+    const loadSubEmitterEvaluator = withTriggerEvaluator(loadEvaluator);
     for (let index = 0; index < systemBlockIds.length; index++) {
-        await compileOperations(compiledBlocks, systemBlockIds[index]!, systems[index]!, loadEvaluator);
+        await compileOperations(compiledBlocks, systemBlockIds[index]!, systems[index]!, loadSubEmitterEvaluator);
+        decorateSubEmitterSystems(systems[index]!);
     }
     return systems;
 }

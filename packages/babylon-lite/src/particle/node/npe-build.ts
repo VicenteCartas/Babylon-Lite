@@ -109,9 +109,6 @@ async function resolveEvaluator(
     loadCompiledEvaluator: ((block: CompiledParticleBlock) => Promise<NpeBlockEvaluator | undefined>) | undefined
 ): Promise<NpeBlockEvaluator> {
     const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
-    if (className === "ParticleTriggerBlock") {
-        return (await import("./npe-pack-sub-emitters.js")).load(className);
-    }
     if (className === "ParticleRandomBlock" && block.lockMode === RANDOM_LOCK_ONCE) {
         const valueType = findInput(block, "min")?.valueType ?? findInput(block, "max")?.valueType ?? "number";
         // Serialized vector/color tags start with "BABYLON."; primitive tags do not.
@@ -149,9 +146,7 @@ async function resolveEvaluator(
     if ((block.manualEmitCount ?? -1) !== -1 || !!block.preWarmCycles || !!block.startDelay || block.disposeOnStop === true || !!block.doNoStart) {
         evaluator = (await import("./npe-system-lifecycle.js")).withSystemLifecycle(evaluator);
     }
-    return block._systemPlans && (block._systemPlans.onStart || block._systemPlans.onEnd)
-        ? (await import("./npe-pack-sub-emitters.js")).withSubEmitterLifecycle(evaluator)
-        : evaluator;
+    return evaluator;
 }
 
 async function compileOperations(
