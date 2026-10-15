@@ -27,3 +27,5 @@ export const updateColorBlock: NpeBlockEvaluator = {
         });
     },
 };
+
+export { updateColorBlock as evaluator };

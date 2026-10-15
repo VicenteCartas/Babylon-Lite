@@ -28,6 +28,8 @@ export interface ParticleEmitterInverse {
 export interface ParticleSpriteHandle {
     readonly cellWidth: number;
     readonly cellHeight: number;
+    readonly startCellID?: number;
+    readonly endCellID?: number;
     readonly cellIndex: Uint16Array;
     readonly update: (i: number) => void;
 }
@@ -69,12 +71,16 @@ export interface ParticleSystem {
     _started: boolean;
     /** @internal Whether the system has been stopped (drains remaining particles). */
     _stopped: boolean;
+    /** @internal Whether this system has released its owner-managed resources. */
+    _disposed: boolean;
     /** @internal Accumulated simulated time, in update-speed units. */
     _actualFrame: number;
     /** @internal Optional system-level emit-rate getter, installed only for a connected emit-rate graph. */
     _emitRateGetter?: () => number;
     /** @internal Optional feature preparation, run before every started simulation call. */
     _prepareFrame?: () => void;
+    /** @internal Optional live-render registration cleanup. */
+    _unregister?: () => void;
     /** @internal Sprite-sheet feature handle, present only for sprite systems. */
     _spriteSheet?: ParticleSpriteHandle;
     /** @internal Optional feature writer installed only when a graph reads ColorDead. */
@@ -84,7 +90,7 @@ export interface ParticleSystem {
     /** @internal Local-position source hook installed only for emitter-local graphs that read source 0x18. */
     _seedLocalPosition?: ParticleStep;
     /** @internal Optional scene registrar installed for particle blend modes requiring specialized rendering. */
-    _registerBillboard?: (scene: SceneContext, billboard: FacingBillboardSpriteSystem) => void;
+    _registerBillboard?: (scene: SceneContext, billboard: FacingBillboardSpriteSystem) => () => void;
 }
 
 /** Create a data-oriented particle system with an empty buffer of the given capacity. */
@@ -111,12 +117,16 @@ export function createParticleSystem(capacity: number): ParticleSystem {
         _newPartsExcess: 0,
         _started: false,
         _stopped: false,
+        _disposed: false,
         _actualFrame: 0,
     };
 }
 
 /** Start emission. Resets the simulated-time accumulator. */
 export function startParticleSystem(system: ParticleSystem): void {
+    if (system._disposed) {
+        return;
+    }
     system._started = true;
     system._stopped = false;
     system._actualFrame = 0;
@@ -125,6 +135,20 @@ export function startParticleSystem(system: ParticleSystem): void {
 /** Stop emission. Existing particles continue until they expire. */
 export function stopParticleSystem(system: ParticleSystem): void {
     system._stopped = true;
+}
+
+/** @internal Release a system's scene registration and particle storage. */
+export function disposeParticleSystem(system: ParticleSystem): void {
+    if (system._disposed) {
+        return;
+    }
+    system._disposed = true;
+    system._started = false;
+    system._stopped = true;
+    system.buffer.alive = 0;
+    const unregister = system._unregister;
+    system._unregister = undefined;
+    unregister?.();
 }
 
 /**

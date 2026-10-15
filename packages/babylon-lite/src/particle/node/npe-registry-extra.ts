@@ -1,5 +1,7 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
 
+const loadSprite = () => import("./npe-pack-sprite.js");
+
 /** Resolve optional blocks after the base registry misses. This entire loader table is a lazy chunk. */
 export async function loadExtraBlockEvaluator(className: string): Promise<NpeBlockEvaluator> {
     switch (className) {
@@ -10,10 +12,12 @@ export async function loadExtraBlockEvaluator(className: string): Promise<NpeBlo
         case "ParticleGradientValueBlock":
             return (await import("./blocks/particle-gradient-value-block.js")).particleGradientValueBlock;
         case "SetupSpriteSheetBlock":
-            return (await import("./blocks/setup-sprite-sheet-block.js")).setupSpriteSheetBlock;
         case "BasicSpriteUpdateBlock":
-            return (await import("./blocks/basic-sprite-update-block.js")).basicSpriteUpdateBlock;
+        case "UpdateSpriteCellIndexBlock":
+            return (await loadSprite()).load(className);
         default:
             return (await import("./npe-registry-extra-remaining.js")).loadRemainingBlockEvaluator(className);
     }
 }
+
+export { loadExtraBlockEvaluator as load };

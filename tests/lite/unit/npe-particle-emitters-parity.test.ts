@@ -165,9 +165,9 @@ async function expectTransformedLocalMatchesIdentity(source: unknown, steps: num
 describe("NPE emitter shapes — deterministic parity with Babylon.js", () => {
     for (const testCase of CASES) {
         it(`${testCase.name} reproduces Babylon.js states after ${testCase.truth.N} steps`, async () => {
-            const graph = parseNodeParticleSource(testCase.graph);
+            const program = parseNodeParticleSource(testCase.graph);
             const emitterWorldMatrix = testCase.truth.emitterMatrix ? (new Float32Array(testCase.truth.emitterMatrix) as unknown as Mat4) : undefined;
-            const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, {
+            const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, {
                 emitter: { x: 0, y: 0, z: 0 },
                 emitterWorldMatrix,
             });
@@ -240,8 +240,8 @@ describe("NPE emitter shapes — deterministic parity with Babylon.js", () => {
         shape.cachedVertexData!.colors = Array.from({ length: vertexCount }, (_, i) => [i / vertexCount, (i % 3) / 2, (i % 5) / 4, 1]).flat();
         shape.useMeshColorForColor = true;
 
-        const graph = parseNodeParticleSource(source);
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, { emitter: { x: 0, y: 0, z: 0 } });
+        const program = parseNodeParticleSource(source);
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         expect(system.createColor).toBeNull();
 

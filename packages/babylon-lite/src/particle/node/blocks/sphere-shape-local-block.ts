@@ -30,7 +30,7 @@ export const sphereShapeLocalBlock: NpeBlockEvaluator = {
             birthX = randomRadius * Math.cos(phi) * Math.sin(theta);
             birthY = randomRadius * Math.cos(theta);
             birthZ = randomRadius * Math.sin(phi) * Math.sin(theta);
-            if (block.serialized.isHemispheric === true) {
+            if (block.isHemispheric === true) {
                 birthY = Math.abs(birthY);
             }
             buffer.posX[i] = birthX;
@@ -81,3 +81,5 @@ export const sphereShapeLocalBlock: NpeBlockEvaluator = {
         };
     },
 };
+
+export { sphereShapeLocalBlock as evaluator };

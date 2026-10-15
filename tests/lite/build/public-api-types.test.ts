@@ -953,13 +953,28 @@ void [current, ready];
         expect(dts).not.toMatch(/\b_(?:capture|setup)Emitter\b|\b_emitterProvider\b|\bParticleEmitterState\b/);
     });
 
-    it("exposes the graph normalizer without its internal runtime or marker", () => {
+    it("builds parsed graphs directly without exposing compiler internals", () => {
         const dts = readFileSync(DTS_PATH, "utf-8");
 
-        expect(dts).toContain("normalizeNodeParticleGraph");
-        expect(dts).toMatch(/normalizeNodeParticleGraph\(graph: ParticleGraph\): Promise<ParticleGraph>/);
-        expect(dts).not.toContain("normalizeNodeParticleGraphRuntime");
+        expect(dts).toMatch(/parseNodeParticleSource\(source: unknown\): ParsedNodeParticleGraph/);
+        expect(dts).toMatch(/buildNodeParticleSet\(engine: EngineContext, scene: SceneContext, graph: ParsedNodeParticleGraph/);
+        expect(dts).toMatch(/normalizeNodeParticleGraph\(graph: ParsedNodeParticleGraph\): Promise<ParsedNodeParticleGraph>/);
+        expect(dts).not.toContain("compileNodeParticleGraph");
+        expect(dts).not.toContain("NodeParticleProgram");
+        expect(dts).not.toContain("instantiateNodeParticleProgram");
+        expect(dts).not.toContain("NodeParticlePrepareFrameEffect");
+        expect(dts).not.toContain("NodeParticleSystemEffectManifest");
+        expect(dts).not.toContain("NodeParticleBindingManifest");
+        expect(dts).not.toContain("compileNodeParticleTopology");
+        expect(dts).not.toContain("compileNodeParticleValueTypes");
+        expect(dts).not.toContain("loadNodeParticleValueMathEvaluator");
+        expect(dts).not.toContain("installNodeParticleSystemEffects");
+        expect(dts).not.toContain("_installSystemEffects");
+        expect(dts).not.toContain("installNodeParticleFlowMapBindings");
+        expect(dts).not.toContain("_setupFrameBindings");
+        expect(dts).not.toContain("_frameBindings");
         expect(dts).not.toContain("_isGraphPlumbingNormalized");
+        expect(dts).not.toContain("_compiled");
         expect(dts).not.toContain("_localVariableLoopEpoch");
     });
 

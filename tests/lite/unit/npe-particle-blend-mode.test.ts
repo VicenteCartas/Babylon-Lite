@@ -38,7 +38,7 @@ function createRegistrationScene(): SceneContext {
 describe("NPE particle blend modes", () => {
     it("preserves a serialized SystemBlock mode through billboard creation", () => {
         const system = createParticleSystem(1);
-        const block = { id: 1, className: "SystemBlock", name: "system", serialized: { blendMode: 4 }, inputs: [] } as ParsedParticleBlock;
+        const block = { id: 1, customType: "BABYLON.SystemBlock", name: "system", blendMode: 4, inputs: [] } as ParsedParticleBlock;
         const ctx = {
             state: { system },
             input(_block: ParsedParticleBlock, _name: string, fallback?: () => unknown) {

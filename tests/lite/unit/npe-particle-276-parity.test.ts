@@ -57,14 +57,14 @@ const CASES: { name: string; graph: unknown; truth: StatesFixture }[] = [
 
 describe("NPE sprite-sheet animation — deterministic parity with Babylon.js", () => {
     it("rejects BasicSpriteUpdateBlock without SetupSpriteSheetBlock", async () => {
-        const graph = parseNodeParticleSource(withoutSpriteSetup(animations2Graph));
-        await expect(buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph)).rejects.toThrow("BasicSpriteUpdateBlock requires SetupSpriteSheetBlock");
+        const program = parseNodeParticleSource(withoutSpriteSetup(animations2Graph));
+        await expect(buildNodeParticleSet({} as EngineContext, {} as SceneContext, program)).rejects.toThrow("BasicSpriteUpdateBlock requires SetupSpriteSheetBlock");
     });
 
     for (const testCase of CASES) {
         it(`${testCase.name} reproduces Babylon.js states (incl. cellIndex) after ${testCase.truth.N} steps`, async () => {
-            const graph = parseNodeParticleSource(testCase.graph);
-            const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, { emitter: { x: 0, y: 0, z: 0 } });
+            const program = parseNodeParticleSource(testCase.graph);
+            const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
             const system = set.systems[0]!;
             expect(system).toBeTruthy();
             expect(system._spriteSheet, "sprite sheet configured by SetupSpriteSheetBlock").toBeDefined();

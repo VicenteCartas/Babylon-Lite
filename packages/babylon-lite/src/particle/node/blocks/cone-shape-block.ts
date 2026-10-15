@@ -11,7 +11,7 @@ export const coneShapeBlock: NpeBlockEvaluator = {
         const buffer = state.buffer!;
         const emitterWorldMatrix = state.emitterWorldMatrix;
         const emitter = state.emitter;
-        const emitFromSpawnPointOnly = block.serialized.emitFromSpawnPointOnly === true;
+        const emitFromSpawnPointOnly = block.emitFromSpawnPointOnly === true;
         const radiusGetter = ctx.input(block, "radius", () => 1);
         const angleGetter = ctx.input(block, "angle", () => Math.PI);
         const radiusRangeGetter = ctx.input(block, "radiusRange", () => 1);

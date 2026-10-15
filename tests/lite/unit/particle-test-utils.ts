@@ -28,8 +28,7 @@ export async function buildNodeParticleGraph(
     scene = {} as SceneContext,
     engine = {} as EngineContext
 ): Promise<ParticleSystem> {
-    const graph = parseNodeParticleSource(source);
-    const set = await buildNodeParticleSet(engine, scene, graph, options);
+    const set = await buildNodeParticleSet(engine, scene, parseNodeParticleSource(source), options);
     return set.systems[0]!;
 }
 

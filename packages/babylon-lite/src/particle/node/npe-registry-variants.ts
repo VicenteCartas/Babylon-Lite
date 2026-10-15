@@ -1,29 +1,27 @@
 import type { NpeBlockEvaluator } from "./npe-build.js";
 import type { ParsedParticleBlock } from "./npe-types.js";
+import { NODE_PARTICLE_CLASS_PREFIX_LENGTH, NPE_CONTEXTUAL_SPRITE_CELL_INDEX, NPE_CONTEXTUAL_SPRITE_CELL_END, NPE_CONTEXTUAL_LOCAL_POSITION_UPDATED } from "./npe-types.js";
+import { detectSpriteCellFeatures } from "./npe-sprite-cell-features.js";
 
-/** Resolve serialized variants that should add zero loader bytes to ordinary block instances. */
+const loadSprite = () => import("./npe-pack-sprite.js");
+
+/** Resolve serialized variants without retaining their runtime dispatch in compile-only consumers. */
 export async function loadVariantBlockEvaluator(block: ParsedParticleBlock): Promise<NpeBlockEvaluator> {
-    switch (block.className) {
-        case "ParticleInputBlock": {
-            if (block.serialized.contextualValue === 0x18) {
-                return (await import("./blocks/particle-input-local-block.js")).particleInputLocalBlock;
-            }
-            return (await import("./blocks/particle-input-extra-block.js")).particleInputExtraBlock;
-        }
-        case "ParticleMathBlock":
-            return (await import("./blocks/particle-math-block.js")).particleMathBlock;
-        case "ParticleRandomBlock": {
-            const valueType = block.inputs.find((input) => input.name === "min")?.valueType ?? block.inputs.find((input) => input.name === "max")?.valueType ?? "number";
-            if (valueType !== "number") {
-                return (await import("./blocks/particle-random-once-typed-block.js")).particleRandomOnceTypedBlock;
-            }
-            return (await import("./blocks/particle-random-once-block.js")).particleRandomOnceBlock;
-        }
-        case "SystemBlock":
-            return (await import("./blocks/system-dynamic-emit-rate-block.js")).systemDynamicEmitRateBlock;
-        case "SetupSpriteSheetBlock":
-            return (await import("./blocks/setup-sprite-sheet-random-block.js")).setupSpriteSheetRandomBlock;
-        default:
-            throw new Error(`NodeParticle: unsupported block variant "${block.className}"`);
+    const contextualSource = typeof block.contextualValue === "number" ? block.contextualValue : 0;
+    if (block.customType === "BABYLON.ParticleInputBlock" && contextualSource >= NPE_CONTEXTUAL_SPRITE_CELL_INDEX && contextualSource <= NPE_CONTEXTUAL_SPRITE_CELL_END) {
+        return (await loadSprite()).load("ParticleInputBlock");
     }
+    if (block.customType === "BABYLON.ParticleInputBlock" && contextualSource === NPE_CONTEXTUAL_LOCAL_POSITION_UPDATED) {
+        return (await import("./blocks/particle-input-local-block.js")).evaluator;
+    }
+    return (await import("./npe-registry-variants-runtime.js")).load(block);
 }
+
+/** Resolve sprite blocks for programs already classified through the sprite-cell path. */
+export async function loadSpriteBlockEvaluator(block: ParsedParticleBlock): Promise<NpeBlockEvaluator | undefined> {
+    const className = block.customType.slice(NODE_PARTICLE_CLASS_PREFIX_LENGTH);
+    return className.includes("Sprite") ? (await loadSprite()).load(className) : undefined;
+}
+
+// Dynamic-import namespace keys survive minification; compact aliases keep every NPE caller's payload small.
+export { detectSpriteCellFeatures as c, loadVariantBlockEvaluator as load, loadSpriteBlockEvaluator as loadSprite };

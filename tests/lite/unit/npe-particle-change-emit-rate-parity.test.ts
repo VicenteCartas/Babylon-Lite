@@ -23,8 +23,8 @@ const truth = groundTruth as { N: number; count: number; particles: BjsParticle[
 
 describe("NPE particle simulation (Change - Emit Rate) — deterministic parity with Babylon.js", () => {
     it(`reproduces Babylon.js particle states after ${truth.N} deterministic steps`, async () => {
-        const graph = parseNodeParticleSource(graphSource);
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, { emitter: { x: 0, y: 0, z: 0 } });
+        const program = parseNodeParticleSource(graphSource);
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         expect(system._emitRateGetter).toBeDefined();
 

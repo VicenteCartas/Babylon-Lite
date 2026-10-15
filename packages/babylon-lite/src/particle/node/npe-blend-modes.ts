@@ -3,7 +3,7 @@ import type { SceneContext } from "../../scene/scene.js";
 import { addFacingBillboardSystemWithParticleBlend } from "../particle-billboard-scene.js";
 import { buildNodeParticleSet } from "./npe-build.js";
 import type { BuildNodeParticleOptions, NodeParticleSet } from "./npe-build.js";
-import type { ParticleGraph } from "./npe-types.js";
+import type { ParsedNodeParticleGraph } from "./npe-types.js";
 
 /** Enable exact Babylon.js particle blend rendering on any built NPE set. */
 export function enableNodeParticleBlendModes(set: NodeParticleSet): NodeParticleSet {
@@ -17,7 +17,7 @@ export function enableNodeParticleBlendModes(set: NodeParticleSet): NodeParticle
 export async function buildNodeParticleSetWithBlendModes(
     engine: EngineContext,
     scene: SceneContext,
-    graph: ParticleGraph,
+    graph: ParsedNodeParticleGraph,
     options: BuildNodeParticleOptions = {}
 ): Promise<NodeParticleSet> {
     return enableNodeParticleBlendModes(await buildNodeParticleSet(engine, scene, graph, options));

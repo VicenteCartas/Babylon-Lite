@@ -23,8 +23,8 @@ const truth = groundTruth as { N: number; count: number; particles: BjsParticle[
 
 describe("NPE particle simulation (Change - Size) — deterministic parity with Babylon.js", () => {
     it(`reproduces Babylon.js particle states after ${truth.N} deterministic steps`, async () => {
-        const graph = parseNodeParticleSource(SCENE264_NPE_JSON);
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, { emitter: { x: 0, y: 0, z: 0 } });
+        const program = parseNodeParticleSource(SCENE264_NPE_JSON);
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         expect(system).toBeTruthy();
 
@@ -80,8 +80,8 @@ describe("NPE particle simulation (Change - Size) — deterministic parity with 
     });
 
     it("keeps OncePerParticle cache storage bounded when compacted slots are recycled", async () => {
-        const graph = parseNodeParticleSource(SCENE264_NPE_JSON);
-        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph, { emitter: { x: 0, y: 0, z: 0 } });
+        const program = parseNodeParticleSource(SCENE264_NPE_JSON);
+        const set = await buildNodeParticleSet({} as EngineContext, {} as SceneContext, program, { emitter: { x: 0, y: 0, z: 0 } });
         const system = set.systems[0]!;
         const previousRandom = Math.random;
         let seed = 1;

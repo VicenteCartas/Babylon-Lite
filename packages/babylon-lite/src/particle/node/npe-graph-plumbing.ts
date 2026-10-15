@@ -1,24 +1,13 @@
-import type { ParticleGraph } from "./npe-types.js";
+import type { ParsedNodeParticleGraph } from "./npe-types.js";
 
 /**
- * Normalize supported graph plumbing in a graph returned by `parseNodeParticleSource`.
+ * Graph plumbing (Teleport, LocalVariable, Elbow, Debug) is now resolved by every node-particle builder.
  *
- * Directly parsed graphs containing supported plumbing classes require this step before they are passed to any node-particle builder. Graphs
- * without a candidate class resolve to the same graph object. Validation failures reject the returned Promise.
+ * @deprecated Pass the graph returned by parseNodeParticleSource directly to a builder. This pass-through remains for
+ * callers written against the earlier explicit-normalization API.
+ * @param graph - A graph returned by parseNodeParticleSource.
+ * @returns The same graph.
  */
-export async function normalizeNodeParticleGraph(graph: ParticleGraph): Promise<ParticleGraph> {
-    if (graph._isGraphPlumbingNormalized) {
-        return graph;
-    }
-    for (const block of graph.blocks.values()) {
-        if (
-            block.className === "ParticleTeleportOutBlock" ||
-            block.className === "ParticleLocalVariableBlock" ||
-            block.className === "ParticleElbowBlock" ||
-            block.className === "ParticleDebugBlock"
-        ) {
-            return (await import("./npe-graph-plumbing-runtime.js")).normalizeNodeParticleGraphRuntime(graph);
-        }
-    }
+export async function normalizeNodeParticleGraph(graph: ParsedNodeParticleGraph): Promise<ParsedNodeParticleGraph> {
     return graph;
 }

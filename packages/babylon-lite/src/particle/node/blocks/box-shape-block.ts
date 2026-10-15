@@ -60,3 +60,5 @@ export const boxShapeBlock: NpeBlockEvaluator = {
         };
     },
 };
+
+export { boxShapeBlock as evaluator };
