@@ -1,38 +1,43 @@
 import { randomRange } from "../../../math/random-range.js";
+import { transformNormalToRef } from "../../../math/mat4-transform.js";
+import { invertMat4 } from "../../../math/invert-mat4.js";
+import { createIdentityMat4 } from "../../../math/create-identity-mat4.js";
 import type { Vec3 } from "../../../math/types.js";
 import { finishLocalPosition } from "../npe-local-position.js";
 import type { NpeBlockEvaluator } from "../npe-build.js";
 
-/** Local-space `SphereShapeBlock`; selected only for `SystemBlock.isLocal`. */
-export const sphereShapeLocalBlock: NpeBlockEvaluator = {
+/** Emitter-local `CylinderShapeBlock` path, lazy-loaded by `cylinderShapeBlock` when `SystemBlock.isLocal` is set. */
+export const cylinderShapeLocal: NpeBlockEvaluator = {
     build(block, ctx) {
         const state = ctx.state;
-        const buffer = state.buffer!;
         const system = state.system!;
+        const buffer = state.buffer!;
         const emitterWorldMatrix = state.emitterWorldMatrix;
         const emitter = state.emitter;
         const radiusGetter = ctx.input(block, "radius", () => 1);
+        const heightGetter = ctx.input(block, "height", () => 1);
         const radiusRangeGetter = ctx.input(block, "radiusRange", () => 1);
         const randomizerGetter = ctx.input(block, "directionRandomizer", () => 0);
         const direction1Getter = ctx.input(block, "direction1", () => ({ x: 0, y: 1, z: 0 }));
         const direction2Getter = ctx.input(block, "direction2", () => ({ x: 0, y: 1, z: 0 }));
         const explicit = ctx.isConnected(block, "direction1") && ctx.isConnected(block, "direction2");
+        const emitterInverseWorldMatrix = explicit ? null : (invertMat4(emitterWorldMatrix) ?? createIdentityMat4());
+        if (emitterInverseWorldMatrix) {
+            state.emitterInverseWorldMatrices?.push({ inverse: emitterInverseWorldMatrix });
+        }
+        const scratch: Vec3 = { x: 0, y: 0, z: 0 };
         let birthX = 0;
         let birthY = 0;
         let birthZ = 0;
-        const scratch: Vec3 = { x: 0, y: 0, z: 0 };
         system.createPosition = (i) => {
+            const height = heightGetter(i) as number;
+            const radiusRange = radiusRangeGetter(i) as number;
             const radius = radiusGetter(i) as number;
-            const randomRadius = radius - randomRange(0, radius * (radiusRangeGetter(i) as number));
-            const v = randomRange(0, 1);
-            const phi = randomRange(0, 2 * Math.PI);
-            const theta = Math.acos(2 * v - 1);
-            birthX = randomRadius * Math.cos(phi) * Math.sin(theta);
-            birthY = randomRadius * Math.cos(theta);
-            birthZ = randomRadius * Math.sin(phi) * Math.sin(theta);
-            if (block.serialized.isHemispheric === true) {
-                birthY = Math.abs(birthY);
-            }
+            birthY = randomRange(-height / 2, height / 2);
+            const angle = randomRange(0, 2 * Math.PI);
+            const sampleRadius = Math.sqrt(randomRange((1 - radiusRange) * (1 - radiusRange), 1)) * radius;
+            birthX = sampleRadius * Math.cos(angle);
+            birthZ = sampleRadius * Math.sin(angle);
             buffer.posX[i] = birthX;
             buffer.posY[i] = birthY;
             buffer.posZ[i] = birthZ;
@@ -64,10 +69,13 @@ export const sphereShapeLocalBlock: NpeBlockEvaluator = {
                     y /= length;
                     z /= length;
                 }
+                transformNormalToRef(x, y, z, emitterInverseWorldMatrix!, scratch);
                 const randomizer = randomizerGetter(i) as number;
-                x += randomRange(0, randomizer);
-                y += randomRange(0, randomizer);
-                z += randomRange(0, randomizer);
+                y = randomRange(-randomizer / 2, randomizer / 2);
+                let azimuth = Math.atan2(scratch.x, scratch.z);
+                azimuth += randomRange(-Math.PI / 2, Math.PI / 2) * randomizer;
+                x = Math.sin(azimuth);
+                z = Math.cos(azimuth);
                 length = Math.sqrt(x * x + y * y + z * z);
                 if (length !== 0 && length !== 1) {
                     x /= length;

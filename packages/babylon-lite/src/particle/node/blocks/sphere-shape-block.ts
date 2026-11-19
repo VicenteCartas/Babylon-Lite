@@ -10,7 +10,10 @@ import type { NpeBlockEvaluator } from "../npe-build.js";
  * columns and the per-spawn scratch is reused.
  */
 export const sphereShapeBlock: NpeBlockEvaluator = {
-    build(block, ctx) {
+    async build(block, ctx) {
+        if (ctx.state.isLocal) {
+            return (await import("./sphere-shape-local.js")).sphereShapeLocal.build(block, ctx);
+        }
         const state = ctx.state;
         const system = state.system!;
         const buffer = state.buffer!;

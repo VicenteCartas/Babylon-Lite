@@ -259,13 +259,14 @@ describe("NPE UpdateNoiseBlock", () => {
         expect(system.buffer.dirZ[0]).toBeCloseTo(2, 6);
     });
 
-    it("prefers the URL for ordinary rendering while retaining embedded CPU noise data", async () => {
+    it("uses the embedded data for both rendering and CPU noise when a URL is also serialized", async () => {
         const renderUrl = "https://example.com/particle.png";
         const { system, fetchMock, textureDataUrl } = await buildNoiseTextureFanOut(renderUrl);
 
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(fetchMock).toHaveBeenNthCalledWith(1, textureDataUrl);
-        expect(fetchMock).toHaveBeenNthCalledWith(2, renderUrl);
+        expect(fetchMock).toHaveBeenNthCalledWith(2, textureDataUrl);
+        expect(fetchMock).not.toHaveBeenCalledWith(renderUrl);
         expect(system.texture).toMatchObject({ width: 1, height: 1 });
         expect(() => createParticleBillboard(system)).not.toThrow();
     });

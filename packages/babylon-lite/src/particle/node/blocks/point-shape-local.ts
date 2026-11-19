@@ -3,8 +3,8 @@ import type { Vec3 } from "../../../math/types.js";
 import { finishLocalPosition } from "../npe-local-position.js";
 import type { NpeBlockEvaluator } from "../npe-build.js";
 
-/** Emitter-local `PointShapeBlock`. */
-export const pointShapeLocalBlock: NpeBlockEvaluator = {
+/** Emitter-local `PointShapeBlock` path, lazy-loaded by `pointShapeBlock` when `SystemBlock.isLocal` is set. */
+export const pointShapeLocal: NpeBlockEvaluator = {
     build(block, ctx) {
         const system = ctx.state.system!;
         const buffer = ctx.state.buffer!;

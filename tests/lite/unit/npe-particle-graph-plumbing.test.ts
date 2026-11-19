@@ -183,7 +183,7 @@ describe("NPE graph plumbing", () => {
         const direct = await buildNodeParticleSet(engine, scene, parseNodeParticleSource(scalarRouteSource(false)));
         const graph = parseNodeParticleSource(scalarRouteSource(true));
 
-        await expect(buildNodeParticleSet(engine, scene, graph)).rejects.toThrow('NodeParticle: unsupported value block "ParticleTeleportOutBlock"');
+        await expect(buildNodeParticleSet(engine, scene, graph)).rejects.toThrow('NodeParticle: unsupported block "ParticleTeleportOutBlock"');
         const teleported = await buildNodeParticleSet(engine, scene, await normalizeNodeParticleGraph(graph));
 
         expect(direct.systems[0]!.targetStopDuration).toBe(7);
@@ -389,7 +389,7 @@ describe("NPE graph plumbing", () => {
         });
 
         expect(await normalizeNodeParticleGraph(graph)).toBe(graph);
-        await expect(buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph)).rejects.toThrow('NodeParticle: unsupported value block "ParticleTeleportInBlock"');
+        await expect(buildNodeParticleSet({} as EngineContext, {} as SceneContext, graph)).rejects.toThrow('NodeParticle: unsupported block "ParticleTeleportInBlock"');
     });
 
     it("normalizes fan-out, chains, endpoint zero, and multiple roots without mutating source data", async () => {
@@ -612,7 +612,7 @@ describe("NPE graph plumbing", () => {
 
     it("keeps graph recognition out of the parser and all owning builders", () => {
         const nodeDirectory = resolve(__dirname, "../../../packages/babylon-lite/src/particle/node");
-        for (const file of ["npe-parser.ts", "npe-build.ts", "npe-flow-map-runtime.ts", "npe-texture-update-runtime.ts"]) {
+        for (const file of ["npe-parser.ts", "npe-build.ts", "npe-manifest.ts"]) {
             const source = readFileSync(resolve(nodeDirectory, file), "utf8");
             expect(source, file).not.toContain("_hasGraphPlumbing");
             expect(source, file).not.toContain("npe-graph-plumbing");
@@ -629,17 +629,14 @@ describe("NPE graph plumbing", () => {
         expect(snippetSource).toContain("await normalizeNodeParticleGraph(parseNodeParticleSource(source))");
     });
 
-    it("adds no Teleport, Elbow, or Debug evaluator or registry implementation", () => {
+    it("adds no Teleport, Elbow, or Debug evaluator or manifest entry", () => {
         const nodeDirectory = resolve(__dirname, "../../../packages/babylon-lite/src/particle/node");
         const blockNames = readdirSync(resolve(nodeDirectory, "blocks"));
-        const registrySource = readdirSync(nodeDirectory)
-            .filter((name) => name.startsWith("npe-registry") && name.endsWith(".ts"))
-            .map((name) => readFileSync(resolve(nodeDirectory, name), "utf8"))
-            .join("\n");
+        const manifestSource = readFileSync(resolve(nodeDirectory, "npe-manifest.ts"), "utf8");
 
         expect(blockNames.filter((name) => name.toLowerCase().includes("teleport"))).toEqual([]);
         expect(blockNames.filter((name) => /(?:elbow|debug)/i.test(name))).toEqual([]);
         expect(blockNames.filter((name) => name === "particle-local-variable-block.ts")).toEqual(["particle-local-variable-block.ts"]);
-        expect(registrySource).not.toMatch(/Particle(?:Teleport|Elbow|Debug)/);
+        expect(manifestSource).not.toMatch(/Particle(?:Teleport|Elbow|Debug)/);
     });
 });

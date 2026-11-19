@@ -58,10 +58,10 @@ describe("NPE build reachability", () => {
         { name: "loads an embedded texture with explicit invertY false", url: "", invertY: false, expectedUrl: "embedded", expectedFlipY: true },
         { name: "applies Lite's class-default invertY when the field is omitted", url: "", invertY: undefined, expectedUrl: "embedded", expectedFlipY: false },
         {
-            name: "deliberately prefers URL for serializer-unreachable dual-source input",
+            name: "prefers embedded data for dual-source input like Babylon.js deserialization",
             url: "https://assets.example/particle.png",
             invertY: undefined,
-            expectedUrl: "url",
+            expectedUrl: "embedded",
             expectedFlipY: false,
         },
     ])("$name", async ({ url, invertY, expectedUrl, expectedFlipY }) => {
