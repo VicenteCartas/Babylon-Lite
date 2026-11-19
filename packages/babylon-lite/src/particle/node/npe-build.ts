@@ -21,6 +21,36 @@ function isInputConnected(input: ParsedParticleInput | undefined): input is Pars
     return input?.targetBlockId != null && input.targetConnectionName != null;
 }
 
+/**
+ * Load the evaluator of every block class reachable from a system block in parallel. Each class is its own
+ * lazy chunk, so resolving them during the depth-first build would cost one round trip per class.
+ */
+async function loadReachableBlocks(graph: ParticleGraph): Promise<Map<string, NpeBlockEvaluator>> {
+    const classNames = new Set<string>();
+    const visited = new Set<number>();
+    const pending = [...graph.systemBlockIds];
+    for (let blockId = pending.pop(); blockId !== undefined; blockId = pending.pop()) {
+        const block = graph.blocks.get(blockId);
+        if (!block || visited.has(blockId)) {
+            continue;
+        }
+        visited.add(blockId);
+        classNames.add(block.className);
+        for (const input of block.inputs) {
+            if (isInputConnected(input)) {
+                pending.push(input.targetBlockId);
+            }
+        }
+    }
+    const evaluators = new Map<string, NpeBlockEvaluator>();
+    await Promise.all(
+        [...classNames].map(async (name) => {
+            evaluators.set(name, await loadNpeBlock(name));
+        })
+    );
+    return evaluators;
+}
+
 /** Parse a literal value serialized directly on an unconnected input. */
 function parseInputLiteral(input: ParsedParticleInput): NpeValue | undefined {
     const value = input.value;
@@ -102,6 +132,7 @@ export interface BuildNodeParticleOptions {
 export async function buildNodeParticleSet(engine: EngineContext, scene: SceneContext, graph: ParticleGraph, options: BuildNodeParticleOptions = {}): Promise<NodeParticleSet> {
     const systems: ParticleSystem[] = [];
     const buildPromises: Promise<void>[] = [];
+    const evaluators = await loadReachableBlocks(graph);
 
     for (const systemId of graph.systemBlockIds) {
         const systemBlock = graph.blocks.get(systemId);
@@ -195,7 +226,7 @@ export async function buildNodeParticleSet(engine: EngineContext, scene: SceneCo
                     await buildBlock(input.targetBlockId);
                 }
             }
-            await (await loadNpeBlock(block.className)).build(block, ctx);
+            await (evaluators.get(block.className) as NpeBlockEvaluator).build(block, ctx);
         };
 
         await buildBlock(systemId);
